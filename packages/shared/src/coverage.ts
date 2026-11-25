@@ -1,4 +1,6 @@
 import { today } from "./attendance";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { WEEKDAYS } from "./timetable";
 import type { Weekday } from "./types";
@@ -73,6 +75,7 @@ export interface CoverageItem {
  *  teacher, never someone also out that day, never someone teaching or
  *  already covering another class at that time. */
 export async function fetchCoverageForDate(tenantId: string, weekday: Weekday, date: string): Promise<CoverageItem[]> {
+  if (onApi()) throw new NotOnApiError("Period coverage");
   const onLeave = await fetchTeachersOnLeaveForDate(tenantId, date);
   if (onLeave.size === 0) return [];
 
@@ -189,6 +192,7 @@ export async function assignCoverage(input: {
   item: Pick<CoverageItem, "date" | "classId" | "className" | "subjectId" | "subjectName" | "time" | "absentTeacherId">;
   coveringTeacherId: string | null;
 }): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Period coverage");
   const sb = supabase();
   const { data: before, error: beforeErr } = await sb
     .from("coverage_assignments").select("covering_teacher_id")
@@ -247,6 +251,7 @@ export async function assignCoverage(input: {
  *  the Timetable's per-day flag are both built from, so leave requested for
  *  a day later this week shows up now, not only once that day arrives. */
 export async function fetchCoverageThisWeek(tenantId: string, timeZone?: string): Promise<CoverageItem[]> {
+  if (onApi()) throw new NotOnApiError("Period coverage");
   const week = currentWeekDates(new Date(), timeZone);
   const perDay = await Promise.all(WEEKDAYS.map((day) => fetchCoverageForDate(tenantId, day, week[day])));
   return perDay.flat().sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));

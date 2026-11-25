@@ -3,7 +3,7 @@ import {
   CHAT_BODY_MAX, CHAT_OVERSIGHT_NOTICE, chatCapabilities, chatDayLabel, chatDraftBody, chatFileUrl, chatMimeForFile, chatRoleWord,
   fetchChatMessages, fetchConversationPeople, formatFileSize, groupMessagesByDay, markConversationRead, mergeMessage,
   pushChatMessage, removeUnsentChatFile, sendChatMessage, subscribeChatMessages, uploadChatFile,
-  type ChatMessage, type ChatPerson,
+  type ChatMessage, type ChatPerson, type Role,
 } from "@figbloom/shared";
 import { Avatar } from "../Avatar";
 import { Button } from "../ui/Button";
@@ -17,6 +17,7 @@ interface Props {
   conversationId: string;
   myId: string;
   tenantId: string;
+  role?: Role;
   /** False once the pair may no longer talk: the thread stays readable but has no composer. */
   canReply: boolean;
   /** The office reading someone else's chat: no composer, no read marks, both names shown on bubbles. */
@@ -34,7 +35,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: 
  * every role's Chats screen and by the office's oversight view, which reads
  * the same thread without being in it.
  */
-export function ChatThread({ conversationId, myId, tenantId, canReply, oversight, onRead, onSent }: Props) {
+export function ChatThread({ conversationId, myId, tenantId, role, canReply, oversight, onRead, onSent }: Props) {
   const toast = useToast();
   const caps = chatCapabilities();
   const [people, setPeople] = useState<ChatPerson[] | null>(null);
@@ -66,7 +67,7 @@ export function ChatThread({ conversationId, myId, tenantId, canReply, oversight
     setError(null);
     setDraft("");
     setFile(null);
-    Promise.all([fetchConversationPeople(conversationId), fetchChatMessages(conversationId)])
+    Promise.all([fetchConversationPeople(conversationId, role), fetchChatMessages(conversationId)])
       .then(([p, m]) => {
         if (!alive) return;
         setPeople(p);
@@ -81,7 +82,7 @@ export function ChatThread({ conversationId, myId, tenantId, canReply, oversight
       if (!oversight && m.senderId !== myId) markRead.current();
     });
     return () => { alive = false; unsubscribe(); };
-  }, [conversationId, myId, oversight]);
+  }, [conversationId, myId, oversight, role]);
 
   useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [messages?.length]);
 

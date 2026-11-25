@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  draftHomework, isYoungLearner,
-  addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchAttachments, fetchClassSizes, fetchMyHomework,
-  fetchTeacherClasses, fetchTeacherSubjectsForClass, formatShortDate, GUIDE_PLACEHOLDERS, guideToneFor, HAND_IN_OPTIONS,
-  handedInLabel, isGuideEmpty, minutesWords, NEED_CHIPS, notifyHomeworkParents, removeAttachment, removeNeed, retoneGuide,
-  updateHomework, validateHomework,
-  type ClassGroup, type HandIn, type HomeworkInput, type HomeworkRow, type MediaItem, type ParentGuide,
+  aiCapabilities, canManageHomework, canMessageClasses, draftHomework, homeworkCapabilities, isYoungLearner,
+  addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchAttachments, fetchClassSizes,
+  fetchHomeworkSubjectsForClass, fetchMyHomework, fetchTeacherClasses, formatShortDate, GUIDE_PLACEHOLDERS,
+  guideToneFor, HAND_IN_OPTIONS, handedInLabel, isGuideEmpty, minutesWords, NEED_CHIPS, notifyHomeworkParents,
+  removeAttachment, removeNeed, retoneGuide, updateHomework, validateHomework,
+  type ClassGroup, type HandIn, type HomeworkCapabilities, type HomeworkInput, type HomeworkRow, type MediaItem,
+  type ParentGuide,
 } from "@figbloom/shared";
 import { curriculumFromClassName } from "../../components/AiQuestions";
 import { AI_DRAFT_NOTE, useAiStatus } from "../../lib/useAi";
@@ -13,7 +14,7 @@ import { AttachmentPicker } from "../../components/AttachmentPicker";
 import { PageHead } from "../../components/ConsoleShell";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
-import { Cell, DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
+import { Cell, DataTable, EmptyState, Mono, type Column } from "../../components/ui/DataTable";
 import { SelectField, TextArea, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { TableSkeleton } from "../../components/ui/Skeleton";
@@ -36,20 +37,27 @@ const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 
  */
 export function Homework() {
   const toast = useToast();
-  const { profile, tenant } = useTenantSession();
+  const { profile, tenant, adminAreas } = useTenantSession();
+  const caps = homeworkCapabilities();
+  const mayManage = canManageHomework(adminAreas, profile.role);
+  const mayTellParents = canMessageClasses(adminAreas);
   const [reloadKey, setReloadKey] = useState(0);
   // null: closed. { work: undefined }: a new one. { work }: editing it.
   const [editing, setEditing] = useState<{ work?: HomeworkRow } | null>(null);
 
-  const { data: classes } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
+  const { data: classes } = useAsync(
+    () => (mayManage ? fetchTeacherClasses(profile.id) : Promise.resolve([])),
+    [profile.id, mayManage],
+  );
   const { data, loading, error } = useAsync(async () => {
+    if (!mayManage) return { work: [] as HomeworkRow[], sizes: {} as Record<string, number>, files: new Map<string, MediaItem[]>() };
     const work = await fetchMyHomework(profile.id);
     const [sizes, files] = await Promise.all([
-      fetchClassSizes([...new Set(work.map((w) => w.classId))]),
-      fetchAttachments("homework", work.map((w) => w.id)),
+      caps.submissions ? fetchClassSizes([...new Set(work.map((w) => w.classId))]) : Promise.resolve<Record<string, number>>({}),
+      caps.attachments ? fetchAttachments("homework", work.map((w) => w.id)) : Promise.resolve(new Map<string, MediaItem[]>()),
     ]);
     return { work, sizes, files };
-  }, [profile.id, reloadKey]);
+  }, [profile.id, reloadKey, mayManage, caps.submissions, caps.attachments]);
 
   async function remove(w: HomeworkRow) {
     const extra = w.handedIn > 0 ? ` ${w.handedIn} learner${w.handedIn === 1 ? " has" : "s have"} marked it handed in; that goes with it.` : "";
@@ -68,17 +76,52 @@ export function Homework() {
   const fileCount = (id: string) => data?.files.get(id)?.length ?? 0;
   const today = localToday();
 
+  const columns: Column<HomeworkRow>[] = [
+    { key: "title", header: "Homework", width: "1.8fr", render: (w: HomeworkRow) => (
+      <div className="flex items-start gap-2">
+        <Cell sub={w.body ? w.body.slice(0, 80) + (w.body.length > 80 ? "…" : "") : undefined}>{w.title}</Cell>
+        {caps.parentGuide && !isGuideEmpty(w.guide) && <span title="Has a guide for parents"><Badge tone="info">Parent guide</Badge></span>}
+        {caps.attachments && fileCount(w.id) > 0 && <Badge tone="muted">{fileCount(w.id)} attached</Badge>}
+      </div>
+    ) },
+    { key: "class", header: "Class · subject", width: "1.2fr", render: (w: HomeworkRow) => <Cell sub={w.subjectName}>{w.className}</Cell> },
+    { key: "due", header: "Due", render: (w: HomeworkRow) => (
+      <div className="flex items-center gap-2">
+        <Mono>{formatShortDate(w.dueOn)}</Mono>
+        {w.dueOn < today ? <Badge tone="muted">Past due</Badge> : w.dueOn === today ? <Badge tone="warn">Due today</Badge> : null}
+      </div>
+    ) },
+    ...(caps.submissions ? [{
+      key: "in", header: "Handed in", align: "right" as const, render: (w: HomeworkRow) => <Mono>{handedInLabel(w.handedIn, sizes[w.classId])}</Mono>,
+    }] : []),
+    ...((caps.editHomework || caps.deleteHomework) ? [{
+      key: "actions", header: "", align: "right" as const, width: "1.1fr", render: (w: HomeworkRow) => (
+        <div className="flex justify-end gap-2">
+          {caps.editHomework && <Button onClick={() => setEditing({ work: w })}>Edit</Button>}
+          {caps.deleteHomework && <Button onClick={() => void remove(w)}>Delete</Button>}
+        </div>
+      ),
+    }] : []),
+  ];
+
   return (
     <>
       <PageHead
         eyebrow="Homework"
         title="Homework"
         blurb="Set work for a class and subject you teach. Learners in that class see it on their Work tab and mark it handed in."
-        actions={<Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>Set homework</Button>}
+        actions={mayManage ? <Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>Set homework</Button> : undefined}
       />
 
       <div className="px-7 py-6">
-        {error ? (
+        {!mayManage ? (
+          <div className="rounded-lg border border-line bg-white">
+            <EmptyState
+              title="Teachers can't set homework here yet."
+              body="On the new system only the school office, or a teacher given the Academics area, can read or set homework. Ask the school office for the Academics area."
+            />
+          </div>
+        ) : error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load your homework: {error.message}
           </p>
@@ -99,29 +142,7 @@ export function Homework() {
         ) : (
           <DataTable
             title="Homework you've set"
-            columns={[
-              { key: "title", header: "Homework", width: "1.8fr", render: (w: HomeworkRow) => (
-                <div className="flex items-start gap-2">
-                  <Cell sub={w.body ? w.body.slice(0, 80) + (w.body.length > 80 ? "…" : "") : undefined}>{w.title}</Cell>
-                  {!isGuideEmpty(w.guide) && <span title="Has a guide for parents"><Badge tone="info">Parent guide</Badge></span>}
-                  {fileCount(w.id) > 0 && <Badge tone="muted">{fileCount(w.id)} attached</Badge>}
-                </div>
-              ) },
-              { key: "class", header: "Class · subject", width: "1.2fr", render: (w: HomeworkRow) => <Cell sub={w.subjectName}>{w.className}</Cell> },
-              { key: "due", header: "Due", render: (w: HomeworkRow) => (
-                <div className="flex items-center gap-2">
-                  <Mono>{formatShortDate(w.dueOn)}</Mono>
-                  {w.dueOn < today ? <Badge tone="muted">Past due</Badge> : w.dueOn === today ? <Badge tone="warn">Due today</Badge> : null}
-                </div>
-              ) },
-              { key: "in", header: "Handed in", align: "right", render: (w: HomeworkRow) => <Mono>{handedInLabel(w.handedIn, sizes[w.classId])}</Mono> },
-              { key: "actions", header: "", align: "right", width: "1.1fr", render: (w: HomeworkRow) => (
-                <div className="flex justify-end gap-2">
-                  <Button onClick={() => setEditing({ work: w })}>Edit</Button>
-                  <Button onClick={() => void remove(w)}>Delete</Button>
-                </div>
-              ) },
-            ]}
+            columns={columns}
             rows={work}
             rowKey={(w) => w.id}
             minWidth="760px"
@@ -134,6 +155,8 @@ export function Homework() {
         <HomeworkModal
           work={editing.work}
           classes={classes ?? []}
+          caps={caps}
+          mayTellParents={mayTellParents}
           teacherId={profile.id}
           tenantId={tenant.id}
           today={today}
@@ -158,9 +181,11 @@ export function Homework() {
   );
 }
 
-function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onDone }: {
+function HomeworkModal({ work, classes, caps, mayTellParents, teacherId, tenantId, today, onClose, onDone }: {
   work?: HomeworkRow;
   classes: ClassGroup[];
+  caps: HomeworkCapabilities;
+  mayTellParents: boolean;
   teacherId: string;
   tenantId: string;
   today: string;
@@ -204,7 +229,7 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
       setAiBusy(false);
     }
   }
-  const [tellParents, setTellParents] = useState(true);
+  const [tellParents, setTellParents] = useState(mayTellParents);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<WebMediaDraft[]>([]);
@@ -218,14 +243,14 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
   const createdId = useRef<string | null>(null);
 
   const { data: saved } = useAsync(
-    async () => (work ? (await fetchAttachments("homework", [work.id])).get(work.id) ?? [] : []),
-    [work?.id],
+    async () => (work && caps.attachments ? (await fetchAttachments("homework", [work.id])).get(work.id) ?? [] : []),
+    [work?.id, caps.attachments],
   );
   const existing = (saved ?? []).filter((m) => !removed.includes(m.id));
 
   // Subjects are per class: only the ones this teacher is assigned in the chosen class.
   const { data: subjectList } = useAsync(
-    async () => ({ classId, list: classId ? await fetchTeacherSubjectsForClass(teacherId, classId) : [] }),
+    async () => ({ classId, list: classId ? await fetchHomeworkSubjectsForClass(teacherId, classId) : [] }),
     [classId, teacherId],
   );
   const subjects = useMemo(() => (subjectList?.classId === classId ? subjectList.list : null), [subjectList, classId]);
@@ -249,7 +274,11 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
   }
 
   async function save() {
-    const checked = validateHomework({ classId, subjectId, title, body, dueOn, handIn, guide }, today, { allowPast: !!work });
+    if (!caps.optionalInstructions && !body.trim()) {
+      setError("Write instructions for the learners.");
+      return;
+    }
+    const checked = validateHomework({ classId, subjectId, title, body, dueOn, handIn, guide: caps.parentGuide ? guide : undefined }, today, { allowPast: !!work });
     if (!checked.ok) { setError(checked.message); return; }
     setSaving(true);
     setError("");
@@ -261,13 +290,13 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
         await removeAttachment(m);
         gone.current.add(m.id);
       }
-      if (drafts.length) {
+      if (caps.attachments && drafts.length) {
         batch.current = saveAttachments(tenantId, "homework", id, drafts, setProgress,
           (d) => setDrafts((list) => list.filter((x) => x !== d)));
         await batch.current.done;
       }
       const subjectName = subjects?.find((s) => s.id === subjectId)?.name ?? "";
-      await onDone(checked.value, !work, !work && tellParents ? { subjectName, className: cls?.name ?? "" } : null);
+      await onDone(checked.value, !work, !work && mayTellParents && tellParents ? { subjectName, className: cls?.name ?? "" } : null);
     } catch (err) {
       const why = err instanceof UploadCancelled ? "Upload cancelled." : err instanceof Error ? err.message : "Could not save.";
       // The homework itself is in by now if `id` is set; only the files are left.
@@ -317,7 +346,7 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
             hint={noSubjects ? "You aren't assigned a subject in this class. Ask the school admin." : undefined}
           />
         </div>
-        {ai?.aiEnabled && (
+        {ai?.aiEnabled && aiCapabilities().aiDrafting && (
           <div className="rounded-lg border border-line-soft bg-page px-3.5 py-3">
             <div className="flex items-end gap-2">
               <div className="min-w-0 flex-1">
@@ -330,17 +359,20 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
           </div>
         )}
         <TextField id="hw-title" label="Title" placeholder="e.g. Exercise 4.2, page 61" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <TextArea id="hw-body" label="Instructions (optional)" placeholder="Anything learners need to know" value={body} onChange={(e) => setBody(e.target.value)} />
-        <div className="grid gap-3.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <TextArea id="hw-body" label={caps.optionalInstructions ? "Instructions (optional)" : "Instructions"} placeholder="Anything learners need to know" value={body} onChange={(e) => setBody(e.target.value)} />
+        <div className="grid gap-3.5" style={{ gridTemplateColumns: caps.handInMethod ? "1fr 1fr" : "1fr" }}>
           <TextField id="hw-due" label="Due date" type="date" min={work ? undefined : today} value={dueOn} onChange={(e) => setDueOn(e.target.value)} />
-          <SelectField
-            id="hw-handin" label="How to hand in" value={handIn} onChange={(e) => setHandIn(e.target.value as HandIn)}
-            options={HAND_IN_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-            hint={HAND_IN_OPTIONS.find((o) => o.value === handIn)?.hint}
-          />
+          {caps.handInMethod && (
+            <SelectField
+              id="hw-handin" label="How to hand in" value={handIn} onChange={(e) => setHandIn(e.target.value as HandIn)}
+              options={HAND_IN_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+              hint={HAND_IN_OPTIONS.find((o) => o.value === handIn)?.hint}
+            />
+          )}
         </div>
 
-        <fieldset className="grid gap-3 rounded-lg border border-line-soft bg-page px-3.5 pb-3.5 pt-1">
+        {caps.parentGuide && (
+          <fieldset className="grid gap-3 rounded-lg border border-line-soft bg-page px-3.5 pb-3.5 pt-1">
           <legend className="px-1 text-small font-semibold">For parents</legend>
           <p className="text-[11.5px] leading-snug text-ink-faint">
             {tone === "sit_with"
@@ -389,18 +421,21 @@ function HomeworkModal({ work, classes, teacherId, tenantId, today, onClose, onD
             hint={minutesWords(guide.minutes) || "Optional."}
           />
         </fieldset>
+        )}
 
-        <AttachmentPicker
-          drafts={drafts}
-          onChange={setDrafts}
-          existing={existing}
-          onRemoveExisting={removeSaved}
-          progress={progress}
-          onCancel={() => batch.current?.cancel()}
-          disabled={saving}
-        />
+        {caps.attachments && (
+          <AttachmentPicker
+            drafts={drafts}
+            onChange={setDrafts}
+            existing={existing}
+            onRemoveExisting={removeSaved}
+            progress={progress}
+            onCancel={() => batch.current?.cancel()}
+            disabled={saving}
+          />
+        )}
 
-        {!work && (
+        {!work && mayTellParents && (
           <label className="flex items-start gap-2.5">
             <input type="checkbox" checked={tellParents} onChange={(e) => setTellParents(e.target.checked)} style={{ accentColor: "#17402A", marginTop: 3 }} />
             <span className="min-w-0">

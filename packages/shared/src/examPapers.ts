@@ -1,3 +1,6 @@
+import { apiCreateOnlineExamPaper, apiFetchExamPapers, apiFetchMyTeachingPairs } from "./api/examPapersApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 
 /**
@@ -333,6 +336,8 @@ export interface ExamPaperRow {
   questionCount: number;
   /** Staff only: learners who have started or submitted. */
   attemptCount: number;
+  /** Total marks on API online papers (where questions may be omitted). */
+  maxScore?: number | null;
 }
 
 interface PaperDbRow {
@@ -367,6 +372,7 @@ function toPaper(p: PaperDbRow): ExamPaperRow {
  * (fetchMyTeachingPairs).
  */
 export async function fetchExamPapers(tenantId: string): Promise<ExamPaperRow[]> {
+  if (onApi()) return apiFetchExamPapers(tenantId);
   const { data, error } = await supabase()
     .from("exam_papers")
     .select(`${PAPER_COLS}, exam_questions(count), exam_attempts(count)`)
@@ -379,6 +385,7 @@ export async function fetchExamPapers(tenantId: string): Promise<ExamPaperRow[]>
 
 /** "classId:subjectId" for every class and subject this teacher is assigned. */
 export async function fetchMyTeachingPairs(teacherId: string): Promise<Set<string>> {
+  if (onApi()) return apiFetchMyTeachingPairs();
   const { data, error } = await supabase().from("teaching_assignments").select("class_id, subject_id").eq("teacher_id", teacherId);
   if (error) throw new Error(error.message);
   return new Set(((data ?? []) as { class_id: string; subject_id: string }[]).map((r) => `${r.class_id}:${r.subject_id}`));
@@ -386,6 +393,7 @@ export async function fetchMyTeachingPairs(teacherId: string): Promise<Set<strin
 
 /** This term's exams in the school, for "Counts towards". */
 export async function fetchCurrentTermExams(tenantId: string): Promise<{ id: string; name: string; outOf: number }[]> {
+  if (onApi()) return [];
   const { data: term, error: e1 } = await supabase().from("terms").select("id").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<{ id: string }>();
   if (e1) throw new Error(e1.message);
   if (!term) return [];
@@ -400,6 +408,7 @@ export interface StaffQuestion extends QuestionDraft {
 
 /** Everything the editor needs: the typed text, and the questions with their keys. */
 export async function fetchPaperContent(paperId: string): Promise<{ body: string; questions: StaffQuestion[] }> {
+  if (onApi()) throw new NotOnApiError("Exam paper content");
   const [{ data: text, error: e1 }, { data: qs, error: e2 }] = await Promise.all([
     supabase().from("exam_paper_texts").select("body").eq("paper_id", paperId).maybeSingle<{ body: string }>(),
     supabase()
@@ -447,13 +456,23 @@ function paperColumns(input: PaperInput) {
 /** A change row-level security filters out is "0 rows", not an error; say so rather than report success. */
 const NOT_YOURS = "You can only change papers for a class and subject you teach.";
 
+export async function createOnlineExamPaper(
+  tenantId: string,
+  input: { classId: string; subjectId: string; title: string; maxScore: number; questions: QuestionDraft[] },
+): Promise<string> {
+  if (onApi()) return apiCreateOnlineExamPaper(tenantId, input);
+  throw new Error("createOnlineExamPaper is for the API build only.");
+}
+
 export async function createExamPaper(tenantId: string, input: PaperInput): Promise<string> {
+  if (onApi()) throw new NotOnApiError("Scheduled exam papers");
   const { data, error } = await supabase().from("exam_papers").insert({ tenant_id: tenantId, ...paperColumns(input) }).select("id").single<{ id: string }>();
   if (error) throw new Error(error.message);
   return data.id;
 }
 
 export async function updateExamPaper(id: string, input: PaperInput): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Editing an exam paper");
   const { data, error } = await supabase().from("exam_papers").update(paperColumns(input)).eq("id", id).select("id");
   if (error) throw new Error(error.message);
   if (!data?.length) throw new Error(NOT_YOURS);
@@ -461,6 +480,7 @@ export async function updateExamPaper(id: string, input: PaperInput): Promise<vo
 
 /** The typed read-mode paper; an empty body removes it. */
 export async function savePaperBody(paperId: string, body: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Typed exam papers");
   const { error } = body
     ? await supabase().from("exam_paper_texts").upsert({ paper_id: paperId, body })
     : await supabase().from("exam_paper_texts").delete().eq("paper_id", paperId);
@@ -468,12 +488,14 @@ export async function savePaperBody(paperId: string, body: string): Promise<void
 }
 
 export async function setPaperFile(paperId: string, file: { path: string; name: string } | null): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Exam paper files");
   const { error } = await supabase().from("exam_papers").update({ file_path: file?.path ?? null, file_name: file?.name ?? null }).eq("id", paperId);
   if (error) throw new Error(error.message);
 }
 
 /** Replaces all of an online paper's questions and keys at once. Refused once anyone has started. */
 export async function saveExamQuestions(paperId: string, questions: QuestionDraft[]): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Editing paper questions");
   const { error } = await supabase().rpc("replace_exam_questions", {
     p_paper_id: paperId,
     p_questions: questions.map((q) => ({
@@ -485,12 +507,14 @@ export async function saveExamQuestions(paperId: string, questions: QuestionDraf
 }
 
 export async function setPaperPublished(paperId: string, published: boolean): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Publishing or unpublishing exam papers");
   const { data, error } = await supabase().from("exam_papers").update({ published_at: published ? new Date().toISOString() : null }).eq("id", paperId).select("id");
   if (error) throw new Error(error.message);
   if (!data?.length) throw new Error(NOT_YOURS);
 }
 
 export async function deleteExamPaper(paperId: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Deleting an exam paper");
   const { data, error } = await supabase().from("exam_papers").delete().eq("id", paperId).select("id");
   if (error) throw new Error(error.message);
   if (!data?.length) throw new Error(NOT_YOURS);
@@ -533,6 +557,7 @@ export async function fetchPaperScripts(paper: Pick<ExamPaperRow, "id" | "classI
   learners: { id: string; name: string; adm: string }[];
   attempts: AttemptRow[];
 }> {
+  if (onApi()) throw new NotOnApiError("Exam scripts");
   if (paper.mode === "online") {
     const { error } = await supabase().rpc("close_overdue_exam_attempts", { p_paper_id: paper.id });
     if (error) throw new Error(error.message);
@@ -550,17 +575,20 @@ export async function fetchPaperScripts(paper: Pick<ExamPaperRow, "id" | "classI
 }
 
 export async function markExamAttempt(attemptId: string, marks: Record<string, number | null>, notes: Record<string, string>, feedback: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Marking exam scripts");
   const { error } = await supabase().rpc("mark_exam_attempt", { p_attempt_id: attemptId, p_marks: marks, p_notes: notes, p_feedback: feedback });
   if (error) throw new Error(error.message);
 }
 
 export async function releaseExamResults(paperId: string, release: boolean): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Releasing exam results");
   const { error } = await supabase().rpc("release_exam_results", { p_paper_id: paperId, p_release: release });
   if (error) throw new Error(error.message);
 }
 
 /** Writes the marked scores into the linked term exam's marks; returns how many learners. */
 export async function sendExamScoresToGradebook(paperId: string): Promise<number> {
+  if (onApi()) throw new NotOnApiError("Sending paper scores to the Gradebook");
   const { data, error } = await supabase().rpc("send_exam_scores_to_gradebook", { p_paper_id: paperId });
   if (error) throw new Error(error.message);
   return (data as number | null) ?? 0;

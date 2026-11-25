@@ -33,7 +33,7 @@ export {
 } from "./accessApi";
 export { apiFetchMyProfile, apiFetchNotificationPreferences, apiSetNotificationPreferences, notificationPreferencesFromApi } from "./accountApi";
 export {
-  apiFetchChildMaterials, apiFetchChildReportCards, levelOfChildClass, type FamilyMaterialView, type FamilyReportCardView,
+  apiFetchChildMaterials, apiFetchChildReportCards, apiFetchParentMessages, levelOfChildClass, type FamilyMaterialView, type FamilyReportCardView,
 } from "./parentApi";
 export { apiAnswerMedicationConsent, type FamilyHealthView, type MedicationAuthorizationView } from "./parentHealthApi";
 export { apiFetchFamilyRides, rideStatusText, ridesFromTransport, type FamilyRide, type RideStatus } from "./parentBusApi";
@@ -41,3 +41,8 @@ export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayReadItems, type My
 export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type BloomReadiness, type BloomScope } from "./aiApi";
 export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";
 export { OpenRidersError, isOpenRidersError } from "./fleetApi";
+export { feeTotalsFromInvoices } from "./adminOverviewApi";
+export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper, apiFetchMyTeachingPairs } from "./examPapersApi";
+export { apiCreateLearningMaterial } from "./materialsApi";
+export { visitFromApi, apiSubscribeVisits } from "./visitorsApi";
+export { apiFetchMyHomework, apiCreateHomework, apiFetchHomeworkSubjectsForClass } from "./homeworkApi";

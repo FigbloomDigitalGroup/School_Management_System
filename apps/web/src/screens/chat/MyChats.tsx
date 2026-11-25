@@ -1,3 +1,4 @@
+import { onApi } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { ChatWorkspace } from "../../components/chat/ChatWorkspace";
 
@@ -5,6 +6,8 @@ const COPY = {
   parent: {
     blurb: "Chat with your child, their teachers and the school office.",
     empty: "Start a chat with your child's class teacher, a subject teacher, the school office, or your child.",
+    apiBlurb: "Chat with your child's teachers and the school office.",
+    apiEmpty: "Start a chat with your child's class teacher, a subject teacher, or the school office.",
   },
   student: {
     blurb: "Chat with your parents and guardians.",
@@ -22,10 +25,13 @@ const COPY = {
 
 /** Chats for a parent, a learner, a teacher or other staff; the office's version, with oversight, is admin/Chats. */
 export function MyChats({ role }: { role: keyof typeof COPY }) {
+  const copy = COPY[role];
+  const blurb = onApi() && "apiBlurb" in copy ? copy.apiBlurb : copy.blurb;
+  const empty = onApi() && "apiEmpty" in copy ? copy.apiEmpty : copy.empty;
   return (
     <div className="flex h-full flex-col">
-      <PageHead eyebrow="Chats" title="Chats" blurb={COPY[role].blurb} />
-      <ChatWorkspace emptyBody={COPY[role].empty} />
+      <PageHead eyebrow="Chats" title="Chats" blurb={blurb} />
+      <ChatWorkspace emptyBody={empty} />
     </div>
   );
 }

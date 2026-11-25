@@ -334,6 +334,15 @@ export function inventoryCapabilities(): InventoryCapabilities {
   return onApi() ? INVENTORY_ON_API : INVENTORY_ON_SUPABASE;
 }
 
+/**
+ * Whether the signed-in person may read their own issued items (`teacher/items`, `staff/items`).
+ * On `apps/api`, `GET /inventory/issues` requires `resource.inventory.read`, held by school admins
+ * and holders of the Inventory area (finding 13 / `staff-1`).
+ */
+export function canReadMyItems(adminAreas: readonly string[], role?: string): boolean {
+  return !onApi() || role === "school_admin" || adminAreas.includes("inventory");
+}
+
 /** The chat screens (admin/chats, teacher/chats, staff/chats and the parent and learner ones that share them). */
 export interface ChatCapabilities {
   /** Sending and opening files in a chat (waits on API file storage, A5 / FIG-1873; chat messages are text only). */
@@ -476,7 +485,7 @@ const PARENT_ON_SUPABASE: ParentCapabilities = {
 };
 
 const PARENT_ON_API: ParentCapabilities = {
-  inbox: false, homeworkDone: false, homeworkFiles: false, materialFiles: false, liveClasses: false, signatures: false, calls: false, childProfile: false,
+  inbox: true, homeworkDone: false, homeworkFiles: false, materialFiles: false, liveClasses: false, signatures: false, calls: false, childProfile: false,
   progressOverTime: false, examPapers: false, examAbsences: false, reportCardPdf: false, familyReportCards: true, activityEvents: false,
   medicationRequests: false, sickBayNotices: false, medicationConsent: true, busUpdates: false, paymentProofSubmit: false, schoolPaymentDetails: false,
 };
@@ -706,4 +715,161 @@ const ORG_ON_API: OrgCapabilities = {
 
 export function orgCapabilities(): OrgCapabilities {
   return onApi() ? ORG_ON_API : ORG_ON_SUPABASE;
+}
+
+/** The admin home screens (admin: AdminDashboard and AreasHome). */
+export interface DashboardCapabilities {
+  /** "Waiting for your signature" banner on AdminDashboard (signatures wait on C12 / FIG-1880). */
+  pendingSignatures: boolean;
+  /** "Needs cover this week" card on AdminDashboard (per-period cover for approved leave has no API counterpart; finding 44). */
+  periodCoverage: boolean;
+}
+
+const DASHBOARD_ON_SUPABASE: DashboardCapabilities = { pendingSignatures: true, periodCoverage: true };
+const DASHBOARD_ON_API: DashboardCapabilities = { pendingSignatures: false, periodCoverage: false };
+
+export function dashboardCapabilities(): DashboardCapabilities {
+  return onApi() ? DASHBOARD_ON_API : DASHBOARD_ON_SUPABASE;
+}
+
+/** Online exam papers & tests (admin/papers, later teacher/exams). */
+export interface ExamPapersCapabilities {
+  /** Read-only PDF/typed papers alongside online MCQ papers (API only has /online-exam-papers). */
+  readMode: boolean;
+  /** Paper instructions, open/close window, duration timer, and paper kind (exam vs assessment). */
+  scheduling: boolean;
+  /** Reference sheet / PDF file uploads on papers (not part of /online-exam-papers). */
+  fileAttachments: boolean;
+  /** Linking a paper to a term exam so scores flow to the Gradebook. */
+  examLink: boolean;
+  /** Draft / publish / unpublish workflow (POST /online-exam-papers creates live papers immediately). */
+  draftWorkflow: boolean;
+  /** Editing a paper or its questions after creation (no PATCH /online-exam-papers/{id} endpoint). */
+  editPaper: boolean;
+  /** Deleting a paper (no DELETE /online-exam-papers/{id} endpoint). */
+  deletePaper: boolean;
+  /** Short and long written questions with model answers (API accepts mcq and true_false only). */
+  writtenQuestions: boolean;
+  /** Viewing learner attempts/scripts, marking written answers, releasing results, extensions and excusals (no GET attempts endpoint). */
+  scripts: boolean;
+  /** Maximum characters per question prompt (1,000 on API vs 4,000 on Supabase). */
+  promptMaxChars: number;
+}
+
+const EXAM_PAPERS_ON_SUPABASE: ExamPapersCapabilities = {
+  readMode: true, scheduling: true, fileAttachments: true, examLink: true, draftWorkflow: true,
+  editPaper: true, deletePaper: true, writtenQuestions: true, scripts: true, promptMaxChars: 4000,
+};
+
+const EXAM_PAPERS_ON_API: ExamPapersCapabilities = {
+  readMode: false, scheduling: false, fileAttachments: false, examLink: false, draftWorkflow: false,
+  editPaper: false, deletePaper: false, writtenQuestions: false, scripts: false, promptMaxChars: 1000,
+};
+
+export function examPapersCapabilities(): ExamPapersCapabilities {
+  return onApi() ? EXAM_PAPERS_ON_API : EXAM_PAPERS_ON_SUPABASE;
+}
+
+/**
+ * Whether the signed-in person may read and create online exam papers on `teacher/exams` (`GET/POST /online-exam-papers`
+ * require `resource.academics.read` / `resource.academics.write`, held by school admins and holders of the Academics area).
+ */
+export function canManageExamPapers(adminAreas: readonly string[], role?: string): boolean {
+  return !onApi() || role === "school_admin" || adminAreas.includes("academics");
+}
+
+/** Learning materials (admin/materials, later teacher/materials). */
+export interface MaterialsCapabilities {
+  /** Uploading files to object storage or attaching external links (API stores title/description metadata only). */
+  filesAndLinks: boolean;
+  /** Draft / publish / unpublish workflow (POST /learning-materials creates live entries immediately). */
+  draftWorkflow: boolean;
+  /** Editing a material after creation (no PATCH /learning-materials/{id} endpoint). */
+  editMaterial: boolean;
+  /** Deleting a material (no DELETE /learning-materials/{id} endpoint). */
+  deleteMaterial: boolean;
+}
+
+const MATERIALS_ON_SUPABASE: MaterialsCapabilities = {
+  filesAndLinks: true, draftWorkflow: true, editMaterial: true, deleteMaterial: true,
+};
+
+const MATERIALS_ON_API: MaterialsCapabilities = {
+  filesAndLinks: false, draftWorkflow: false, editMaterial: false, deleteMaterial: false,
+};
+
+export function materialsCapabilities(): MaterialsCapabilities {
+  return onApi() ? MATERIALS_ON_API : MATERIALS_ON_SUPABASE;
+}
+
+/**
+ * Whether the signed-in person may read and add learning materials on `teacher/materials` (`GET/POST /learning-materials`
+ * require `resource.academics.read` / `resource.academics.write`, held by school admins and holders of the Academics area).
+ */
+export function canManageMaterials(adminAreas: readonly string[], role?: string): boolean {
+  return !onApi() || role === "school_admin" || adminAreas.includes("academics");
+}
+
+/** Gate & reception visitor log (admin/visitors, later teacher/visitors and staff/visitors). */
+export interface VisitorsCapabilities {
+  /** Escalating an existing visit to the principal's office after arrival (API escalates principal visits on creation only). */
+  escalateAfterArrival: boolean;
+}
+
+const VISITORS_ON_SUPABASE: VisitorsCapabilities = { escalateAfterArrival: true };
+const VISITORS_ON_API: VisitorsCapabilities = { escalateAfterArrival: false };
+
+export function visitorsCapabilities(): VisitorsCapabilities {
+  return onApi() ? VISITORS_ON_API : VISITORS_ON_SUPABASE;
+}
+
+/** Teacher homework management (teacher/homework). */
+export interface HomeworkCapabilities {
+  /** Editing a homework item after it is set (no PATCH /v1/tenants/{tenantId}/homework-items/{id} endpoint). */
+  editHomework: boolean;
+  /** Deleting a homework item (no DELETE /v1/tenants/{tenantId}/homework-items/{id} endpoint). */
+  deleteHomework: boolean;
+  /** Choosing how learners hand work in (API Homework schema has no `hand_in` field). */
+  handInMethod: boolean;
+  /** Structured "For parents" guide (API Homework schema has no `parent_guide` field). */
+  parentGuide: boolean;
+  /** Reading handed-in submission counts (API has no homework submission endpoint yet). */
+  submissions: boolean;
+  /** Attaching files or links to homework (waits on API file storage, A5 / FIG-1873). */
+  attachments: boolean;
+  /** Leaving instructions blank (POST /homework-items requires non-empty `body`). */
+  optionalInstructions: boolean;
+}
+
+const HOMEWORK_ON_SUPABASE: HomeworkCapabilities = {
+  editHomework: true,
+  deleteHomework: true,
+  handInMethod: true,
+  parentGuide: true,
+  submissions: true,
+  attachments: true,
+  optionalInstructions: true,
+};
+
+const HOMEWORK_ON_API: HomeworkCapabilities = {
+  editHomework: false,
+  deleteHomework: false,
+  handInMethod: false,
+  parentGuide: false,
+  submissions: false,
+  attachments: false,
+  optionalInstructions: false,
+};
+
+export function homeworkCapabilities(): HomeworkCapabilities {
+  return onApi() ? HOMEWORK_ON_API : HOMEWORK_ON_SUPABASE;
+}
+
+/**
+ * Whether the signed-in person may read and set homework on `teacher/homework`. On Supabase every teacher may. On the
+ * API `GET/POST /homework-items` require `resource.academics.read/write` (school administrators and holders of the
+ * Academics area).
+ */
+export function canManageHomework(adminAreas: readonly string[], role?: string): boolean {
+  return !onApi() || role === "school_admin" || adminAreas.includes("academics");
 }

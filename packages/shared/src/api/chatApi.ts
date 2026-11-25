@@ -2,7 +2,7 @@ import type { ChatMessage, ChatPerson, ConversationSummary } from "../chat";
 import { NotOnApiError } from "../capabilities";
 import type { Role } from "../types";
 import { apiClient } from "./client";
-import { staffDirectory, type DirectoryPerson } from "./directoryApi";
+import { familyChatDirectory, staffDirectory, type Directory, type DirectoryPerson } from "./directoryApi";
 import { API_PAGE_LIMIT } from "./paging";
 import { activeTenantId } from "./peopleApi";
 import { POLL_MS, pollNewItems, startPolling } from "./poll";
@@ -93,9 +93,13 @@ async function newestMessages(tenantId: string, conversationId: string, limit: n
   return r.messages;
 }
 
-export async function apiFetchMyConversations(): Promise<ConversationSummary[]> {
+function chatDirectoryFor(tenantId: string, role?: Role): Promise<Directory | null> {
+  return role === "parent" ? familyChatDirectory(tenantId) : staffDirectory(tenantId);
+}
+
+export async function apiFetchMyConversations(role?: Role): Promise<ConversationSummary[]> {
   const tenantId = activeTenantId();
-  const [conversations, directory] = await Promise.all([listConversations(tenantId), staffDirectory(tenantId)]);
+  const [conversations, directory] = await Promise.all([listConversations(tenantId), chatDirectoryFor(tenantId, role)]);
   const withMessages = conversations.filter((c) => c.last_message_at).slice(0, PREVIEW_CHATS);
   const lasts = await settlePool(withMessages, 4, async (c) => (await newestMessages(tenantId, c.id, 1))[0]);
   const lastOf = new Map<string, ApiMessage | undefined>();
@@ -111,9 +115,9 @@ export interface ApiChatContact {
 }
 
 /** The staff this person may start a chat with: those with an account, other than themselves. */
-export async function apiFetchChatContacts(): Promise<ApiChatContact[]> {
+export async function apiFetchChatContacts(role?: Role): Promise<ApiChatContact[]> {
   const tenantId = activeTenantId();
-  const directory = await staffDirectory(tenantId);
+  const directory = await chatDirectoryFor(tenantId, role);
   if (!directory) throw new NotOnApiError("A list of people to chat with");
   const me = apiClient().session()?.userId;
   return [...directory.values()]
@@ -129,9 +133,9 @@ export async function apiStartConversation(peerUserId: string): Promise<string> 
 }
 
 /** The other person of a chat. (The API has no "one conversation" read, so this finds it in the caller's list.) */
-export async function apiFetchConversationPeople(conversationId: string): Promise<ChatPerson[]> {
+export async function apiFetchConversationPeople(conversationId: string, role?: Role): Promise<ChatPerson[]> {
   const tenantId = activeTenantId();
-  const [conversations, directory] = await Promise.all([listConversations(tenantId), staffDirectory(tenantId)]);
+  const [conversations, directory] = await Promise.all([listConversations(tenantId), chatDirectoryFor(tenantId, role)]);
   const c = conversations.find((x) => x.id === conversationId);
   if (!c?.peer_user_id) return [];
   const person = directory?.get(c.peer_user_id);

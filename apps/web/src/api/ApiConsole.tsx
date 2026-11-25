@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { lazy, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { NAV, adminAccessFor, apiFetchMyStaffRecord, fetchAiStatus, hasAdminConsole, mayOpenAdminPage, showsAdminSwitch } from "@figbloom/shared";
 import { BloomFab } from "../components/BloomFab";
@@ -9,6 +9,16 @@ import { ApiOverview, type SchoolSession } from "./ApiOverview";
 import { ApiParentConsole } from "./ApiParent";
 import { ApiStaffHome } from "./ApiStaffHome";
 import { API_ADMIN_PAGES, API_STAFF_PAGES, API_TEACHER_PAGES, adminPageDefs, staffPageDefs, staffPagesFor, teacherPageDefs } from "./pages";
+import { Lazy } from "./pages/Lazy";
+
+const AdminDashboard = lazy(() => import("../screens/admin/Dashboard").then((m) => ({ default: m.AdminDashboard })));
+const AreasHome = lazy(() => import("../screens/admin/AreasHome").then((m) => ({ default: m.AreasHome })));
+
+function ApiAdminHome({ session }: { session: SchoolSession }) {
+  return adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant) === "all"
+    ? <AdminDashboard />
+    : <AreasHome allowedPages={API_ADMIN_PAGES} />;
+}
 
 // The pages themselves are registered by each area in `./pages/<area>.pages.tsx`, not here: a new area adds a file there and
 // does not edit this one. Every other entry of the menus is hidden, and its address sends the person back to their home page.
@@ -127,7 +137,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
   const page = (to: string, element: ReactNode) => <AdminPage page={to} session={session}>{element}</AdminPage>;
   return (
     <Routes>
-      <Route path="admin" element={page("admin", <ApiOverview session={session} onSignOut={onSignOut} inShell />)} />
+      <Route path="admin" element={page("admin", <Lazy><ApiAdminHome session={session} /></Lazy>)} />
       {adminPageDefs.map((p) => <Route key={p.path} path={p.path} element={page(p.menu ?? p.path, p.element)} />)}
       {/* A teacher who holds admin areas lands in this console and has no console switch on the API build yet: their teacher
           pages are reachable by address only. */}

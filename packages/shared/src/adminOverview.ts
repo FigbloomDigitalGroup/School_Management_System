@@ -1,3 +1,4 @@
+import { apiFetchClassAttendanceDetail, apiFetchOverviewBasics, apiFetchRegisterDays, apiRemindClassTeacher } from "./api/adminOverviewApi";
 import { apiFetchTermReport } from "./api/reportsApi";
 import { onApi } from "./backend";
 import { supabase } from "./supabase";
@@ -64,6 +65,7 @@ export interface OverviewBasics {
  * A failed read of the term, the classes, the learners or the staff reads as nothing; a failed read of the fee totals throws.
  */
 export async function fetchOverviewBasics(tenantId: string): Promise<OverviewBasics> {
+  if (onApi()) return apiFetchOverviewBasics(tenantId);
   const sb = supabase();
 
   const { data: term } = await sb.from("terms").select("*").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle<Term>();
@@ -199,6 +201,7 @@ export function needsYou(o: SchoolOverview): { title: string; body: string }[] {
 
 /** An in-app note to a class's teacher that its register has not been taken yet. Throws the database's message when it fails. */
 export async function remindClassTeacher(tenantId: string, authorId: string, cls: Pick<OverviewClass, "name" | "class_teacher_id">): Promise<void> {
+  if (onApi()) return apiRemindClassTeacher(tenantId, cls);
   if (!cls.class_teacher_id) throw new Error(`${cls.name} has no class teacher assigned yet.`);
   const { error } = await supabase().from("announcements").insert({
     tenant_id: tenantId,
@@ -303,6 +306,7 @@ export interface RegisterDays {
 
 /** Every class, the newest day each register was taken on, and the school's attendance settings: what the "latest registers" list opens with. */
 export async function fetchRegisterDays(tenantId: string): Promise<RegisterDays> {
+  if (onApi()) return apiFetchRegisterDays(tenantId);
   const sb = supabase();
   const [{ data: classes, error: e1 }, { data: latest, error: e3 }, latestAfternoon, settings] = await Promise.all([
     sb.from("classes").select("id,name").eq("tenant_id", tenantId).order("name").returns<Pick<ClassGroup, "id" | "name">[]>(),
@@ -335,6 +339,7 @@ export interface ClassAttendanceDetail {
  * so those read as nothing; the other reads throw the database's message.
  */
 export async function fetchClassAttendanceDetail(classId: string, date: string, tenantId: string): Promise<ClassAttendanceDetail> {
+  if (onApi()) return apiFetchClassAttendanceDetail(classId, date, tenantId);
   const sb = supabase();
   const [{ data: students, error: e1 }, { data: marks, error: e2 }, { data: cls, error: e3 }, settings, pm] = await Promise.all([
     sb.from("students").select("id, full_name, admission_no").eq("class_id", classId).eq("active", true).order("full_name")

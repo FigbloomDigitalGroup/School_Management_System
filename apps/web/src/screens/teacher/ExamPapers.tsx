@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, addOption, applyPaperImport, blankQuestion, canAddOption, canRemoveOption, changeQuestionKind,
-  createExamPaper, deleteExamPaper,
-  fetchClassSizes, fetchCurrentTermExams, fetchExamPapers, fetchMyTeachingPairs, fetchPaperContent, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
-  fetchTeacherSubjectsForClass, fromLocalInput, moveQuestion, paperStatus, paperWindow, publishProblem, questionsToCheck, removeOption,
+  PAPER_KIND_LABEL, PAPER_MODE_LABEL, QUESTION_KIND_LABEL, addOption, aiCapabilities, applyPaperImport, blankQuestion, canAddOption, canManageExamPapers, canRemoveOption, changeQuestionKind,
+  createExamPaper, createOnlineExamPaper, deleteExamPaper, examPapersCapabilities,
+  fetchClassSizes, fetchCurrentTermExams, fetchExamPapers, fetchHomeworkSubjectsForClass, fetchMyTeachingPairs, fetchPaperContent, fetchSchoolClassOptions, fetchSchoolSubjectOptions, fetchTeacherClasses,
+  fromLocalInput, moveQuestion, paperStatus, paperWindow, publishProblem, questionsToCheck, removeOption,
   flaggedQuestionsBanner, flaggedQuestionsProblem, saveExamQuestions, savePaperBody, savedPaperPublishProblem,
   setPaperFile, setPaperPublished, toLocalInput, totalPoints, updateExamPaper, validatePaper,
   validateQuestions, windowLabel,
@@ -45,13 +45,16 @@ const TEXTAREA = "w-full resize-y rounded-md border border-[#D3DAD5] px-3 py-2.5
  */
 export function ExamPapers({ admin = false }: { admin?: boolean }) {
   const toast = useToast();
-  const { profile, tenant } = useTenantSession();
+  const { profile, tenant, adminAreas } = useTenantSession();
+  const caps = examPapersCapabilities();
+  const mayManage = admin || canManageExamPapers(adminAreas, profile.role);
+  const canAiDraft = aiCapabilities().aiDrafting;
   const [reloadKey, setReloadKey] = useState(0);
   // importing: open the editor straight onto "Import a paper with Bloom"
   const [editing, setEditing] = useState<{ paper?: ExamPaperRow; importing?: boolean } | null>(null);
   const [scripts, setScripts] = useState<ExamPaperRow | null>(null);
   const reload = () => setReloadKey((k) => k + 1);
-  const aiStatus = useAiStatus();
+  const aiStatus = useAiStatus(canAiDraft);
 
   const scope: Scope = useMemo(() => admin
     ? {
@@ -60,16 +63,17 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
       }
     : {
         classes: () => fetchTeacherClasses(profile.id),
-        subjectsFor: (classId: string) => fetchTeacherSubjectsForClass(profile.id, classId),
+        subjectsFor: (classId: string) => fetchHomeworkSubjectsForClass(profile.id, classId),
       }, [admin, tenant.id, profile.id]);
 
-  const { data: classes } = useAsync(() => scope.classes(), [scope]);
+  const { data: classes } = useAsync(() => (mayManage ? scope.classes() : Promise.resolve([])), [scope, mayManage]);
   const { data, loading, error } = useAsync(async () => {
+    if (!mayManage) return { papers: [] as ExamPaperRow[], sizes: {} as Record<string, number> };
     const [all, pairs] = await Promise.all([fetchExamPapers(tenant.id), admin ? Promise.resolve(null) : fetchMyTeachingPairs(profile.id)]);
     const papers = pairs ? all.filter((p) => pairs.has(`${p.classId}:${p.subjectId}`)) : all;
-    const sizes = await fetchClassSizes([...new Set(papers.map((p) => p.classId))]);
+    const sizes = caps.scripts ? await fetchClassSizes([...new Set(papers.map((p) => p.classId))]) : {};
     return { papers, sizes };
-  }, [tenant.id, profile.id, admin, reloadKey]);
+  }, [tenant.id, profile.id, admin, mayManage, caps.scripts, reloadKey]);
 
   const papers = data?.papers ?? [];
   const sizes = data?.sizes ?? {};
@@ -106,18 +110,31 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
         eyebrow="Exams & tests"
         title="Exams & tests"
         blurb={admin
-          ? "Every exam paper and test posted in the school. Learners read a paper, or sit it online and get it marked here."
-          : "Post an exam paper or a test for a class and subject you teach. Learners read it, or sit it online and you mark it here."}
-        actions={
-          <>
-            {aiStatus?.aiEnabled && <Button disabled={!classes?.length} onClick={() => setEditing({ importing: true })}>Import a paper</Button>}
-            <Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>New paper</Button>
-          </>
-        }
+          ? (caps.draftWorkflow
+              ? "Every exam paper and test posted in the school. Learners read a paper, or sit it online and get it marked here."
+              : "Online exam papers posted in the school for a class and subject.")
+          : (caps.draftWorkflow
+              ? "Post an exam paper or a test for a class and subject you teach. Learners read it, or sit it online and you mark it here."
+              : "Online exam papers for a class and subject you teach.")}
+        actions={mayManage
+          ? (
+            <>
+              {canAiDraft && aiStatus?.aiEnabled && <Button disabled={!classes?.length} onClick={() => setEditing({ importing: true })}>Import a paper</Button>}
+              <Button variant="accent" disabled={!classes?.length} onClick={() => setEditing({})}>New paper</Button>
+            </>
+          )
+          : undefined}
       />
 
       <div className="px-7 py-6">
-        {error ? (
+        {!mayManage ? (
+          <div className="rounded-lg border border-line bg-white">
+            <EmptyState
+              title="Teachers can't post exam papers here yet."
+              body="On the new system only the school office, or a teacher given the Academics area, can view or post online exam papers. Ask the school office for the Academics area."
+            />
+          </div>
+        ) : error ? (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load the papers: {error.message}
           </p>
@@ -131,7 +148,9 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
           <div className="rounded-lg border border-line bg-white">
             <EmptyState
               title="No papers yet"
-              body="Post an exam paper or a test. It stays a draft, seen only by staff, until you publish it."
+              body={caps.draftWorkflow
+                ? "Post an exam paper or a test. It stays a draft, seen only by staff, until you publish it."
+                : "Create an online exam paper for a class and subject."}
               action={<Button variant="accent" onClick={() => setEditing({})}>New paper</Button>}
             />
           </div>
@@ -140,26 +159,42 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
             title="Papers"
             columns={[
               { key: "title", header: "Paper", width: "1.8fr", render: (p: ExamPaperRow) => (
-                <Cell sub={`${PAPER_KIND_LABEL[p.kind]} · ${PAPER_MODE_LABEL[p.mode]}${p.durationMinutes ? ` · ${p.durationMinutes} min` : ""}`}>{p.title}</Cell>
+                <Cell
+                  sub={caps.scheduling
+                    ? `${PAPER_KIND_LABEL[p.kind]} · ${PAPER_MODE_LABEL[p.mode]}${p.durationMinutes ? ` · ${p.durationMinutes} min` : ""}`
+                    : `Online paper${p.maxScore ? ` · ${p.maxScore} marks` : ""}${p.questionCount > 0 ? ` · ${p.questionCount} question${p.questionCount === 1 ? "" : "s"}` : ""}`}
+                >
+                  {p.title}
+                </Cell>
               ) },
               { key: "class", header: "Class · subject", width: "1.1fr", render: (p: ExamPaperRow) => <Cell sub={p.subjectName}>{p.className}</Cell> },
-              { key: "when", header: "When", width: "1.6fr", render: (p: ExamPaperRow) => <span className="text-[12.5px] text-ink-muted">{windowLabel(p, now)}</span> },
-              { key: "state", header: "Status", width: "0.9fr", render: (p: ExamPaperRow) => <PaperBadge paper={p} now={now} /> },
-              { key: "sat", header: "Sat", align: "right", width: "0.6fr", render: (p: ExamPaperRow) => (
-                <Mono>{p.mode === "online" ? `${Math.min(p.attemptCount, sizes[p.classId] ?? p.attemptCount)} of ${sizes[p.classId] ?? "?"}` : "—"}</Mono>
+              { key: "when", header: caps.scheduling ? "When" : "Created", width: "1.6fr", render: (p: ExamPaperRow) => (
+                <span className="text-[12.5px] text-ink-muted">
+                  {caps.scheduling ? windowLabel(p, now) : new Date(p.opensAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                </span>
               ) },
-              { key: "actions", header: "", align: "right", width: "2fr", render: (p: ExamPaperRow) => (
-                <div className="flex flex-wrap justify-end gap-2">
-                  {p.mode === "online" && p.publishedAt && <Button onClick={() => setScripts(p)}>Scripts</Button>}
-                  <Button onClick={() => setEditing({ paper: p })}>Edit</Button>
-                  <Button onClick={() => void togglePublish(p)}>{p.publishedAt ? "Unpublish" : "Publish"}</Button>
-                  {p.attemptCount === 0 && <Button onClick={() => void remove(p)}>Delete</Button>}
-                </div>
-              ) },
+              ...((caps.scheduling || caps.draftWorkflow)
+                ? [{ key: "state", header: "Status", width: "0.9fr", render: (p: ExamPaperRow) => <PaperBadge paper={p} now={now} /> }]
+                : []),
+              ...(caps.scripts
+                ? [{ key: "sat", header: "Sat", align: "right" as const, width: "0.6fr", render: (p: ExamPaperRow) => (
+                    <Mono>{p.mode === "online" ? `${Math.min(p.attemptCount, sizes[p.classId] ?? p.attemptCount)} of ${sizes[p.classId] ?? "?"}` : "—"}</Mono>
+                  ) }]
+                : []),
+              ...((caps.scripts || caps.editPaper || caps.draftWorkflow || caps.deletePaper)
+                ? [{ key: "actions", header: "", align: "right" as const, width: "2fr", render: (p: ExamPaperRow) => (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {caps.scripts && p.mode === "online" && p.publishedAt && <Button onClick={() => setScripts(p)}>Scripts</Button>}
+                      {caps.editPaper && <Button onClick={() => setEditing({ paper: p })}>Edit</Button>}
+                      {caps.draftWorkflow && <Button onClick={() => void togglePublish(p)}>{p.publishedAt ? "Unpublish" : "Publish"}</Button>}
+                      {caps.deletePaper && p.attemptCount === 0 && <Button onClick={() => void remove(p)}>Delete</Button>}
+                    </div>
+                  ) }]
+                : []),
             ]}
             rows={papers}
             rowKey={(p) => p.id}
-            minWidth="980px"
+            minWidth={caps.scripts || caps.draftWorkflow ? "980px" : "680px"}
             empty={{ title: "No papers yet", body: "Post the first one." }}
           />
         )}
@@ -202,6 +237,7 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
   onSaved: (message: string) => void;
 }) {
   const { tenant } = useTenantSession();
+  const caps = examPapersCapabilities();
   const locked = (paper?.attemptCount ?? 0) > 0;
   const [kind, setKind] = useState<PaperKind>(paper?.kind ?? "exam");
   const [title, setTitle] = useState(paper?.title ?? "");
@@ -214,6 +250,7 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
   const [opensAt, setOpensAt] = useState(paper ? toLocalInput(paper.opensAt) : tomorrowMorning());
   const [closesAt, setClosesAt] = useState(toLocalInput(paper?.closesAt ?? null));
   const [duration, setDuration] = useState(paper?.durationMinutes ? String(paper.durationMinutes) : paper ? "" : "60");
+  const [maxScore, setMaxScore] = useState(paper?.maxScore ? String(paper.maxScore) : "100");
   const [file, setFile] = useState<File | null>(null);
   const [removeFile, setRemoveFile] = useState(false);
   const [questions, setQuestions] = useState<ReviewQuestion[]>([]);
@@ -225,8 +262,8 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
   const createdId = useRef<string | null>(null);
 
   const { data: content, loading: contentLoading } = useAsync(
-    () => (paper ? fetchPaperContent(paper.id) : Promise.resolve({ body: "", questions: [] })),
-    [paper?.id],
+    () => (paper && caps.editPaper ? fetchPaperContent(paper.id) : Promise.resolve({ body: "", questions: [] })),
+    [paper?.id, caps.editPaper],
   );
   useEffect(() => {
     if (!content) return;
@@ -234,7 +271,10 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
     setQuestions(content.questions);
   }, [content]);
 
-  const { data: exams } = useAsync(() => fetchCurrentTermExams(tenant.id), [tenant.id]);
+  const { data: exams } = useAsync(
+    () => (caps.examLink ? fetchCurrentTermExams(tenant.id) : Promise.resolve([])),
+    [tenant.id, caps.examLink],
+  );
 
   const { data: subjectList } = useAsync(
     async () => ({ classId, list: classId ? await scope.subjectsFor(classId) : [] }),
@@ -299,6 +339,40 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
     }
   }
 
+  async function saveApi() {
+    const cleanTitle = title.trim().replace(/\s+/g, " ");
+    if (!classId) { setError("Pick the class."); return; }
+    if (!subjectId) { setError("Pick the subject."); return; }
+    if (!cleanTitle) { setError("Give the paper a title, e.g. Mid-term Mathematics Paper 1."); return; }
+    let qs: QuestionDraft[] = [];
+    if (questions.length > 0) {
+      const q = validateQuestions(questions);
+      if (!q.ok) { setError(q.message); return; }
+      qs = q.value;
+    } else {
+      const score = Number(maxScore);
+      if (!Number.isFinite(score) || score <= 0 || score > 10000) {
+        setError("Total marks must be greater than 0 and at most 10000.");
+        return;
+      }
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await createOnlineExamPaper(tenant.id, {
+        classId,
+        subjectId,
+        title: cleanTitle,
+        maxScore: qs.length > 0 ? totalPoints(qs) : Number(maxScore),
+        questions: qs,
+      });
+      onSaved("Paper created");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create the paper.");
+      setSaving(false);
+    }
+  }
+
   async function openFile() {
     if (!paper?.filePath) return;
     try { window.open(await privateDocUrl(paper.filePath), "_blank", "noopener"); }
@@ -318,86 +392,118 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
       footNote={mode === "online" && questions.length ? `${questions.length} question${questions.length === 1 ? "" : "s"} · ${totalPoints(questions)} marks` : undefined}
       width={820}
       actions={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button disabled={saving || noSubjects || contentLoading} onClick={() => void save(false)}>{saving ? "Saving…" : published ? "Save changes" : "Save draft"}</Button>
-          {!published && <Button variant="accent" disabled={saving || noSubjects || contentLoading} onClick={() => void save(true)}>Save and publish</Button>}
-        </>
+        caps.draftWorkflow ? (
+          <>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button disabled={saving || noSubjects || contentLoading} onClick={() => void save(false)}>{saving ? "Saving…" : published ? "Save changes" : "Save draft"}</Button>
+            {!published && <Button variant="accent" disabled={saving || noSubjects || contentLoading} onClick={() => void save(true)}>Save and publish</Button>}
+          </>
+        ) : (
+          <>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="accent" disabled={saving || noSubjects} onClick={() => void saveApi()}>{saving ? "Creating…" : "Create paper"}</Button>
+          </>
+        )
       }
     >
       <div className="grid gap-3.5">
-        <div className="grid gap-3.5" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-          <SelectField id="ep-kind" label="Type" value={kind} onChange={(e) => setKind(e.target.value as PaperKind)}
-            options={(Object.keys(PAPER_KIND_LABEL) as PaperKind[]).map((k) => ({ value: k, label: PAPER_KIND_LABEL[k] }))} />
+        <div className="grid gap-3.5" style={{ gridTemplateColumns: caps.scheduling ? "1fr 1fr 1fr" : "1fr 1fr" }}>
+          {caps.scheduling && (
+            <SelectField id="ep-kind" label="Type" value={kind} onChange={(e) => setKind(e.target.value as PaperKind)}
+              options={(Object.keys(PAPER_KIND_LABEL) as PaperKind[]).map((k) => ({ value: k, label: PAPER_KIND_LABEL[k] }))} />
+          )}
           <SelectField id="ep-class" label="Class" value={classId} disabled={locked} onChange={(e) => setClassId(e.target.value)}
             options={classes.map((c) => ({ value: c.id, label: c.name }))} />
           <SelectField id="ep-subject" label="Subject" value={subjectId} disabled={locked} onChange={(e) => setSubjectId(e.target.value)}
             options={(subjects ?? []).map((s) => ({ value: s.id, label: s.name }))}
-            hint={noSubjects ? "You aren't assigned a subject in this class. Ask the school admin." : undefined} />
+            hint={noSubjects ? "No subjects are set up yet." : undefined} />
         </div>
         <TextField id="ep-title" label="Title" placeholder="e.g. Mid-term Mathematics Paper 1" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <TextArea id="ep-instructions" label="Instructions (optional)" placeholder="e.g. Answer all questions in Section A and any two in Section B." value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        {caps.scheduling && (
+          <TextArea id="ep-instructions" label="Instructions (optional)" placeholder="e.g. Answer all questions in Section A and any two in Section B." value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        )}
 
-        <div>
-          <div className="mb-1.5 text-small font-semibold">How learners take it</div>
-          <div className="flex gap-2">
-            {(["online", "read"] as PaperMode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                disabled={locked}
-                onClick={() => setMode(m)}
-                className="flex-1 rounded-lg border px-3.5 py-2.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
-                style={mode === m ? { borderColor: "#17402A", background: "#F1F6F2" } : { borderColor: "#D3DAD5" }}
-              >
-                <div className="text-[13px] font-semibold">{m === "online" ? "Sit it online" : "Read only"}</div>
-                <div className="mt-0.5 text-[11.5px] text-ink-faint">
-                  {m === "online" ? "Timed questions in the app. Multiple choice is marked for you." : "Learners open the paper and answer on paper, in class or at home."}
-                </div>
-              </button>
-            ))}
+        {caps.readMode && (
+          <div>
+            <div className="mb-1.5 text-small font-semibold">How learners take it</div>
+            <div className="flex gap-2">
+              {(["online", "read"] as PaperMode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => setMode(m)}
+                  className="flex-1 rounded-lg border px-3.5 py-2.5 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                  style={mode === m ? { borderColor: "#17402A", background: "#F1F6F2" } : { borderColor: "#D3DAD5" }}
+                >
+                  <div className="text-[13px] font-semibold">{m === "online" ? "Sit it online" : "Read only"}</div>
+                  <div className="mt-0.5 text-[11.5px] text-ink-faint">
+                    {m === "online" ? "Timed questions in the app. Multiple choice is marked for you." : "Learners open the paper and answer on paper, in class or at home."}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="grid gap-3.5" style={{ gridTemplateColumns: mode === "online" ? "1fr 1fr 0.7fr" : "1fr 1fr" }}>
-          <TextField id="ep-opens" label="Opens" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} />
-          <TextField id="ep-closes" label="Closes (optional)" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} hint="Leave empty to keep it open." />
-          {mode === "online" && (
-            <TextField id="ep-duration" label="Time allowed (min)" type="number" min={1} max={600} value={duration} onChange={(e) => setDuration(e.target.value)} hint="Empty for no limit." />
-          )}
-        </div>
-
-        <SelectField
-          id="ep-exam" label="Counts towards" value={examId} onChange={(e) => setExamId(e.target.value)}
-          options={[{ value: "", label: "Nothing: practice only" }, ...(exams ?? []).map((x) => ({ value: x.id, label: `${x.name} (this term)` }))]}
-          hint={mode === "online" ? "Pick a term exam to send the marked scores into the Gradebook from Scripts." : "Read-only papers are marked by hand: type the marks into the Gradebook as usual."}
-        />
-
-        <div className="rounded-lg border border-line-soft bg-page px-3.5 py-3">
-          <div className="text-small font-semibold">{mode === "read" ? "The paper" : "Reference sheet (optional)"}</div>
-          <p className="mt-0.5 text-[11.5px] text-ink-faint">
-            {mode === "read" ? "Upload it as a PDF, type it in below, or both. Learners can open it from when the paper opens." : "A formula sheet, map or passage learners can open while they sit the paper."}
-          </p>
-          <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
-            <input type="file" accept="application/pdf,image/*" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setRemoveFile(false); }} className="text-[12.5px]" />
-            {paper?.fileName && !file && !removeFile && (
-              <>
-                <button type="button" className="text-[12.5px] font-semibold text-forest underline" onClick={() => void openFile()}>{paper.fileName}</button>
-                <Button onClick={() => setRemoveFile(true)}>Remove</Button>
-              </>
+        {caps.scheduling && (
+          <div className="grid gap-3.5" style={{ gridTemplateColumns: mode === "online" ? "1fr 1fr 0.7fr" : "1fr 1fr" }}>
+            <TextField id="ep-opens" label="Opens" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} />
+            <TextField id="ep-closes" label="Closes (optional)" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} hint="Leave empty to keep it open." />
+            {mode === "online" && (
+              <TextField id="ep-duration" label="Time allowed (min)" type="number" min={1} max={600} value={duration} onChange={(e) => setDuration(e.target.value)} hint="Empty for no limit." />
             )}
           </div>
-          {mode === "read" && (
-            <textarea
-              aria-label="Type the paper"
-              className={`${TEXTAREA} mt-3`}
-              rows={8}
-              placeholder="Or type the paper here."
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-            />
-          )}
-        </div>
+        )}
+
+        {caps.examLink && (
+          <SelectField
+            id="ep-exam" label="Counts towards" value={examId} onChange={(e) => setExamId(e.target.value)}
+            options={[{ value: "", label: "Nothing: practice only" }, ...(exams ?? []).map((x) => ({ value: x.id, label: `${x.name} (this term)` }))]}
+            hint={mode === "online" ? "Pick a term exam to send the marked scores into the Gradebook from Scripts." : "Read-only papers are marked by hand: type the marks into the Gradebook as usual."}
+          />
+        )}
+
+        {!caps.draftWorkflow && questions.length === 0 && (
+          <TextField
+            id="ep-max-score"
+            label="Total marks"
+            type="number"
+            min={1}
+            max={10000}
+            value={maxScore}
+            onChange={(e) => setMaxScore(e.target.value)}
+            hint="Used when creating an online paper without inline questions, or add questions below."
+          />
+        )}
+
+        {(caps.fileAttachments || caps.readMode) && (
+          <div className="rounded-lg border border-line-soft bg-page px-3.5 py-3">
+            <div className="text-small font-semibold">{mode === "read" ? "The paper" : "Reference sheet (optional)"}</div>
+            <p className="mt-0.5 text-[11.5px] text-ink-faint">
+              {mode === "read" ? "Upload it as a PDF, type it in below, or both. Learners can open it from when the paper opens." : "A formula sheet, map or passage learners can open while they sit the paper."}
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
+              <input type="file" accept="application/pdf,image/*" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setRemoveFile(false); }} className="text-[12.5px]" />
+              {paper?.fileName && !file && !removeFile && (
+                <>
+                  <button type="button" className="text-[12.5px] font-semibold text-forest underline" onClick={() => void openFile()}>{paper.fileName}</button>
+                  <Button onClick={() => setRemoveFile(true)}>Remove</Button>
+                </>
+              )}
+            </div>
+            {mode === "read" && (
+              <textarea
+                aria-label="Type the paper"
+                className={`${TEXTAREA} mt-3`}
+                rows={8}
+                placeholder="Or type the paper here."
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+              />
+            )}
+          </div>
+        )}
 
         {mode === "online" && (
           contentLoading ? <TableSkeleton rows={2} /> : (
@@ -435,7 +541,10 @@ function QuestionBuilder({ questions, onChange, locked, ai, startImport, onImpor
   onImport: (draft: PaperImportDraft, replace: boolean) => void;
   importWarnings: string[];
 }) {
-  const aiStatus = useAiStatus();
+  const caps = examPapersCapabilities();
+  const canAiDraft = aiCapabilities().aiDrafting;
+  const aiStatus = useAiStatus(canAiDraft);
+  const allowedKinds: QuestionKind[] = caps.writtenQuestions ? (Object.keys(QUESTION_KIND_LABEL) as QuestionKind[]) : ["choice"];
   const [drafting, setDrafting] = useState(false);
   const [importing, setImporting] = useState(startImport && !locked);
   const toCheck = questionsToCheck(questions);
@@ -465,14 +574,18 @@ function QuestionBuilder({ questions, onChange, locked, ai, startImport, onImpor
           <div key={i} className={`rounded-lg border bg-white p-3.5 ${q.check?.length ? "border-warn-ink/50" : "border-line"}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-micro tracking-[0.1em] text-ink-faint">Q{i + 1}</span>
-              <select
-                aria-label={`Question ${i + 1} type`}
-                className="rounded-md border border-[#D3DAD5] bg-white px-2 py-1.5 text-[12.5px]"
-                value={q.kind}
-                onChange={(e) => changeKind(i, e.target.value as QuestionKind)}
-              >
-                {(Object.keys(QUESTION_KIND_LABEL) as QuestionKind[]).map((k) => <option key={k} value={k}>{QUESTION_KIND_LABEL[k]}</option>)}
-              </select>
+              {allowedKinds.length > 1 ? (
+                <select
+                  aria-label={`Question ${i + 1} type`}
+                  className="rounded-md border border-[#D3DAD5] bg-white px-2 py-1.5 text-[12.5px]"
+                  value={q.kind}
+                  onChange={(e) => changeKind(i, e.target.value as QuestionKind)}
+                >
+                  {allowedKinds.map((k) => <option key={k} value={k}>{QUESTION_KIND_LABEL[k]}</option>)}
+                </select>
+              ) : (
+                <span className="text-[12.5px] text-ink-muted">{QUESTION_KIND_LABEL[q.kind]}</span>
+              )}
               <label className="flex items-center gap-1.5 text-[12.5px] text-ink-muted">
                 <input
                   type="number" min={1} max={100} aria-label={`Question ${i + 1} marks`}
@@ -495,6 +608,7 @@ function QuestionBuilder({ questions, onChange, locked, ai, startImport, onImpor
               aria-label={`Question ${i + 1}`}
               className={`${TEXTAREA} mt-2.5`}
               rows={q.kind === "long" ? 3 : 2}
+              maxLength={caps.promptMaxChars}
               placeholder="Write the question"
               value={q.prompt}
               onChange={(e) => set(i, { prompt: e.target.value })}
@@ -551,10 +665,10 @@ function QuestionBuilder({ questions, onChange, locked, ai, startImport, onImpor
       </fieldset>
       {!locked && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {(Object.keys(QUESTION_KIND_LABEL) as QuestionKind[]).map((k) => (
+          {allowedKinds.map((k) => (
             <Button key={k} onClick={() => onChange([...questions, blankQuestion(k)])}>+ {QUESTION_KIND_LABEL[k]}</Button>
           ))}
-          {aiStatus?.aiEnabled && (
+          {canAiDraft && aiStatus?.aiEnabled && (
             <>
               <Button disabled={!ai.subject || !ai.className} onClick={() => setDrafting(true)}
                 title={!ai.subject ? "Pick the class and subject first." : undefined}>Draft questions with Bloom</Button>

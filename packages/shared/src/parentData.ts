@@ -1,4 +1,5 @@
 import { apiPollAnnouncements } from "./api/inboxApi";
+import { apiMarkNoticeRead } from "./api/noticesApi";
 import { apiLoadParentData } from "./api/parentApi";
 import { onApi } from "./backend";
 import { supabase } from "./supabase";
@@ -135,6 +136,7 @@ export function subscribeAnnouncements(tenantId: string, onInsert: () => void): 
 
 /** Records that this guardian has opened a message, so it drops off their unread badge for good. */
 export async function markMessageRead(profileId: string, announcementId: string): Promise<void> {
+  if (onApi()) return apiMarkNoticeRead(announcementId);
   const { error } = await supabase()
     .from("announcement_reads")
     .upsert({ announcement_id: announcementId, profile_id: profileId }, { onConflict: "announcement_id,profile_id" });
@@ -145,6 +147,7 @@ export async function markMessageRead(profileId: string, announcementId: string)
  *  Deliberately lighter than loadParentData(): just enough to know audience match and read state,
  *  not fees/attendance/marks, since ParentShell needs this on every navigation. */
 export async function fetchParentUnreadCount(profileId: string): Promise<number> {
+  if (onApi()) return 0;
   const { data: guardianRows, error: gErr } = await supabase()
     .from("guardians")
     .select("students(class_id, classes(form_level, level))")

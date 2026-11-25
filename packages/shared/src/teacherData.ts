@@ -4,6 +4,7 @@ import {
 } from "./api/attendanceApi";
 import { apiFetchTeacherClassTimetable } from "./api/timetableApi";
 import { apiFetchMyClasses } from "./api/teachingApi";
+import { apiFetchSchoolClassOptions, apiFetchSchoolSubjectOptions } from "./api/examPapersApi";
 import { apiFetchNotices, apiFetchSentByMe, apiMarkNoticeRead, apiSendClassMessage } from "./api/noticesApi";
 import { onApi } from "./backend";
 import {
@@ -370,6 +371,7 @@ export async function fetchTeacherSubjectAssignments(teacherId: string): Promise
 
 /** All classes of a school as `{ id, name }` options, ordered by name (for admin scope in papers & materials). */
 export async function fetchSchoolClassOptions(tenantId: string): Promise<{ id: string; name: string }[]> {
+  if (onApi()) return apiFetchSchoolClassOptions(tenantId);
   const { data, error } = await supabase().from("classes").select("id, name").eq("tenant_id", tenantId).order("name");
   if (error) throw new Error(error.message);
   return (data ?? []) as { id: string; name: string }[];
@@ -377,6 +379,7 @@ export async function fetchSchoolClassOptions(tenantId: string): Promise<{ id: s
 
 /** All subjects of a school as `{ id, name }` options, ordered by name (for admin scope in papers & materials). */
 export async function fetchSchoolSubjectOptions(tenantId: string): Promise<{ id: string; name: string }[]> {
+  if (onApi()) return apiFetchSchoolSubjectOptions(tenantId);
   const { data, error } = await supabase().from("subjects").select("id, name").eq("tenant_id", tenantId).order("name");
   if (error) throw new Error(error.message);
   return (data ?? []) as { id: string; name: string }[];

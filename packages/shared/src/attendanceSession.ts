@@ -1,3 +1,4 @@
+import { apiFetchPmMissingLearners } from "./api/adminOverviewApi";
 import { apiFetchAttendanceSettings, apiFetchMyAttendanceSettings, apiFetchSessionEntries, apiFetchSignOutDays, apiSaveAttendanceSettings } from "./api/attendanceApi";
 import { onApi } from "./backend";
 import type { AttendanceMark } from "./types";
@@ -244,6 +245,7 @@ export interface PmMissingRow {
 
 /** Looks up learner names, admission numbers and class names for learners flagged present AM / missing PM. */
 export async function fetchPmMissingLearners(tenantId: string, ids: string[]): Promise<PmMissingRow[]> {
+  if (onApi()) return apiFetchPmMissingLearners(tenantId, ids);
   if (ids.length === 0) return [];
   const sb = supabase();
   const { data: students, error } = await sb

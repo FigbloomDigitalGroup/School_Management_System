@@ -1,11 +1,13 @@
+import { apiFetchClassSizes } from "./api/examPapersApi";
+import { apiCreateHomework, apiFetchHomeworkSubjectsForClass, apiFetchMyHomework } from "./api/homeworkApi";
 import { apiLoadParentHomework } from "./api/parentApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { formatShortDate } from "./parentData";
-import { sendClassMessage } from "./teacherData";
+import { fetchTeacherSubjectsForClass, sendClassMessage } from "./teacherData";
 import { removeAttachmentFilesFor } from "./materials";
-import type { ClassLevel } from "./types";
+import type { ClassLevel, Subject } from "./types";
 
 /**
  * Homework parents can actually help with. A teacher sets a piece of work for
@@ -138,6 +140,7 @@ interface HomeworkDbRow {
 
 /** Homework this teacher has set, soonest due first. */
 export async function fetchMyHomework(teacherId: string): Promise<HomeworkRow[]> {
+  if (onApi()) return apiFetchMyHomework(teacherId);
   const { data, error } = await supabase()
     .from("assignments")
     .select("id, class_id, subject_id, title, body, due_on, hand_in, parent_guide, classes(name), subjects(name), assignment_submissions(count)")
@@ -162,6 +165,7 @@ export async function fetchMyHomework(teacherId: string): Promise<HomeworkRow[]>
 
 /** Active learners per class, for "12 of 43 handed in". A learner who has left is archived and not counted. */
 export async function fetchClassSizes(classIds: string[]): Promise<Record<string, number>> {
+  if (onApi()) return apiFetchClassSizes(classIds);
   if (!classIds.length) return {};
   const { data, error } = await supabase()
     .from("classes").select("id, students(count)").in("id", classIds).eq("students.active", true)
@@ -187,8 +191,15 @@ function homeworkColumns(input: HomeworkInput) {
   };
 }
 
+/** Subjects this teacher teaches in a class for setting homework. */
+export async function fetchHomeworkSubjectsForClass(teacherId: string, classId: string): Promise<Subject[]> {
+  if (onApi()) return apiFetchHomeworkSubjectsForClass(classId);
+  return fetchTeacherSubjectsForClass(teacherId, classId);
+}
+
 /** Sets new homework. Returns its id. */
 export async function createHomework(tenantId: string, teacherId: string, input: HomeworkInput): Promise<string> {
+  if (onApi()) return apiCreateHomework(tenantId, input);
   const { data, error } = await supabase()
     .from("assignments")
     .insert({ tenant_id: tenantId, set_by: teacherId, ...homeworkColumns(input) })
@@ -202,12 +213,14 @@ export async function createHomework(tenantId: string, teacherId: string, input:
 const NOT_YOURS = "You can only change homework you set.";
 
 export async function updateHomework(id: string, input: HomeworkInput): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Editing homework");
   const { data, error } = await supabase().from("assignments").update(homeworkColumns(input)).eq("id", id).select("id");
   if (error) throw new Error(error.message);
   if (!data?.length) throw new Error(NOT_YOURS);
 }
 
 export async function deleteHomework(id: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Deleting homework");
   // Its attachments' rows go with it; their files in storage don't, so they go first.
   await removeAttachmentFilesFor("homework", id);
   const { data, error } = await supabase().from("assignments").delete().eq("id", id).select("id");

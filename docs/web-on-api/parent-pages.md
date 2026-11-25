@@ -3,8 +3,8 @@
 Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md), which explains why each area has its own file.
 
 Opened from the menu on an API build for a person with a `parent` membership: **Home**, **Fees**, **Results**, **Homework**,
-**Learning materials**, **Sports & activities**, **Bus**, **Health** and **Issued items**. Inbox, Chats, Account and the
-Bloom study helper come in the second parent slice. The pages are registered in `apps/web/src/api/pages/parent.pages.tsx`, under a new
+**Learning materials**, **Sports & activities**, **Bus**, **Health**, **Issued items**, **Inbox** and **Chats**. Account and the
+Bloom study helper come in the next parent slices. The pages are registered in `apps/web/src/api/pages/parent.pages.tsx`, under a new
 `parent` kind (`ParentPageDef` in `pages/types.ts`, `parentPageDefs` and `API_PARENT_PAGES` in `pages/index.ts`: the one addition to
 the registry). The shell is the parent's own console, `ApiParent.tsx` (it also holds the Home route), picked by role in `ApiConsole.tsx`. Every read is `GET /v1/tenants/{id}/me/children...` (`resource.family.read`);
 the server decides which learners are the caller's own on every call (`apps/api/docs/FAMILY-READS.md`), so a parent whose link was
@@ -29,6 +29,12 @@ removed sees "No child linked" on every page and a child of another family is ne
   for a guardian's consent: **I agree**, **No, do not give it** and **Withdraw my OK** use the existing consent endpoint.
 - **Bus:** each child's route, own stop, bus plate, driver's first name, what the running trip says about them, and the bus's position
   while the trip runs. Read again every 15 seconds while the page is open (a plain timer: the API has no live feed).
+- **Inbox (`parent/inbox`) and "From the school" on Home:** published school and class announcements addressed to the parent from
+  `GET /v1/tenants/{tenantId}/communications/announcements/inbox`, reloaded on changes via polling (`subscribeAnnouncements`), with
+  read acknowledgement sent via `POST .../read` when a message is opened.
+- **Chats (`parent/chats`):** 1-on-1 text chats with school administrators and the parent's children's teachers from
+  `GET /v1/tenants/{tenantId}/me/chat-contacts` and `/v1/tenants/{tenantId}/chat/conversations`, with 4–10 second polling via
+  `subscribeChatMessages`.
 
 ## What is hidden on the API build, and why (`parentCapabilities()` in `capabilities.ts`)
 
@@ -46,7 +52,9 @@ removed sees "No child linked" on every page and a child of another family is ne
 | Bio data, health details and home address (Home); live-class banner; call the school | not in the API (C13 for calls and online classes); a parent cannot change health details on the API yet |
 | Ask the nurse to give a medicine; notices from the sick bay | parents have no such write, and the sick bay never writes notices (finding 15) |
 | Today's bus updates and the notify button; arrival time on the map | the API sends no stop coordinates and no route line (finding `parent-2`); bus notifications are not ported here |
-| "From the school" on Home, Inbox, Chats | the second parent slice |
+| Inbox attachments, signature requests, and unread dots/badges | files wait on A5, signatures on C12, and `/communications/announcements/inbox` does not report per-recipient read state |
+| Chat file attachments, voice/video calls, unread badges, and chatting with learners | files wait on A5, calls on C13, unread counts are not reported, and learners have no accounts on the API yet |
+| Account settings and Study helper | ported in the next parent slices |
 
 ## How the model is mapped
 

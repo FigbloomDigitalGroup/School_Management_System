@@ -1,3 +1,8 @@
+import {
+  apiFetchVisitHosts, apiFindVisitLearners, apiListVisits, apiRecordVisit, apiSetVisitStatus, apiSubscribeVisits,
+} from "./api/visitorsApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { invokeEdge } from "./edge";
 import { supabase } from "./supabase";
 import type { Role } from "./types";
@@ -150,6 +155,7 @@ export function visitAlert(v: Visit, viewer: { profileId: string; role: Role }, 
 const trimOrNull = (s?: string) => s?.trim() || null;
 
 export async function recordVisit(tenantId: string, draft: VisitDraft, entryPoint: Visit["entry_point"]): Promise<Visit> {
+  if (onApi()) return apiRecordVisit(tenantId, draft, entryPoint);
   const { data, error } = await supabase().from("visits").insert({
     tenant_id: tenantId,
     visitor_name: draft.visitor_name.trim(),
@@ -166,18 +172,21 @@ export async function recordVisit(tenantId: string, draft: VisitDraft, entryPoin
   return data;
 }
 
-export async function setVisitStatus(id: string, status: VisitStatus): Promise<void> {
+export async function setVisitStatus(id: string, status: VisitStatus): Promise<Visit | void> {
+  if (onApi()) return apiSetVisitStatus(id, status);
   const { error } = await supabase().from("visits").update({ status }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
 export async function escalateVisit(id: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Escalating a visit after arrival");
   const { error } = await supabase().from("visits").update({ escalated: true }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
 /** Visits that arrived since `since` (and before `until`, when given), newest first. */
-export async function listVisits(tenantId: string, since: Date, until?: Date): Promise<Visit[]> {
+export async function listVisits(tenantId: string, since: Date, until?: Date, opts?: { mine?: boolean }): Promise<Visit[]> {
+  if (onApi()) return apiListVisits(tenantId, since, until, opts);
   let q = supabase().from("visits").select("*").eq("tenant_id", tenantId).gte("arrived_at", since.toISOString());
   if (until) q = q.lt("arrived_at", until.toISOString());
   const { data, error } = await q.order("arrived_at", { ascending: false }).limit(500).returns<Visit[]>();
@@ -186,12 +195,14 @@ export async function listVisits(tenantId: string, since: Date, until?: Date): P
 }
 
 export async function fetchVisitHosts(tenantId: string): Promise<VisitHost[]> {
+  if (onApi()) return apiFetchVisitHosts(tenantId);
   const { data, error } = await supabase().rpc("visit_hosts", { p_tenant_id: tenantId });
   if (error) throw new Error(error.message);
   return (data ?? []) as VisitHost[];
 }
 
 export async function findVisitLearners(tenantId: string, query: string): Promise<VisitLearner[]> {
+  if (onApi()) return apiFindVisitLearners(tenantId, query);
   if (query.trim().length < 2) return [];
   const { data, error } = await supabase().rpc("visit_find_learners", { p_tenant_id: tenantId, p_query: query });
   if (error) throw new Error(error.message);
@@ -200,11 +211,13 @@ export async function findVisitLearners(tenantId: string, query: string): Promis
 
 /** Phones, via visit-notify. Best effort: the consoles already show the visit live, so a push that fails never fails the desk. */
 export async function pushVisit(id: string): Promise<void> {
+  if (onApi()) return;
   await invokeEdge("visit-notify", { visit_id: id }, { timeoutMs: 15_000 }).catch(() => {});
 }
 
 /** Every visit this person may see, as it's recorded or changes. RLS decides which rows arrive. */
-export function subscribeVisits(tenantId: string, onChange: (v: Visit, isNew: boolean) => void): () => void {
+export function subscribeVisits(tenantId: string, onChange: (v: Visit, isNew: boolean) => void, opts?: { mine?: boolean }): () => void {
+  if (onApi()) return apiSubscribeVisits(tenantId, onChange, opts);
   const channel = supabase()
     .channel(`visits-${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     .on(
