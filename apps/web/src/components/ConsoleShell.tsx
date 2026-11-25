@@ -1,7 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
-import { NAV, API_PASSWORD_MIN_LENGTH, orgCapabilities, apiChangePassword, apiPasswordProblem, changeMyPassword, createMyOrganization, groupNav, isApiError, normalizeSlug, onApi, pageIsNotForInstitution, signOutHere, suggestSlug, userMessage, type Organization, type Role } from "@figbloom/shared";
+import { NAV, API_PASSWORD_MIN_LENGTH, orgCapabilities, apiChangePassword, apiPasswordProblem, changeMyPassword, createMyOrganization, groupNav, isApiError, normalizeSlug, onApi, pageIsNotForInstitution, showsMyHr, signOutHere, suggestSlug, userMessage, type Organization, type Role } from "@figbloom/shared";
 import { uiZoom } from "../lib/a11y";
+import { isMyHrNav, showsMyHrEntry } from "../lib/myHrNav";
+import { SessionCtx } from "../lib/sessionContext";
+import { useMyHrStatus } from "../lib/useMyHr";
 import { useSlugAvailability } from "../lib/slugAvailability";
 import { AccessibilityModal } from "./AccessibilityModal";
 import { GuideHostContext, GuidePanel, guideWasOpen, rememberGuideOpen, type GuideBack, type GuideHost, type GuideOptions } from "./GuidePanel";
@@ -40,8 +43,8 @@ function writeCollapsed(key: string, labels: string[]) {
   }
 }
 
-/** The roles whose "My account" page runs on the new API build (admin/account, teacher/account and staff/account). */
-const API_ACCOUNT_ROLES: readonly Role[] = ["school_admin", "teacher", "staff"];
+/** The roles whose "My account" page runs on the new API build (admin/account, teacher/account, staff/account and parent/settings). */
+const API_ACCOUNT_ROLES: readonly Role[] = ["school_admin", "teacher", "staff", "parent"];
 
 /** A sidebar entry that does something rather than going to a page: "HR & Payroll" opens another Figbloom product. */
 export interface ShellAction {
@@ -122,13 +125,21 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
   // here, and the underlying routes are gated the same way in App.tsx, since
   // hiding a nav item alone never blocks the route itself.
   const online = tenant?.delivery_mode === "online";
+  // My HR on the API build: the shells there list their pages statically, so the entry shows only while the API's status says "available"
+  // (the Supabase shells, App.tsx, hide it themselves and are not asked here). With no person to ask, the hook asks nothing.
+  const session = useContext(SessionCtx);
+  const myHrApplies = onApi() && NAV[role].some((i) => isMyHrNav(i.to));
+  const myHrStatus = useMyHrStatus({ profile: myHrApplies ? session?.profile ?? null : null, actingForTenant: session?.actingForTenant ?? false });
   const items = NAV[role].filter((item) => {
     if (hiddenNav?.includes(item.to)) return false;
+    if (myHrApplies && isMyHrNav(item.to)) {
+      return showsMyHrEntry({ to: item.to, available: showsMyHr(myHrStatus), role: session?.profile?.role, acting: session?.actingForTenant ?? false });
+    }
     if (pageIsNotForInstitution(item.to, institutionType)) return false;
     if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
-    // Only where the school has turned the study helper on (School settings -> AI). On the API build, admin/study-helper is gated by API_ADMIN_PAGES and reads its settings from /finance/ai-helper/settings.
+    // Only where the school has turned the study helper on (School settings -> AI). On the API build, admin/study-helper and parent/study-helper are gated by their page registries and read settings from the API.
     if (item.to === "student/study-helper" || item.to === "parent/study-helper" || item.to === "admin/study-helper") {
-      return onApi() ? item.to === "admin/study-helper" : !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
+      return onApi() ? item.to === "admin/study-helper" || item.to === "parent/study-helper" : !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
     }
     return true;
   });

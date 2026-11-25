@@ -11,7 +11,7 @@ import {
   childResults,
   childTimetable,
 } from "../../modules/family/academics.js";
-import { childFees } from "../../modules/family/fees.js";
+import { childAiHelper, childFees } from "../../modules/family/fees.js";
 import { childActivities, childHealth, childItems } from "../../modules/family/life.js";
 import { myChatContacts, studentChatContacts } from "../../modules/family/contacts.js";
 import { assertMyOwnLearner } from "../../modules/student/self.js";
@@ -156,6 +156,20 @@ export async function registerFamilyRoutes(app: FastifyInstance, pool: AppPool):
       request,
       async ({ tx, tenantId, learnerId }) => ({
         health: await childHealth(tx, { tenantId, learnerId }),
+      }),
+      { studentAllowed: false },
+    ),
+  );
+
+  // The guardian's opt-in for the child's study helper (parent/study-helper). A learner does not read it: whether the student
+  // helper must check that opt-in is an open owner question (student-5 in docs/STUDENT-ACCOUNTS.md), so a student gets the audited 403.
+  app.get(`${C}/ai-helper`, async (request) =>
+    inChild(
+      app,
+      pool,
+      request,
+      async ({ tx, tenantId, learnerId }) => ({
+        ai_helper: await childAiHelper(tx, { tenantId, learnerId }),
       }),
       { studentAllowed: false },
     ),

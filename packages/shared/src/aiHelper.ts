@@ -1,6 +1,5 @@
-import { apiFetchAiHelperRoster, apiFetchAiHelperSettings, apiSaveAiHelperSettings, apiSetAiHelperOptIn } from "./api/aiApi";
+import { apiFetchAiHelperRoster, apiFetchAiHelperSettings, apiFetchAiHelperStatus, apiSaveAiHelperSettings, apiSetAiHelperOptIn } from "./api/aiApi";
 import { onApi } from "./backend";
-import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 
 /**
@@ -175,7 +174,7 @@ interface StatusRow {
 
 /** A learner's study helper picture; studentId null: the signed-in learner's own. Null when the caller may not see it. */
 export async function fetchAiHelperStatus(studentId: string | null): Promise<AiHelperStatus | null> {
-  if (onApi()) throw new NotOnApiError("Learner study helper status");
+  if (onApi()) return apiFetchAiHelperStatus(studentId);
   const { data, error } = await supabase().rpc("ai_helper_status", { p_student_id: studentId });
   if (error) throw new Error(error.message);
   const r = (data as StatusRow[] | null)?.[0];

@@ -5349,6 +5349,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/ai-helper": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The school's study-helper settings, the current term and this child's opt-in choice
+         * @description A parent records a choice through PUT /finance/ai-helper/optins using current_term.id. No co-guardian user id is returned.
+         */
+        get: operations["familyChildAiHelper"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/me/teaching/learners": {
         parameters: {
             query?: never;
@@ -5666,6 +5686,146 @@ export interface paths {
          * @description Keys must be this paper's question ids (400 otherwise); a submitted attempt is 409; another learner's attempt is 404. Submit with POST /online-exam-attempts/{attemptId}/submit.
          */
         put: operations["studentSaveOnlineExamAnswers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether My HR shows for the caller
+         * @description The rule of the Supabase database function `my_hr_status()`, for the caller only (docs/MY-HR.md). Any member of the school may ask; the answer is about the caller and says nothing about anyone else. In this order: `not_staff` (not an active staff member of this school: a parent, a student, an org admin or Figbloom staff acting for it, a suspended school), `off` (My HR is not switched on for this API: `MY_HR_ENABLED` is not `true`, or a platform or HR setting is missing), `not_linked` (the platform does not know the school yet), `not_enabled` (the platform said in the last hour that HR is not on for the school), otherwise `available`. Whether the person's own HR record is ready is HR's answer on the other routes. A client shows the My HR page only for `available`.
+         */
+        get: operations["myHrStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My HR summary
+         * @description The caller's employee record and the latest payslip (HR's `summary`). The caller's OWN record in Figbloom HR, read only (docs/MY-HR.md). The school and the person are the session's: the path's school must be the session's school, and nothing in the request can name another school or person (other query fields and any header of that kind are ignored). Staff only (teacher, driver, staff, school_admin): anyone else gets 403 `forbidden`. While My HR is off for this API (`MY_HR_ENABLED` and the platform settings) it is 403 `my_hr_off`; for a school not yet registered with the platform it is 409 `school_not_linked`. A recent "HR is not on" from the platform (`status` = `not_enabled`) is asked again: HR decides. The body is HR's own JSON, passed through unchanged (see `MyHrAnswer`). HR's refusals are mapped as the Supabase function did: `not_linked` / `pending_hr` -> 404 with a sentence for the person, HR's own 403 -> `hr_forbidden`, HR not accepting this school or the platform token -> 502 `hr_not_connected`, an answer that is not JSON -> 502 `hr_bad_answer`, HR's own switch off -> 503 `hr_off`, HR down, slow or unreachable -> 503 `hr_unavailable`, HR's 429 -> 429. Rate limited per person, school and platform token (429 with Retry-After).
+         */
+        get: operations["myHrSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/payslips": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My payslips
+         * @description The caller's published payslips (HR's `payslips`). The caller's OWN record in Figbloom HR, read only (docs/MY-HR.md). The school and the person are the session's: the path's school must be the session's school, and nothing in the request can name another school or person (other query fields and any header of that kind are ignored). Staff only (teacher, driver, staff, school_admin): anyone else gets 403 `forbidden`. While My HR is off for this API (`MY_HR_ENABLED` and the platform settings) it is 403 `my_hr_off`; for a school not yet registered with the platform it is 409 `school_not_linked`. A recent "HR is not on" from the platform (`status` = `not_enabled`) is asked again: HR decides. The body is HR's own JSON, passed through unchanged (see `MyHrAnswer`). HR's refusals are mapped as the Supabase function did: `not_linked` / `pending_hr` -> 404 with a sentence for the person, HR's own 403 -> `hr_forbidden`, HR not accepting this school or the platform token -> 502 `hr_not_connected`, an answer that is not JSON -> 502 `hr_bad_answer`, HR's own switch off -> 503 `hr_off`, HR down, slow or unreachable -> 503 `hr_unavailable`, HR's 429 -> 429. Rate limited per person, school and platform token (429 with Retry-After).
+         */
+        get: operations["myHrPayslips"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/payslips/{payslipId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One of my payslips
+         * @description One of the caller's own payslips in full (HR's `payslips/<id>`). The id is HR's own: 1 to 64 letters, digits, `_` or `-` (400 otherwise). A payslip that is not the caller's, or does not exist, is 404 `not_found`. The caller's OWN record in Figbloom HR, read only (docs/MY-HR.md). The school and the person are the session's: the path's school must be the session's school, and nothing in the request can name another school or person (other query fields and any header of that kind are ignored). Staff only (teacher, driver, staff, school_admin): anyone else gets 403 `forbidden`. While My HR is off for this API (`MY_HR_ENABLED` and the platform settings) it is 403 `my_hr_off`; for a school not yet registered with the platform it is 409 `school_not_linked`. A recent "HR is not on" from the platform (`status` = `not_enabled`) is asked again: HR decides. The body is HR's own JSON, passed through unchanged (see `MyHrAnswer`). HR's refusals are mapped as the Supabase function did: `not_linked` / `pending_hr` -> 404 with a sentence for the person, HR's own 403 -> `hr_forbidden`, HR not accepting this school or the platform token -> 502 `hr_not_connected`, an answer that is not JSON -> 502 `hr_bad_answer`, HR's own switch off -> 503 `hr_off`, HR down, slow or unreachable -> 503 `hr_unavailable`, HR's 429 -> 429. Rate limited per person, school and platform token (429 with Retry-After).
+         */
+        get: operations["myHrPayslip"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My leave in HR
+         * @description The caller's leave types, balances and applications as HR has them (HR's `leave`). Read only: leave is applied for in HR. The caller's OWN record in Figbloom HR, read only (docs/MY-HR.md). The school and the person are the session's: the path's school must be the session's school, and nothing in the request can name another school or person (other query fields and any header of that kind are ignored). Staff only (teacher, driver, staff, school_admin): anyone else gets 403 `forbidden`. While My HR is off for this API (`MY_HR_ENABLED` and the platform settings) it is 403 `my_hr_off`; for a school not yet registered with the platform it is 409 `school_not_linked`. A recent "HR is not on" from the platform (`status` = `not_enabled`) is asked again: HR decides. The body is HR's own JSON, passed through unchanged (see `MyHrAnswer`). HR's refusals are mapped as the Supabase function did: `not_linked` / `pending_hr` -> 404 with a sentence for the person, HR's own 403 -> `hr_forbidden`, HR not accepting this school or the platform token -> 502 `hr_not_connected`, an answer that is not JSON -> 502 `hr_bad_answer`, HR's own switch off -> 503 `hr_off`, HR down, slow or unreachable -> 503 `hr_unavailable`, HR's 429 -> 429. Rate limited per person, school and platform token (429 with Retry-After).
+         */
+        get: operations["myHrLeave"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My attendance in HR
+         * @description The caller's attendance days and notices (HR's `attendance`). `from` and `to` are real dates (YYYY-MM-DD) with `from` on or before `to` and at most 93 days apart (400 otherwise); HR chooses its own range when they are left out. The caller's OWN record in Figbloom HR, read only (docs/MY-HR.md). The school and the person are the session's: the path's school must be the session's school, and nothing in the request can name another school or person (other query fields and any header of that kind are ignored). Staff only (teacher, driver, staff, school_admin): anyone else gets 403 `forbidden`. While My HR is off for this API (`MY_HR_ENABLED` and the platform settings) it is 403 `my_hr_off`; for a school not yet registered with the platform it is 409 `school_not_linked`. A recent "HR is not on" from the platform (`status` = `not_enabled`) is asked again: HR decides. The body is HR's own JSON, passed through unchanged (see `MyHrAnswer`). HR's refusals are mapped as the Supabase function did: `not_linked` / `pending_hr` -> 404 with a sentence for the person, HR's own 403 -> `hr_forbidden`, HR not accepting this school or the platform token -> 502 `hr_not_connected`, an answer that is not JSON -> 502 `hr_bad_answer`, HR's own switch off -> 503 `hr_off`, HR down, slow or unreachable -> 503 `hr_unavailable`, HR's 429 -> 429. Rate limited per person, school and platform token (429 with Retry-After).
+         */
+        get: operations["myHrAttendance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/kpis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My KPIs in HR
+         * @description The caller's KPI targets and score for the current period (HR's `kpis`). The caller's OWN record in Figbloom HR, read only (docs/MY-HR.md). The school and the person are the session's: the path's school must be the session's school, and nothing in the request can name another school or person (other query fields and any header of that kind are ignored). Staff only (teacher, driver, staff, school_admin): anyone else gets 403 `forbidden`. While My HR is off for this API (`MY_HR_ENABLED` and the platform settings) it is 403 `my_hr_off`; for a school not yet registered with the platform it is 409 `school_not_linked`. A recent "HR is not on" from the platform (`status` = `not_enabled`) is asked again: HR decides. The body is HR's own JSON, passed through unchanged (see `MyHrAnswer`). HR's refusals are mapped as the Supabase function did: `not_linked` / `pending_hr` -> 404 with a sentence for the person, HR's own 403 -> `hr_forbidden`, HR not accepting this school or the platform token -> 502 `hr_not_connected`, an answer that is not JSON -> 502 `hr_bad_answer`, HR's own switch off -> 503 `hr_off`, HR down, slow or unreachable -> 503 `hr_unavailable`, HR's 429 -> 429. Rate limited per person, school and platform token (429 with Retry-After).
+         */
+        get: operations["myHrKpis"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -6257,7 +6417,7 @@ export interface components {
         Error: {
             error: {
                 /** @enum {string} */
-                code: "unauthorized" | "forbidden" | "reauth_required" | "mfa_required" | "not_found" | "validation_error" | "rate_limited" | "conflict" | "idempotency_key_reused" | "service_unavailable" | "internal_error";
+                code: "unauthorized" | "forbidden" | "reauth_required" | "mfa_required" | "not_found" | "validation_error" | "rate_limited" | "conflict" | "idempotency_key_reused" | "service_unavailable" | "internal_error" | "my_hr_off" | "school_not_linked" | "not_linked" | "pending_hr" | "hr_off" | "hr_forbidden" | "hr_not_connected" | "hr_unavailable" | "hr_bad_answer";
                 message: string;
                 /** @description Correlation id of the request (additive, OI-4). Also returned in the X-Request-Id response header. An inbound X-Request-Id is honoured only if it matches [A-Za-z0-9._-]{8,64}; otherwise one is generated. */
                 request_id?: string;
@@ -8208,6 +8368,17 @@ export interface components {
             condition?: "new" | "good" | "fair" | "poor" | "broken";
             location?: string | null;
         };
+        MyHrStatusResponse: {
+            /** @enum {string} */
+            status: "not_staff" | "off" | "not_linked" | "not_enabled" | "available";
+        };
+        /** @description Figbloom HR's own JSON for the caller, passed through exactly as HR sent it (HR's field names; bloomHR docs/PLATFORM_EVENTS.md, "My HR"). The API neither reads nor reshapes it, so the fields are not listed here. Always a JSON object. When HR has no approved employee for the caller yet the answer is `{ "status": "pending_hr", "message": "Your HR record isn't ready yet. Ask the school's HR administrator." }` (200), and a record HR cannot find is 404 `not_linked`. */
+        MyHrAnswer: {
+            /** @description HR's own status for the answer (`active`), or `pending_hr`. */
+            status?: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** @description One open issue held by the caller, with the item's name. No stock counts, location, cost or notes. */
         MyInventoryIssue: {
             /** Format: uuid */
@@ -9039,6 +9210,23 @@ export interface components {
                 subject: string | null;
             }[];
         };
+        FamilyAiHelper: {
+            school_on: boolean;
+            /** @enum {string} */
+            access_mode: "all" | "opt_in";
+            price_minor: number;
+            /** @constant */
+            currency: "KES";
+            cancel_days: number;
+            /** @constant */
+            billing_enabled: false;
+            current_term: components["schemas"]["FamilyTermRef"] | null;
+            optin: {
+                opted_in: boolean;
+                /** Format: date-time */
+                changed_at: string;
+            } | null;
+        };
     };
     responses: {
         /** @description Malformed or oversized request */
@@ -9108,6 +9296,35 @@ export interface components {
         RateLimited: {
             headers: {
                 /** @description Whole seconds until the request would be admitted (omitted when cost > capacity) */
+                "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Not a staff member of the school (`forbidden`), My HR is off for this API (`my_hr_off`), or HR itself refused the person (`hr_forbidden`). Also the usual 403 of an authenticated route (password change required, no membership, suspended school). */
+        MyHrForbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description HR does not accept this school or the platform token (`hr_not_connected`), or answered with something that is not JSON or is too large (`hr_bad_answer`). Nothing HR sent is returned or logged. */
+        MyHrBadGateway: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description HR is down, too slow or unreachable, or the platform token cannot be had (`hr_unavailable`, with Retry-After), or HR has My HR switched off (`hr_off`). */
+        MyHrUnavailable: {
+            headers: {
+                /** @description Whole seconds to wait before trying again */
                 "Retry-After"?: number;
                 [name: string]: unknown;
             };
@@ -23702,6 +23919,39 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    familyChildAiHelper: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Study-helper status of the child */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ai_helper: components["schemas"]["FamilyAiHelper"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     teachingMyLearners: {
         parameters: {
             query?: {
@@ -24322,6 +24572,237 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    myHrStatus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's My HR status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyHrStatusResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    myHrSummary: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HR's answer, as HR sent it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyHrAnswer"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["MyHrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["MyHrBadGateway"];
+            503: components["responses"]["MyHrUnavailable"];
+        };
+    };
+    myHrPayslips: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HR's answer, as HR sent it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyHrAnswer"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["MyHrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["MyHrBadGateway"];
+            503: components["responses"]["MyHrUnavailable"];
+        };
+    };
+    myHrPayslip: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description HR's id of the payslip (from `payslips`) */
+                payslipId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HR's answer, as HR sent it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyHrAnswer"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["MyHrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["MyHrBadGateway"];
+            503: components["responses"]["MyHrUnavailable"];
+        };
+    };
+    myHrLeave: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HR's answer, as HR sent it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyHrAnswer"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["MyHrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["MyHrBadGateway"];
+            503: components["responses"]["MyHrUnavailable"];
+        };
+    };
+    myHrAttendance: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HR's answer, as HR sent it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyHrAnswer"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["MyHrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["MyHrBadGateway"];
+            503: components["responses"]["MyHrUnavailable"];
+        };
+    };
+    myHrKpis: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HR's answer, as HR sent it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyHrAnswer"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["MyHrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["MyHrBadGateway"];
+            503: components["responses"]["MyHrUnavailable"];
         };
     };
     familyChatContacts: {

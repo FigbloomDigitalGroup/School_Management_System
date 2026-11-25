@@ -12,9 +12,9 @@ const TeacherLeave = lazy(() => import("../../screens/teacher/Leave").then((m) =
 
 /**
  * The staff console (role "staff"): the pages of other staff, by their address under /s/<slug>/. The home (`staff`) and the menu
- * are the shell's (ApiConsole.tsx). Not here, and so not in the menu: Loans (a preview with no backend anywhere) and My HR (its own
- * area, `my-hr.pages.tsx`, when it lands). `staff/items` is for people holding the Inventory area and `staff/visitors` for people
- * holding the Visitors area (`when`).
+ * are the shell's (ApiConsole.tsx). Not here, and so not in the menu: Loans (a preview with no backend anywhere). My HR is in
+ * `my-hr.pages.tsx` (shown only while the API's status for the person is `available`). `staff/items` is for people holding the
+ * Inventory area and `staff/visitors` for people holding the Visitors area (`when`).
  */
 export const pages: AreaPages = {
   staff: [

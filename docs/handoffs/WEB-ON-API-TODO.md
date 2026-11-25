@@ -246,7 +246,7 @@ Each step builds on the last.
 | `admin/inventory` | admin/Inventory.tsx | inventory[sb], feeCharges[sb] | `/inventory/items`, `/inventory/issues`; charges under `/finance` | Ready |
 | `admin/chats` | admin/Chats.tsx | chat[sb], calls[sb] | `/chat/conversations` (messages, read) | Partial. No realtime: poll (B7 `since` cursors, FIG-1875). Voice calls blocked (C13) |
 | `admin/account` | admin/Account.tsx | profile[sb] | `/v1/auth/me`, `/v1/auth/password/change`, `/v1/me/notification-preferences`, MFA endpoints | Ready |
-| `admin/my-hr` | myhr/MyHr.tsx | myHr[sb], edge[sb] | none | Blocked (HR, C13) |
+| `admin/my-hr` | myhr/MyHr.tsx | myHr (API branch) | `/me/hr/*`, the API's HR proxy: off by default (`apps/api/docs/MY-HR.md`) | **Done**, shown only when the API says `available` (`docs/web-on-api/my-hr.md`) |
 | `admin/activities` | admin/Activities.tsx | activities[sb] | `/activities` (+patrons, members) | Ready. Edit and remove a member are missing (B11) |
 | `admin/visitors` | admin/Visitors.tsx | visitors[sb] | `/gate-visits` (+advance) | Ready. Poll for updates |
 | `admin/medical` | admin/Medical.tsx | medical, studentHealth (both partly ported) | `/health/*` (sick bay, medical settings, medication) | Nearly ready: finish, then enable |
@@ -271,7 +271,8 @@ Each step builds on the last.
 | `teacher/materials` | teacher/LearningMaterials.tsx | as `admin/materials` | as `admin/materials` | Partial |
 | `teacher/report-cards`, `teacher/performance` | admin/ReportCards.tsx, admin/Performance.tsx | same screens as admin | same as admin | Port once for both roles |
 | `teacher/leave` | teacher/Leave.tsx | leave[sb], hrLeave[sb], myHr[sb] | `/leave-requests` | Partial. The HR parts are blocked (C13) |
-| `teacher/loans`, `teacher/my-hr` | staff/Loans.tsx, myhr/MyHr.tsx | myHr[sb], edge[sb] | none | Blocked (HR, C13) |
+| `teacher/loans` | staff/Loans.tsx | none | none | No backend on either build: the Supabase page is a preview with sample data. Hidden by the owner's decision on Nov 25 |
+| `teacher/my-hr` | myhr/MyHr.tsx | myHr (API branch) | `/me/hr/*` (off by default) | **Done**, shown only when the API says `available` (`docs/web-on-api/my-hr.md`) |
 | `teacher/items` | teacher/Items.tsx | inventory[sb] | `/inventory/issues` | Ready |
 | `teacher/buses` | inline `DeliveryModeGate` | fleet[sb] | `/trips`, `/me/transport` | Partial. Poll (B7) |
 | `teacher/chats` | chat/MyChats.tsx | chat[sb] | `/chat/*` | Partial. Poll (B7) |
@@ -289,7 +290,8 @@ There is no shell on the API build yet: add one to `ApiApp.tsx` (step 4).
 | `staff`, `staff/visitors`, `staff/notices`, `staff/account` | staff/Staff.tsx | otherStaff[sb], visitors[sb], profile[sb], teacherData | `/staff`, `/gate-visits`, `/communications/announcements/inbox`, `/v1/auth/me` | Ready |
 | `staff/chats`, `staff/items` | chat/MyChats.tsx, teacher/Items.tsx | chat[sb], inventory[sb] | `/chat/*`, `/inventory/issues` | Ready, chat polls |
 | `staff/leave` | inline `StaffLeave` | leave[sb] | `/leave-requests` | Ready, HR parts blocked |
-| `staff/loans`, `staff/my-hr` | staff/Loans.tsx, myhr/MyHr.tsx | myHr[sb] | none | Blocked (C13) |
+| `staff/loans` | staff/Loans.tsx | none | none | No backend on either build: the Supabase page is a preview with sample data. Hidden by the owner's decision on Nov 25 |
+| `staff/my-hr` | myhr/MyHr.tsx | myHr (API branch) | `/me/hr/*` (off by default) | **Done**, shown only when the API says `available` (`docs/web-on-api/my-hr.md`) |
 | `driver`, `driver/profile` | driver/Trip.tsx, driver/Profile.tsx | fleet[sb], queueSend[sb], files[sb], profile[sb] | `/driver/assignments`, `/driver/trips`, `/trips/{id}/driver-location`, `/trips/{id}/events`, `/trips/{id}/complete` | Partial. The offline queue must send idempotency keys (see below). The phone session length (B10) matters more on the phone |
 
 ### Parent (13) and student (12): blocked on family reads

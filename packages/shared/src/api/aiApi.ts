@@ -1,6 +1,7 @@
 import type { AiStatus } from "../ai";
 import { parseChatSources, type AiChatReply, type AiChatTurn } from "../aiChat";
-import type { AiHelperRosterRow, AiHelperSettings } from "../aiHelper";
+import { optInActive, type AiHelperRosterRow, type AiHelperSettings, type AiHelperStatus } from "../aiHelper";
+import { NotOnApiError } from "../capabilities";
 import { EdgeError } from "../edge";
 import type { GuideAnswer, GuidePageInfo, GuideTurn, SetupCounts } from "../guide";
 import { apiClient } from "./client";
@@ -421,10 +422,48 @@ export async function apiFetchAiHelperRoster(tenantId: string): Promise<AiHelper
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
+export async function apiFetchAiHelperStatus(studentId: string | null): Promise<AiHelperStatus | null> {
+  if (!studentId) throw new NotOnApiError("Learner study helper status");
+  const tenantId = tenantIdOrThrow();
+  try {
+    const { ai_helper: h } = await apiClient().get("/v1/tenants/{tenantId}/me/children/{learnerId}/ai-helper", {
+      path: { tenantId, learnerId: studentId },
+      tenantId,
+    });
+    const status = h.optin ? (h.optin.opted_in ? "on" : "off") : null;
+    const termId = h.current_term?.id ?? null;
+    return {
+      studentId,
+      fullName: "",
+      schoolOn: h.school_on,
+      access: h.access_mode === "opt_in" ? "opt_in" : "all",
+      billingEnabled: h.billing_enabled,
+      priceCents: h.price_minor,
+      cancelDays: h.cancel_days,
+      status,
+      optInActive: optInActive(status ? { status, termId } : null, h.billing_enabled, termId),
+      termName: h.current_term?.label ?? null,
+      turnedOnBy: null,
+      turnedOnAt: h.optin?.opted_in ? h.optin.changed_at : null,
+      changedBy: null,
+      changedAt: h.optin?.changed_at ?? null,
+      questionsThisMonth: 0,
+      lastUsedAt: null,
+      chargeCents: null,
+    };
+  } catch (err) {
+    if (isApiError(err) && err.code === "not_found") return null;
+    throw err;
+  }
+}
+
 export async function apiSetAiHelperOptIn(studentId: string, on: boolean): Promise<string> {
   const tenantId = tenantIdOrThrow();
-  const terms = await listAcademicTerms(tenantId);
-  const current = terms.find((t) => t.is_current);
+  const { ai_helper } = await apiClient().get("/v1/tenants/{tenantId}/me/children/{learnerId}/ai-helper", {
+    path: { tenantId, learnerId: studentId },
+    tenantId,
+  });
+  const current = ai_helper.current_term;
   if (!current) throw new Error("There is no current term open.");
   await apiClient().put("/v1/tenants/{tenantId}/finance/ai-helper/optins", {
     path: { tenantId },

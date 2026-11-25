@@ -15,7 +15,7 @@ const NEW_PW = "brand-new-passw0rd";
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;
 
 /** Every per-child GET path, relative to /v1/tenants/{t}/me/children/{learnerId}. */
-const CHILD_PATHS: string[] = ["/attendance", "/results", "/report-cards", "/homework", "/materials", "/timetable", "/fees", "/activities", "/items", "/health"];
+const CHILD_PATHS: string[] = ["/attendance", "/results", "/report-cards", "/homework", "/materials", "/timetable", "/fees", "/activities", "/items", "/health", "/ai-helper"];
 
 function isoDay(offsetDays: number): string {
   const d = new Date();
@@ -545,6 +545,40 @@ describe("family reads (A1)", () => {
       expect((await child(c1, "/health")).json().health.medication_authorizations[0].guardian_consent_status).toBe("granted");
       // a child with no health record
       expect((await child(c2, "/health")).json().health).toEqual({ profile: null, medication_authorizations: [], medication_schedules: [], medication_administrations: [], sick_bay_visits: [] });
+    });
+
+    it("study-helper read conforms to OpenAPI, supplies current_term for PUT /finance/ai-helper/optins, and leaks no co-guardian user id", async () => {
+      const initial = await child(c1, "/ai-helper");
+      expect(initial.statusCode, initial.body).toBe(200);
+      conforms("/v1/tenants/{tenantId}/me/children/{learnerId}/ai-helper", 200, initial.json());
+      expect(initial.json().ai_helper).toEqual({
+        school_on: false,
+        access_mode: "all",
+        price_minor: 0,
+        currency: "KES",
+        cancel_days: 7,
+        billing_enabled: false,
+        current_term: { id: term, label: "Term 1" },
+        optin: null,
+      });
+
+      const cfg = await call("PUT", `/v1/tenants/${A()}/finance/ai-helper/settings`, admin, { access_mode: "opt_in", price_minor: 50_000, cancel_days: 7 }, A());
+      expect(cfg.statusCode, cfg.body).toBe(200);
+      const put = await call("PUT", `/v1/tenants/${A()}/finance/ai-helper/optins`, p1, { learner_id: c1, term_id: initial.json().ai_helper.current_term.id, opted_in: true }, A());
+      expect(put.statusCode, put.body).toBe(200);
+
+      const after = await child(c1, "/ai-helper");
+      expect(after.statusCode, after.body).toBe(200);
+      conforms("/v1/tenants/{tenantId}/me/children/{learnerId}/ai-helper", 200, after.json());
+      expect(after.json().ai_helper).toMatchObject({
+        school_on: true,
+        access_mode: "opt_in",
+        price_minor: 50_000,
+        current_term: { id: term, label: "Term 1" },
+        optin: { opted_in: true },
+      });
+      expect(JSON.stringify(after.json())).not.toContain(p1User);
+      expect((await child(c2, "/ai-helper")).json().ai_helper.optin).toBeNull();
     });
   });
 

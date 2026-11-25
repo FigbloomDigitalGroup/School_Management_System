@@ -32,7 +32,7 @@ redirect to the visitor log, the sick bay or Notices, and not all of those run o
 | `staff/visitors` for a staff member **without** the Visitors area | the Visitors area gives `resource.visitor.read` and `.write`; without it the API shows a person only the visits they host (the teacher's page), and the Supabase app hides the page the same way. The page shows for holders of the area (`staffMayKeepVisitors`) | the school gives them the Visitors area |
 | `staff/items` for a staff member **without** the Inventory area | `GET /inventory/issues` needs `resource.inventory.read`, which only the Inventory area gives (finding 13); the plain staff role is refused (403). The page shows for holders of the area (`staffMayReadItems`) | the API lets a person read their own issued items (finding staff-1) |
 | `staff/loans` | **no loans exist anywhere, not even on Supabase.** `staff/Loans.tsx` is a preview: a fixed borrowing limit and three sample loans, and a request lives only until the page reloads. On the API build it would show made-up loans to a real person, so it stays hidden. This is not the HR product (C13): the reason on `teacher/loans` is the same. Owner decision, 25 November 2026: leave it hidden | someone designs loans as a product (who approves, how repayments come off pay, where it is stored) |
-| `staff/my-hr` | no HR product on the API (C13) | not planned |
+| `staff/my-hr` | not hidden by the build any more: it is shown **only while the API's My HR status is `available`**, and that is off by default (the owner switches it on and links schools). See [my-hr.md](my-hr.md) | the owner switches it on and links the school |
 
 ## What a plain staff account can and cannot do
 

@@ -1,3 +1,5 @@
+import { apiFetchMyHr, apiFetchMyHrStatus, apiFetchPayslip } from "./api/myHrApi";
+import { onApi } from "./backend";
 import { invokeEdge } from "./edge";
 import { supabase } from "./supabase";
 
@@ -39,6 +41,7 @@ const STATUSES: readonly MyHrStatus[] = ["not_staff", "off", "not_linked", "not_
 
 /** my_hr_status() for the signed-in person; "off" for an answer it doesn't know (the page stays hidden). */
 export async function fetchMyHrStatus(): Promise<MyHrStatus> {
+  if (onApi()) return apiFetchMyHrStatus();
   const { data, error } = await supabase().rpc("my_hr_status");
   if (error) throw new Error(error.message);
   return STATUSES.includes(data as MyHrStatus) ? (data as MyHrStatus) : "off";
@@ -373,10 +376,12 @@ export type MyHrRoute = "summary" | MyHrTab;
 
 /** One section of the signed-in person's HR record. Throws an EdgeError with a sentence to show. */
 export async function fetchMyHr(route: MyHrRoute, params: { from?: string; to?: string } = {}): Promise<unknown> {
+  if (onApi()) return apiFetchMyHr(route, params);
   return invokeEdge<unknown>("my-hr", { route, ...params }, { timeoutMs: 25_000 });
 }
 
 /** One payslip in full (HR has no server-side PDF: the page lays it out and the browser prints or saves it). */
 export async function fetchPayslip(payslipId: string): Promise<unknown> {
+  if (onApi()) return apiFetchPayslip(payslipId);
   return invokeEdge<unknown>("my-hr", { route: "payslip", payslip_id: payslipId }, { timeoutMs: 25_000 });
 }

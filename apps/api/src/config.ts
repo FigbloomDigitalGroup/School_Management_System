@@ -244,9 +244,41 @@ const ConfigSchema = z.object({
   mfaRequiredRoles: z.array(z.enum(["teacher", "staff", "driver", "parent"])).default([]),
   /** Dedicated key for TOTP secrets at rest; must differ from the session HMAC key. Required in staging/production. */
   mfaEncryptionKey: z.string().min(32).max(256).optional(),
+  /**
+   * "My HR" (docs/MY-HR.md): a staff member's own payslips, leave, attendance and KPIs from Figbloom HR. Everything below is
+   * optional and the feature is OFF unless MY_HR_ENABLED=true AND PLATFORM_CLIENT_ID, PLATFORM_CLIENT_SECRET,
+   * PLATFORM_TOKEN_URL and HR_MY_HR_URL are all set. The names are the ones the Supabase `my-hr` function uses. Never logged.
+   */
+  myHrEnabled: z.boolean().default(false),
+  platformClientId: z.string().min(1).max(256).optional(),
+  platformClientSecret: z.string().min(1).max(1024).optional(),
+  /** The platform's token endpoint (client-credentials grant). */
+  platformTokenUrl: z.string().min(1).max(2048).optional(),
+  /** The platform's own API (school registration, hand-off). My HR does not call it; it is read so those slices share the name. */
+  platformApiUrl: z.string().min(1).max(2048).optional(),
+  /** HR's base address for My HR, e.g. https://hr.example/api/integrations/my-hr (https, no trailing slash). */
+  hrMyHrUrl: z.string().min(1).max(2048).optional(),
+  /** Per call to the platform token endpoint or to HR (including reading the answer). */
+  myHrHttpTimeoutMs: z.coerce.number().int().min(100).max(30_000).default(15_000),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
+
+/**
+ * An address the API may call out to for My HR: https, no credentials, query or fragment. http is accepted only for a
+ * loopback host in local and test, so that a fake HR on this machine can be used; staging and production are https only.
+ */
+export function isAllowedPlatformUrl(value: string, appEnv: AppEnvironment): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.username || url.password || url.search || url.hash) return false;
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && (appEnv === "local" || appEnv === "test") && isLoopbackHost(url.hostname);
+}
 
 /** True only for `http(s)://host[:port]` with nothing after it. `*`, `null`, paths and slashes are refused. */
 export function isExactHttpOrigin(value: string): boolean {
@@ -348,6 +380,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     mfaEnforcement: env.MFA_ENFORCEMENT || undefined,
     mfaRequiredRoles: (env.MFA_REQUIRED_ROLES ?? "").split(",").map((x) => x.trim()).filter(Boolean),
     mfaEncryptionKey: env.MFA_ENCRYPTION_KEY || undefined,
+    myHrEnabled: (env.MY_HR_ENABLED ?? "").trim().toLowerCase() === "true",
+    platformClientId: env.PLATFORM_CLIENT_ID?.trim() || undefined,
+    platformClientSecret: env.PLATFORM_CLIENT_SECRET?.trim() || undefined,
+    platformTokenUrl: env.PLATFORM_TOKEN_URL?.trim() || undefined,
+    platformApiUrl: env.PLATFORM_API_URL?.trim() || undefined,
+    hrMyHrUrl: env.HR_MY_HR_URL?.trim() || undefined,
+    myHrHttpTimeoutMs: env.MY_HR_HTTP_TIMEOUT_MS || undefined,
   });
   if (!parsed.success) {
     throw new Error(
@@ -382,6 +421,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       );
     }
   }
+  // My HR: a value that is set but unusable stops the start (names only, never the value); an unset one just leaves the
+  // feature off. A trailing slash on the two base addresses is dropped, so paths can be appended.
+  for (const [name, value] of [
+    ["PLATFORM_TOKEN_URL", config.platformTokenUrl],
+    ["PLATFORM_API_URL", config.platformApiUrl],
+    ["HR_MY_HR_URL", config.hrMyHrUrl],
+  ] as const) {
+    if (value !== undefined && !isAllowedPlatformUrl(value, config.appEnv)) {
+      throw new Error(
+        `Invalid API config: ${name} must be an https address with no credentials, query or fragment ` +
+          "(http is accepted only for a loopback host in local and test).",
+      );
+    }
+  }
+  config = {
+    ...config,
+    platformApiUrl: config.platformApiUrl?.replace(/\/+$/, ""),
+    hrMyHrUrl: config.hrMyHrUrl?.replace(/\/+$/, ""),
+  };
   const longestServerStatementMs = Math.max(config.statementTimeoutMs, config.identityStatementTimeoutMs);
   if (config.clientQueryTimeoutMs <= longestServerStatementMs) {
     throw new Error(
