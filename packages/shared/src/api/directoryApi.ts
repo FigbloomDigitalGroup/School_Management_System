@@ -2,6 +2,9 @@ import type { Role } from "../types";
 import { apiClient } from "./client";
 import { isApiError } from "./errors";
 import { API_PAGE_LIMIT, listAllPages } from "./paging";
+import type { components } from "./schema";
+
+type FamilyChatContact = components["schemas"]["FamilyChatContact"];
 
 /**
  * Who is who, for the screens that show other people's names (chats, notices). apps/api answers with user ids only: a
@@ -29,10 +32,47 @@ export type Directory = Map<string, DirectoryPerson>;
 export const DIRECTORY_TTL_MS = 60_000;
 
 let cached: { tenantId: string; at: number; value: Directory | null } | null = null;
+let familyCached: { tenantId: string; at: number; value: Directory } | null = null;
 
 /** Forgets the kept answer (a test; a sign-out; a school switch). */
 export function resetDirectory(): void {
   cached = null;
+  familyCached = null;
+}
+
+export function formatFamilyContactTitle(c: FamilyChatContact): string | null {
+  if (c.role === "school_admin") return "School office";
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const t of c.teaches) {
+    const label = t.subject ? `${t.subject} · ${t.class_name}` : `Class teacher · ${t.class_name}`;
+    if (!seen.has(label)) {
+      seen.add(label);
+      labels.push(label);
+    }
+  }
+  return labels.length ? labels.join(", ") : null;
+}
+
+/** The admins and child teachers a parent may talk with (`GET /me/chat-contacts`), cached per tenant for `DIRECTORY_TTL_MS`. */
+export async function familyChatDirectory(tenantId: string): Promise<Directory> {
+  const now = Date.now();
+  if (familyCached && familyCached.tenantId === tenantId && now - familyCached.at < DIRECTORY_TTL_MS) {
+    return familyCached.value;
+  }
+  const r = await apiClient().get("/v1/tenants/{tenantId}/me/chat-contacts", { path: { tenantId }, tenantId });
+  const out: Directory = new Map();
+  for (const c of r.contacts) {
+    out.set(c.user_id, {
+      userId: c.user_id,
+      name: c.full_name,
+      role: c.role,
+      title: formatFamilyContactTitle(c),
+      active: true,
+    });
+  }
+  familyCached = { tenantId, at: now, value: out };
+  return out;
 }
 
 async function loadDirectory(tenantId: string): Promise<Directory | null> {

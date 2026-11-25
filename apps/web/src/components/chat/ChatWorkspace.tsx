@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   chatCapabilities, chatRoleWord, conversationPreview, fetchChatContacts, fetchMyConversations, onApi, startConversation, subscribeChatMessages,
-  type ChatContact, type ConversationSummary,
+  type ChatContact, type ConversationSummary, type Role,
 } from "@figbloom/shared";
 import { Avatar } from "../Avatar";
 import { Button } from "../ui/Button";
@@ -37,10 +37,10 @@ export function ChatWorkspace({ emptyBody }: { emptyBody: string }) {
   const [picking, setPicking] = useState(false);
 
   const reload = useCallback(() => {
-    fetchMyConversations()
+    fetchMyConversations(profile.role)
       .then((cs) => { setList(cs); setError(null); })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load your chats."));
-  }, []);
+  }, [profile.role]);
 
   useEffect(() => {
     reload();
@@ -115,6 +115,7 @@ export function ChatWorkspace({ emptyBody }: { emptyBody: string }) {
             conversationId={openId}
             myId={profile.id}
             tenantId={tenant.id}
+            role={profile.role}
             canReply={selected?.canReply ?? true}
             onRead={reload}
             onSent={reload}
@@ -130,12 +131,12 @@ export function ChatWorkspace({ emptyBody }: { emptyBody: string }) {
         ) : null}
       </div>
 
-      <ContactPicker open={picking} onClose={() => setPicking(false)} onPick={(c) => void openWith(c)} />
+      <ContactPicker open={picking} role={profile.role} onClose={() => setPicking(false)} onPick={(c) => void openWith(c)} />
     </div>
   );
 }
 
-function ContactPicker({ open, onClose, onPick }: { open: boolean; onClose: () => void; onPick: (c: ChatContact) => void }) {
+function ContactPicker({ open, role, onClose, onPick }: { open: boolean; role: Role; onClose: () => void; onPick: (c: ChatContact) => void }) {
   const [contacts, setContacts] = useState<ChatContact[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -144,8 +145,8 @@ function ContactPicker({ open, onClose, onPick }: { open: boolean; onClose: () =
     if (!open) return;
     setQuery("");
     setError(null);
-    fetchChatContacts().then(setContacts).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load contacts."));
-  }, [open]);
+    fetchChatContacts(role).then(setContacts).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load contacts."));
+  }, [open, role]);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();

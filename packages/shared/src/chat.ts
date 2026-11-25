@@ -196,9 +196,9 @@ export function mergeMessage(list: ChatMessage[], m: ChatMessage): ChatMessage[]
 
 // ---------------------------------------------------------------- data
 
-export async function fetchChatContacts(): Promise<ChatContact[]> {
+export async function fetchChatContacts(role?: Role): Promise<ChatContact[]> {
   if (onApi()) {
-    return (await apiFetchChatContacts()).map((c) => ({ profileId: c.userId, name: c.name, role: c.role, avatarUrl: null, detail: c.title ?? chatRoleWord(c.role) }));
+    return (await apiFetchChatContacts(role)).map((c) => ({ profileId: c.userId, name: c.name, role: c.role, avatarUrl: null, detail: c.title ?? chatRoleWord(c.role) }));
   }
   const { data, error } = await supabase().rpc("my_chat_contacts");
   if (error) throw new Error(error.message);
@@ -206,8 +206,8 @@ export async function fetchChatContacts(): Promise<ChatContact[]> {
     .map((r) => ({ profileId: r.profile_id, name: r.full_name, role: r.role, avatarUrl: r.avatar_url, detail: r.detail }));
 }
 
-export async function fetchMyConversations(): Promise<ConversationSummary[]> {
-  if (onApi()) return apiFetchMyConversations();
+export async function fetchMyConversations(role?: Role): Promise<ConversationSummary[]> {
+  if (onApi()) return apiFetchMyConversations(role);
   const { data, error } = await supabase().rpc("my_conversations");
   if (error) throw new Error(error.message);
   return ((data ?? []) as {
@@ -235,8 +235,8 @@ export async function startConversation(otherProfileId: string): Promise<string>
   return data as string;
 }
 
-export async function fetchConversationPeople(conversationId: string): Promise<ChatPerson[]> {
-  if (onApi()) return apiFetchConversationPeople(conversationId);
+export async function fetchConversationPeople(conversationId: string, role?: Role): Promise<ChatPerson[]> {
+  if (onApi()) return apiFetchConversationPeople(conversationId, role);
   const { data, error } = await supabase().rpc("conversation_people", { p_conversation_id: conversationId });
   if (error) throw new Error(error.message);
   return ((data ?? []) as { profile_id: string; full_name: string; role: Role; avatar_url: string | null }[])

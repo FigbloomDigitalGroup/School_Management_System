@@ -377,3 +377,48 @@ describe("subscribeChatMessages on the API polls", () => {
     stop();
   });
 });
+
+describe("parent chats on the API", () => {
+  it("reads parent contacts from /me/chat-contacts without calling GET /staff", async () => {
+    boot({
+      [`GET ${P}/me/chat-contacts`]: {
+        body: {
+          contacts: [
+            {
+              user_id: ANN,
+              full_name: "Ann Mwangi",
+              role: "teacher",
+              teaches: [
+                { learner_id: "l1", class_name: "Form 2 East", subject: null },
+                { learner_id: "l1", class_name: "Form 2 East", subject: "Mathematics" },
+              ],
+            },
+            {
+              user_id: BOB,
+              full_name: "Principal",
+              role: "school_admin",
+              teaches: [],
+            },
+          ],
+        },
+      },
+      [`GET ${P}/staff`]: refused("forbidden", 403),
+      [`GET ${P}/chat/conversations`]: { body: { conversations: [conv(C1, ANN)], page: page() } },
+      [`GET ${P}/chat/conversations/${C1}/messages`]: { body: { messages: [msg("m1", C1, ANN, "Good morning")], page: page() } },
+    });
+
+    expect(await fetchChatContacts("parent")).toEqual([
+      { profileId: ANN, name: "Ann Mwangi", role: "teacher", avatarUrl: null, detail: "Class teacher · Form 2 East, Mathematics · Form 2 East" },
+      { profileId: BOB, name: "Principal", role: "school_admin", avatarUrl: null, detail: "School office" },
+    ]);
+
+    const convs = await fetchMyConversations("parent");
+    expect(convs[0]).toMatchObject({ id: C1, otherName: "Ann Mwangi", nameKnown: true, lastBody: "Good morning" });
+
+    const people = await fetchConversationPeople(C1, "parent");
+    expect(people).toEqual([{ profileId: ANN, name: "Ann Mwangi", role: "teacher", avatarUrl: null }]);
+
+    expect(api.callsTo(`GET ${P}/staff`)).toHaveLength(0);
+    expect(api.callsTo(`GET ${P}/me/chat-contacts`)).toHaveLength(1);
+  });
+});

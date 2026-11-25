@@ -4,6 +4,7 @@ import type { AreaPages } from "./types";
 
 const ParentActivities = lazy(() => import("../../screens/parent/Activities").then((m) => ({ default: m.ParentActivities })));
 const ParentBus = lazy(() => import("../../screens/parent/Bus").then((m) => ({ default: m.ParentBus })));
+const MyChats = lazy(() => import("../../screens/chat/MyChats").then((m) => ({ default: m.MyChats })));
 const ParentFees = lazy(() => import("../../screens/parent/Fees").then((m) => ({ default: m.ParentFees })));
 const ParentHealth = lazy(() => import("../../screens/parent/Health").then((m) => ({ default: m.ParentHealth })));
 const ParentHomework = lazy(() => import("../../screens/parent/Homework").then((m) => ({ default: m.ParentHomework })));
@@ -13,8 +14,8 @@ const ParentMaterials = lazy(() => import("../../screens/parent/Materials").then
 const ParentResults = lazy(() => import("../../screens/parent/Results").then((m) => ({ default: m.ParentResults })));
 
 /**
- * Parent pages (Home, Fees, Results, Homework, Learning materials, Sports & activities, Bus, Health, Issued items, Inbox). They are
- * served by the parent console (ApiParent.tsx). Home is that console's own page and is not listed here; Chats, Account and the
+ * Parent pages (Home, Fees, Results, Homework, Learning materials, Sports & activities, Bus, Health, Issued items, Inbox, Chats). They are
+ * served by the parent console (ApiParent.tsx). Home is that console's own page and is not listed here; Account and the
  * Bloom study helper follow next. Every parent menu entry that is not here is hidden.
  */
 export const pages: AreaPages = {
@@ -28,5 +29,6 @@ export const pages: AreaPages = {
     { path: "parent/health", element: <Lazy><ParentHealth /></Lazy> },
     { path: "parent/items", element: <Lazy><ParentItems /></Lazy> },
     { path: "parent/inbox", element: <Lazy><ParentInbox /></Lazy> },
+    { path: "parent/chats", element: <Lazy><MyChats role="parent" /></Lazy> },
   ],
 };

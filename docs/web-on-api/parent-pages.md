@@ -3,7 +3,7 @@
 Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md), which explains why each area has its own file.
 
 Opened from the menu on an API build for a person with a `parent` membership: **Home**, **Fees**, **Results**, **Homework**,
-**Learning materials**, **Sports & activities**, **Bus**, **Health**, **Issued items** and **Inbox**. Chats, Account and the
+**Learning materials**, **Sports & activities**, **Bus**, **Health**, **Issued items**, **Inbox** and **Chats**. Account and the
 Bloom study helper come in the next parent slices. The pages are registered in `apps/web/src/api/pages/parent.pages.tsx`, under a new
 `parent` kind (`ParentPageDef` in `pages/types.ts`, `parentPageDefs` and `API_PARENT_PAGES` in `pages/index.ts`: the one addition to
 the registry). The shell is the parent's own console, `ApiParent.tsx` (it also holds the Home route), picked by role in `ApiConsole.tsx`. Every read is `GET /v1/tenants/{id}/me/children...` (`resource.family.read`);
@@ -32,6 +32,9 @@ removed sees "No child linked" on every page and a child of another family is ne
 - **Inbox (`parent/inbox`) and "From the school" on Home:** published school and class announcements addressed to the parent from
   `GET /v1/tenants/{tenantId}/communications/announcements/inbox`, reloaded on changes via polling (`subscribeAnnouncements`), with
   read acknowledgement sent via `POST .../read` when a message is opened.
+- **Chats (`parent/chats`):** 1-on-1 text chats with school administrators and the parent's children's teachers from
+  `GET /v1/tenants/{tenantId}/me/chat-contacts` and `/v1/tenants/{tenantId}/chat/conversations`, with 4–10 second polling via
+  `subscribeChatMessages`.
 
 ## What is hidden on the API build, and why (`parentCapabilities()` in `capabilities.ts`)
 
@@ -50,7 +53,8 @@ removed sees "No child linked" on every page and a child of another family is ne
 | Ask the nurse to give a medicine; notices from the sick bay | parents have no such write, and the sick bay never writes notices (finding 15) |
 | Today's bus updates and the notify button; arrival time on the map | the API sends no stop coordinates and no route line (finding `parent-2`); bus notifications are not ported here |
 | Inbox attachments, signature requests, and unread dots/badges | files wait on A5, signatures on C12, and `/communications/announcements/inbox` does not report per-recipient read state |
-| Chats, Account settings, and Study helper | ported in the next parent slices |
+| Chat file attachments, voice/video calls, unread badges, and chatting with learners | files wait on A5, calls on C13, unread counts are not reported, and learners have no accounts on the API yet |
+| Account settings and Study helper | ported in the next parent slices |
 
 ## How the model is mapped
 
