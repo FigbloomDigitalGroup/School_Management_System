@@ -19,6 +19,7 @@
   "academics.he.enrolment.created": "academic",
   "academics.he.grade.corrected": "academic",
   "academics.he.grade.recorded": "academic",
+  "academics.he.section.instructor_changed": "academic",
   "academics.homework.created": "academic",
   "academics.mark.corrected": "academic",
   "academics.mark.upserted": "academic",

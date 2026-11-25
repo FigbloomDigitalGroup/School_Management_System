@@ -7122,6 +7122,9 @@ paths:
       tags:
         - academics
       summary: Create a higher-education section
+      description: "A section is a course in a term with a label. The optional `instructor_staff_id` names its instructor, an
+        active staff member of this school (400 otherwise; a staff id of another school is the same 400). Leave it out, or
+        send null, for a section with no instructor yet."
       operationId: createHeSection
       security:
         - bearerAuth: []
@@ -7173,7 +7176,8 @@ paths:
       tags:
         - academics
       summary: List higher-education sections
-      description: "By label. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed
+      description: "By label. Each section carries its `instructor_staff_id` (null when it has none). `courseId` narrows the
+        list to one course. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed
         sort (`sort` is refused)."
       operationId: listHeSections
       security:
@@ -7187,6 +7191,12 @@ paths:
         - name: tenantId
           in: path
           required: true
+          schema:
+            type: string
+            format: uuid
+        - name: courseId
+          in: query
+          required: false
           schema:
             type: string
             format: uuid
@@ -7211,6 +7221,63 @@ paths:
                       $ref: "#/components/schemas/HeSection"
                   page:
                     $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/he-sections/{sectionId}:
+    patch:
+      tags:
+        - academics
+      summary: Name, change or clear the instructor of a section
+      description: "Sets `instructor_staff_id` to an active staff member of this school (400 otherwise; a staff id of another
+        school is the same 400), or to null to clear it. The section keeps its course, term and label. Sending the
+        instructor the section already has changes nothing. Needs the same permission as creating a section. A section of
+        another school is 404. Audited with the old and the new staff id."
+      operationId: updateHeSection
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: sectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchHeSectionRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - section
+                properties:
+                  section:
+                    $ref: "#/components/schemas/HeSection"
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
@@ -7275,8 +7342,8 @@ paths:
       tags:
         - academics
       summary: List higher-education enrolments
-      description: "Oldest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed
-        sort (`sort` is refused)."
+      description: "Oldest first, withdrawn enrolments included. `sectionId` narrows the list to one section. Paged
+        (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
       operationId: listHeEnrolments
       security:
         - bearerAuth: []
@@ -7289,6 +7356,12 @@ paths:
         - name: tenantId
           in: path
           required: true
+          schema:
+            type: string
+            format: uuid
+        - name: sectionId
+          in: query
+          required: false
           schema:
             type: string
             format: uuid
@@ -18669,6 +18742,121 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/me/teaching/he-sections:
+    get:
+      tags:
+        - teaching
+      summary: The higher-education sections the caller instructs
+      description: "Teacher reads (docs/TEACHER-READS.md, Part 3). The sections whose instructor is the caller's linked,
+        active staff record, each with its course (code and title), its term (label), its own label and how many learners
+        are enrolled now (an enrolled learner who is still active). Empty for a caller who instructs nothing or has no
+        linked staff record. By course code, then label. Needs `resource.teaching.read` (403 for a parent, a student or a
+        driver). A higher-education school only (400 otherwise), like every `he-*` route. Paged (FIG-1621): `limit` 1-200
+        (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused); a cursor is bound to the
+        caller."
+      operationId: teachingMyHeSections
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.teaching.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The sections
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - sections
+                  - page
+                properties:
+                  sections:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeachingHeSection"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/me/teaching/he-sections/{sectionId}/enrolments:
+    get:
+      tags:
+        - teaching
+      summary: The learners enrolled in one section the caller instructs (names only)
+      description: "Teacher reads (docs/TEACHER-READS.md, Part 3). The roster of a section whose instructor is the caller's
+        linked, active staff record: each enrolled learner who is still active, with the enrolment id, the learner id, the
+        name and the admission number. No date of birth, gender, boarding or contacts; withdrawn enrolments and archived
+        learners are not listed. By name. A section that is another lecturer's, another school's or unknown is 404, and the
+        answer does not say which. Needs `resource.teaching.read`. A higher-education school only (400 otherwise). Paged
+        (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+      operationId: teachingMyHeSectionEnrolments
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.teaching.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: sectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The enrolled learners
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - enrolments
+                  - page
+                properties:
+                  enrolments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeachingHeEnrolment"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/me/inventory/issues:
     get:
       tags:
@@ -19131,6 +19319,14 @@ components:
         organizationId:
           type: string
           format: uuid
+        institutionType:
+          description: "The kind of school: k12 or higher_ed (null when the school has no profile yet). Any member who may read the school may read this, so a lecturer's menu can tell a higher-education school; the rest of the profile is for administrators."
+          anyOf:
+            - type: string
+              enum:
+                - k12
+                - higher_ed
+            - type: "null"
     PlatformSchoolStatus:
       type: string
       enum:
@@ -22165,6 +22361,7 @@ components:
         - course_id
         - term_id
         - label
+        - instructor_staff_id
         - created_at
       properties:
         id:
@@ -22181,6 +22378,12 @@ components:
           format: uuid
         label:
           type: string
+        instructor_staff_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: The staff record of the section's instructor (migration 107). Null when it has none.
         created_at:
           type: string
           format: date-time
@@ -23616,10 +23819,28 @@ components:
           type: string
           minLength: 1
           maxLength: 32
+        instructor_staff_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
       required:
         - course_id
         - term_id
         - label
+      additionalProperties: false
+    PatchHeSectionRequest:
+      type: object
+      properties:
+        instructor_staff_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+      required:
+        - instructor_staff_id
       additionalProperties: false
     PostHeEnrolmentsRequest:
       type: object
@@ -25878,6 +26099,50 @@ components:
           type: string
           format: uuid
         full_name:
+          type: string
+    TeachingHeSection:
+      type: object
+      additionalProperties: false
+      required: [id, course_id, course_code, course_title, term_id, term_label, label, enrolled_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        course_code:
+          type: string
+        course_title:
+          type: string
+        term_id:
+          type: string
+          format: uuid
+        term_label:
+          type: string
+          description: The academic term's label (a semester's name on the screens).
+        label:
+          type: string
+          description: The section's own label ("A", "B").
+        enrolled_count:
+          type: integer
+          minimum: 0
+          description: Learners enrolled now. A withdrawn enrolment and an archived learner are not counted.
+    TeachingHeEnrolment:
+      type: object
+      additionalProperties: false
+      required: [id, learner_id, full_name, admission_no]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The enrolment id.
+        learner_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        admission_no:
           type: string
     ChatOpenConversationRequest:
       type: object
