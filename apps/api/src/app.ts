@@ -49,6 +49,7 @@ import { registerAccountRoutes } from "./http/routes/accounts.js";
 import { registerGuardianInvitationRoutes } from "./http/routes/guardianInvitations.js";
 import { registerFamilyRoutes } from "./http/routes/family.js";
 import { registerTeachingRoutes } from "./http/routes/teaching.js";
+import { registerSchoolAuditRoutes } from "./http/routes/schoolAudit.js";
 import { registerAiRoutes } from "./http/routes/ai.js";
 import { mpesaProviderFromConfig, type MpesaProvider } from "./modules/finance/mpesaProvider.js";
 
@@ -242,6 +243,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerGuardianInvitationRoutes(app, pool);
   await registerFamilyRoutes(app, pool);
   await registerTeachingRoutes(app, pool);
+  await registerSchoolAuditRoutes(app, pool);
   await registerAiRoutes(app, pool);
 
   return app;

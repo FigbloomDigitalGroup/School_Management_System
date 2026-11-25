@@ -152,6 +152,10 @@ Teacher reads part 2 (`TEACHER-READS.md`, no migration) read `homework_items`, `
 for the classes the caller teaches, and `inventory_issues` joined to `inventory_items` for the caller's own open issues
 (`GET /me/inventory/issues`), under the same policies; nothing is added or widened.
 
+The school audit log (migration 106, `SCHOOL-AUDIT.md`) adds no table, policy or grant. `security_audit_events` keeps no
+`SELECT` grant for the runtime role; the one read is the `SECURITY DEFINER` function `school_audit_events`, which takes the school
+from `app_current_tenant_id()` and returns only business events, never the `detail` or `ip` columns.
+
 Teacher reads part 3 (migration 107, `TEACHER-READS.md`) adds one nullable column, `he_sections.instructor_staff_id`, with the
 foreign key `(instructor_staff_id, tenant_id)` to `staff_members (id, tenant_id)` (`ON DELETE RESTRICT`) and a column-level
 `UPDATE` grant to `figbloom_app` on that column only. No table, policy or definer function is added. `GET /me/teaching/he-sections`
