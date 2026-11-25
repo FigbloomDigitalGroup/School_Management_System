@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { initBackend } from "../backend";
 import { BASE, createFakeApi, type FakeApi, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
-import { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayReadItems } from "./otherStaffApi";
+import { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayKeepVisitors, staffMayReadItems } from "./otherStaffApi";
 import { createMemoryTokenStore } from "./tokenStore";
 
 const T = "11111111-1111-4111-8111-111111111111";
@@ -97,5 +97,15 @@ describe("staffMayReadItems", () => {
     expect(staffMayReadItems(["leave", "fees", "medical"])).toBe(false);
     expect(staffMayReadItems(["inventory"])).toBe(true);
     expect(staffMayReadItems(["leave", "inventory"])).toBe(true);
+  });
+});
+
+describe("staffMayKeepVisitors", () => {
+  it("is true only for the Visitors area, the one that gives resource.visitor.read and .write", () => {
+    expect(staffMayKeepVisitors([])).toBe(false);
+    expect(staffMayKeepVisitors(["inventory"])).toBe(false);
+    expect(staffMayKeepVisitors(["leave", "fees", "medical"])).toBe(false);
+    expect(staffMayKeepVisitors(["visitors"])).toBe(true);
+    expect(staffMayKeepVisitors(["medical", "visitors"])).toBe(true);
   });
 });
