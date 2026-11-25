@@ -135,6 +135,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * List a school's administrators (platform)
+         * @description Super administrators only (`platform.tenants.admins.read`). Active `school_admin` accounts for one school, keyset-paginated on `(created_at, id)`. Exposes personal data (name, sign-in e-mail), so each read is audited. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
         get: operations["listPlatformSchoolAdmins"];
         put?: never;
         post?: never;
@@ -151,6 +155,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * List every organization (platform directory)
+         * @description Super administrators only (`platform.organizations.read`). Directory fields and school count for every organization, keyset-paginated on `name COLLATE "C", id`. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
         get: operations["listPlatformOrganizations"];
         put?: never;
         post?: never;
@@ -167,6 +175,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * One organization's directory record (platform)
+         * @description Super administrators only (`platform.organizations.read`). The same fields as one item of the platform organization list. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
         get: operations["getPlatformOrganization"];
         put?: never;
         post?: never;
@@ -183,6 +195,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * List an organization's administrators (platform)
+         * @description Super administrators only (`platform.organizations.read`). `org_admin` accounts for one organization, keyset-paginated on `(created_at, id)`. Exposes personal data (name, sign-in e-mail), so each read is audited. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
         get: operations["listPlatformOrganizationAdmins"];
         put?: never;
         post?: never;
@@ -199,6 +215,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Per-school usage counts (platform)
+         * @description Super administrators only (`platform.usage.read`). Returns counts only (active learners, active staff memberships, active guardian links per school) via `platform_usage_counts()`. No names or person IDs. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
         get: operations["getPlatformUsage"];
         put?: never;
         post?: never;
@@ -215,6 +235,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Platform-wide audit trail (platform)
+         * @description Super administrators only (`platform.audit.read`). Newest-first security audit events across every school via `platform_audit_events()`, keyset-paginated on `(occurred_at, id)`. Never returns `ip` or `detail`. Reading the log is itself audited (`platform.audit.read`). The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
         get: operations["listPlatformAuditEvents"];
         put?: never;
         post?: never;
@@ -9753,8 +9777,11 @@ export interface operations {
     listPlatformSchoolAdmins: {
         parameters: {
             query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
                 limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
                 cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
                 sort?: components["parameters"]["PageSortUnsupported"];
             };
             header?: never;
@@ -9765,6 +9792,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The school's administrators */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9784,8 +9812,11 @@ export interface operations {
             query?: {
                 status?: "pending" | "active" | "suspended" | "rejected";
                 kind?: "government" | "county" | "constituency" | "group_owner";
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
                 limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
                 cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
                 sort?: components["parameters"]["PageSortUnsupported"];
             };
             header?: never;
@@ -9794,6 +9825,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Organizations page */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9818,6 +9850,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The organization */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9835,8 +9868,11 @@ export interface operations {
     listPlatformOrganizationAdmins: {
         parameters: {
             query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
                 limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
                 cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
                 sort?: components["parameters"]["PageSortUnsupported"];
             };
             header?: never;
@@ -9847,6 +9883,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The organization's administrators */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9870,6 +9907,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Per-school usage counts and totals */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9888,8 +9926,11 @@ export interface operations {
                 schoolId?: string;
                 eventPrefix?: string;
                 since?: string;
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
                 limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
                 cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
                 sort?: components["parameters"]["PageSortUnsupported"];
             };
             header?: never;
@@ -9898,6 +9939,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Platform audit events page */
             200: {
                 headers: {
                     [name: string]: unknown;
