@@ -53,3 +53,12 @@ export async function apiFetchMyStaffRecord(tenantId: string): Promise<MyStaffRe
 export function staffMayReadItems(areas: readonly AdminArea[]): boolean {
   return areas.includes("inventory");
 }
+
+/**
+ * Whether the visitor log (`staff/visitors`) is for a person holding these admin areas. It is the Visitors area that gives
+ * `resource.visitor.read` and `.write` (the gate's and reception's work); without it the API would answer a person's own hosted
+ * visits only, which is the teacher's page, not the desk's. The Supabase app uses the same rule (App.tsx, `StaffVisitors`).
+ */
+export function staffMayKeepVisitors(areas: readonly AdminArea[]): boolean {
+  return areas.includes("visitors");
+}

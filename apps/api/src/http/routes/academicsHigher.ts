@@ -22,6 +22,7 @@ import {
   recordHeGrade,
   startOnlineAttempt,
   submitOnlineAttempt,
+  updateHeSectionInstructor,
 } from "../../modules/academics/higherEd.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import { getLiveKitProvider } from "../../modules/communications/livekitProvider.js";
@@ -34,7 +35,15 @@ const CourseBody = z.strictObject({
   title: z.string().min(1).max(160),
   credit_hours: z.number().positive().optional(),
 });
-const SectionBody = z.strictObject({ course_id: z.guid(), term_id: z.guid(), label: z.string().min(1).max(32) });
+const SectionBody = z.strictObject({
+  course_id: z.guid(),
+  term_id: z.guid(),
+  label: z.string().min(1).max(32),
+  /** A staff record of this school (a lecturer). Optional: a section may have none yet. */
+  instructor_staff_id: z.guid().nullable().optional(),
+});
+/** Name or change the instructor of a section; `null` clears it. */
+const SectionPatch = z.strictObject({ instructor_staff_id: z.guid().nullable() });
 const EnrolBody = z.strictObject({ section_id: z.guid(), learner_id: z.guid() });
 const GradeBody = z.strictObject({ score: z.number(), grade: z.string().max(16).nullable().optional() });
 const GradeCorrectionBody = z.strictObject({
@@ -68,6 +77,7 @@ const SubmitBody = z.strictObject({
 export const HIGHER_REQUEST_SCHEMAS = {
   "POST /v1/tenants/{tenantId}/he-courses": CourseBody,
   "POST /v1/tenants/{tenantId}/he-sections": SectionBody,
+  "PATCH /v1/tenants/{tenantId}/he-sections/{sectionId}": SectionPatch,
   "POST /v1/tenants/{tenantId}/he-enrolments": EnrolBody,
   "POST /v1/tenants/{tenantId}/he-enrolments/{enrolmentId}/grade": GradeBody,
   "POST /v1/tenants/{tenantId}/he-enrolments/{enrolmentId}/grade-corrections": GradeCorrectionBody,
@@ -123,7 +133,7 @@ export async function registerAcademicsHigherRoutes(app: FastifyInstance, pool: 
         fingerprintInput: { params, body: parsed },
         status: 201,
         execute: async () => {
-          const section = await createHeSection(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, ...parsed });
+          const section = await createHeSection(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, ...parsed, ip });
           return { value: { section }, resourceType: "he_section", resourceId: section.id };
         },
         replay: async (_t, id) => {
@@ -134,6 +144,24 @@ export async function registerAcademicsHigherRoutes(app: FastifyInstance, pool: 
     });
     if (out.replayed) reply.header("Idempotent-Replayed", "true");
     return reply.status(out.status).send(out.value);
+  });
+
+  // Name, change or clear (null) a section's instructor. Same permission as creating a section. Naturally idempotent, so no key.
+  app.patch("/v1/tenants/:tenantId/he-sections/:sectionId", async (request) => {
+    const params = request.params as { tenantId: string; sectionId: string };
+    assertUuid(params.sectionId, "sectionId");
+    const parsed = parseOrThrow(SectionPatch, request.body, "instructor_staff_id is required (a staff id, or null to clear it)");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const section = await updateHeSectionInstructor(tx, {
+        tenantId: params.tenantId,
+        actorUserId: auth.user.id,
+        sectionId: params.sectionId,
+        instructor_staff_id: parsed.instructor_staff_id,
+        ip,
+      });
+      return { section };
+    });
   });
 
   app.get("/v1/tenants/:tenantId/he-sections", async (request) => {

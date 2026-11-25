@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fetchEnrollmentsForSection, fetchInstructorSections, type EnrolledStudentRow, type InstructorSectionRow } from "@figbloom/shared";
+import { coursesCapabilities, fetchEnrollmentsForSection, fetchInstructorSections, type EnrolledStudentRow, type InstructorSectionRow } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
@@ -40,7 +40,10 @@ export function TeacherMySections() {
               { key: "course", header: "Course", width: "1.6fr", render: (s: InstructorSectionRow) => <Cell sub={s.course_code}>{s.course_name}</Cell> },
               { key: "section", header: "Section", render: (s: InstructorSectionRow) => <Mono>{s.section_label}</Mono> },
               { key: "semester", header: "Semester", width: "1.2fr", render: (s: InstructorSectionRow) => <span className="text-[13px]">{s.semester_name}</span> },
-              { key: "room", header: "Room", render: (s: InstructorSectionRow) => <span className="text-[13px]">{s.room ?? "—"}</span> },
+              // A section's room does not exist on the API build, so the column is left out there, as admin/courses leaves it out.
+              ...(coursesCapabilities().sectionRoomAndCapacity ? [
+                { key: "room", header: "Room", render: (s: InstructorSectionRow) => <span className="text-[13px]">{s.room ?? "—"}</span> },
+              ] : []),
               { key: "enrolled", header: "Enrolled", align: "right", render: (s: InstructorSectionRow) => <Mono>{s.enrolled_count}{s.capacity ? ` / ${s.capacity}` : ""}</Mono> },
               {
                 key: "actions", header: "", align: "right",
