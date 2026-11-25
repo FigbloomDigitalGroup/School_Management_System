@@ -40,7 +40,9 @@ On `main` or in an open PR, not live in production yet.
   `POST /v1/platform/schools`), `platform/organizations` (read-only directory + org admins via `GET /v1/platform/organizations*`,
   migration `111_platform_organizations_and_admins_read.sql`), `platform/health` (`GET /v1/platform/ops/status`),
   `platform/usage` (counts-only `GET /v1/platform/usage`, migration `112_platform_usage_counts.sql`), and
-  `platform/audit` (`GET /v1/platform/audit-events`, migration `113_platform_audit_read.sql`, read-audited).
+  `platform/audit` (`GET /v1/platform/audit-events`, migration `113_platform_audit_read.sql`, read-audited). Migration
+  `114_platform_school_admins_read.sql` fixes the school administrators list, which always came back empty (row-level
+  security hid the rows from a request with no school).
   Owner-decision-blocked pages (Q1–Q7) remain gated behind `platformCapabilities()`.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on

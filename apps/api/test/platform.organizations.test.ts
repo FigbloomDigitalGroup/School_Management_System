@@ -7,6 +7,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { withIdentityAccess, withIdentityUserScope } from "../src/db/identityAccess.js";
 import { createTestApp, type FixtureIds } from "./support.js";
 
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;
@@ -100,5 +101,45 @@ describe("platform organizations and admins (read-only, slice P3)", () => {
     }
     expect((await get(`${ORGS}/not-a-uuid`, tokens.orgAdmin)).statusCode).toBe(403);
     expect((await get(`${SCHOOLS}/not-a-uuid/admins`, tokens.schoolAdmin, ids.tenantA)).statusCode).toBe(403);
+  });
+
+  it("lists a school's administrators one page at a time without repeats, and the audit row names the school", async () => {
+    const first = await get(`${SCHOOLS}/${ids.tenantA}/admins?limit=1`, tokens.super);
+    expect(first.statusCode, first.body.slice(0, 200)).toBe(200);
+    expect(first.json().items).toHaveLength(1);
+    const items = first.json().items as Array<{ email: string }>;
+    let cursor = first.json().page.next_cursor as string | null;
+    for (let i = 0; cursor && i < 20; i++) {
+      const next = await get(`${SCHOOLS}/${ids.tenantA}/admins?limit=1&cursor=${encodeURIComponent(cursor)}`, tokens.super);
+      expect(next.statusCode, next.body.slice(0, 200)).toBe(200);
+      items.push(...(next.json().items as Array<{ email: string }>));
+      cursor = next.json().page.next_cursor as string | null;
+    }
+    expect(items.map((a) => a.email)).toContain("admin-a@example.com");
+    expect(new Set(items.map((a) => a.email)).size).toBe(items.length);
+
+    // A school that does not exist is 404, and the read is audited against the school that was read.
+    expect((await get(`${SCHOOLS}/${randomUUID()}/admins`, tokens.super)).statusCode).toBe(404);
+    const audit = await ctx.pool.query<{ tenant_id: string | null }>(
+      `SELECT tenant_id FROM security_audit_events WHERE actor_user_id = $1 AND event_type = 'platform.school.admins_read' ORDER BY occurred_at DESC LIMIT 1`,
+      [ids.superAdmin],
+    );
+    expect(audit.rows[0]?.tenant_id).toBe(ids.tenantA);
+  });
+
+  it("platform_school_admins() refuses, in the database itself, anyone who is not a super administrator", async () => {
+    const call = `SELECT * FROM public.platform_school_admins($1::uuid, NULL, NULL, 50)`;
+    // No acting user at all.
+    await expect(withIdentityAccess(ctx.runtimePool, (db) => db.query(call, [ids.tenantA]))).rejects.toMatchObject({ code: "42501" });
+    // A school administrator, even of that very school, and a teacher.
+    for (const userId of [ids.adminA, ids.teacherA]) {
+      await expect(withIdentityUserScope(ctx.runtimePool, userId, (db) => db.query(call, [ids.tenantA]))).rejects.toMatchObject({ code: "42501" });
+    }
+    // The super administrator, with half a cursor, is refused as a bad parameter and not answered.
+    await expect(
+      withIdentityUserScope(ctx.runtimePool, ids.superAdmin, (db) =>
+        db.query(`SELECT * FROM public.platform_school_admins($1::uuid, now(), NULL, 50)`, [ids.tenantA]),
+      ),
+    ).rejects.toMatchObject({ code: "22023" });
   });
 });

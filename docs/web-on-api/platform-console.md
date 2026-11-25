@@ -11,6 +11,7 @@ Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md) and implementing 
   via `GET /v1/platform/ops/status`).
 - **P3 (done on `feature/web-api-platform-console`)**:
   - Migration `apps/api/migrations/111_platform_organizations_and_admins_read.sql` (`platform.organizations.read`, `platform.tenants.admins.read`, `super_admin` only).
+  - Migration `apps/api/migrations/114_platform_school_admins_read.sql` (a fix): the school administrators read first queried `school_memberships` directly, where forced row-level security hid every row from a request with no school, so the list was always empty. It now calls the `platform_school_admins()` definer function.
   - API routes: `GET /v1/platform/organizations`, `GET /v1/platform/organizations/{organizationId}`, `GET /v1/platform/organizations/{organizationId}/admins` (audited `platform.organization.admins_read`), `GET /v1/platform/schools/{schoolId}/admins` (audited `platform.school.admins_read`).
   - Web: `platform/organizations` (`ApiPlatformOrganizations.tsx`) showing all organizations, their administrators, and their member schools; plus the **School administrators** panel on `platform/tenants`. `platformCapabilities()` enables `organizationsPage` and `tenantAdminsPanel`.
 - **P4 (done on `feature/web-api-platform-console`)**:

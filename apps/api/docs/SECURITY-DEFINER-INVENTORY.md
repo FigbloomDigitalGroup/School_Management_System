@@ -139,3 +139,9 @@ All `search_path = pg_catalog, pg_temp`; `learner_accounts` is owner-only, so th
 Replaced in 110 (same signature and grants): `auth_session_idle_seconds` (a student gets the guardian 30 minutes),
 `communications_audience_reaches` (class and form-level reach for a learner) and `may_talk` (learner and class teacher, or
 school administrator).
+
+## Addendum 2026-11-25 — migration 114 (platform school administrators read, fix for `docs/PLATFORM-CONSOLE.md` slice P3)
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `platform_school_admins(uuid, timestamptz, uuid, integer)` | DEFINER (114), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | `school_memberships` has forced, tenant-scoped RLS and the platform request has no school, so a direct read saw no rows. Lists one school's active `school_admin` members (name, e-mail, status) for `super_admin` (`app_current_user_id()` re-checked against `platform_roles`, `42501` otherwise); keyset `(created_at, id)`, at most 201 rows. The route audits each read as `platform.school.admins_read` |
