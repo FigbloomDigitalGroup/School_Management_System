@@ -59,6 +59,13 @@ On `main` or in an open PR, not live in production yet.
   in the browser); the stock overview, the behaviour log and the HR & Payroll screens stay Supabase-only and are hidden on the
   API build until their slices land (`inventoryCapabilities().stockMovements`, `peopleCapabilities().learnerBehaviour`,
   `docs/handoffs/WEB-ON-API-ROADMAP.md`). `HrLaunch.tsx` asks `hasSession()` instead of calling `supabase()` (same answer).
+- **Stock movements on the new API (slice S1a, `apps/api` only)**: a port of the live "stock in and out" feature, same
+  rules (`apps/api/docs/INVENTORY-STOCK.md`, which also lists what differs and why). Migration
+  `115_inventory_movements.sql`: `unit`, `consumable`, `reorder_level` on `inventory_items`; table `inventory_movements`
+  (insert-only, forced RLS) with the `inventory_movements_apply` trigger that moves the count under a lock on the item.
+  New endpoints `POST` and `GET /v1/tenants/{t}/inventory/movements` and `GET /v1/tenants/{t}/inventory/stock-levels`
+  (existing `resource.inventory.read` / `.write`); `POST /inventory/items` takes the three new columns and a stock line may
+  start at 0. New audit event `inventory.movement.recorded`. Nothing on Supabase or the web changes.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:
