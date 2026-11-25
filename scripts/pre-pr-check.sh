@@ -4,6 +4,8 @@
 #   sh scripts/pre-pr-check.sh                 # checks HEAD against origin/main
 #   sh scripts/pre-pr-check.sh <ref>           # checks another branch, e.g. origin/dev-joe
 #
+# CI runs it on every PR into dev-staging or main, and the PR can't pass while it fails.
+#
 # It only reads git history and never builds or runs anything. It exits
 # non-zero naming every problem. Fix all of them before opening the PR.
 #   1. the branch must already contain everything on origin/main
@@ -23,7 +25,11 @@ failed=0
 fail() { printf 'PRE-PR CHECK FAILED: %s\n' "$1" >&2; failed=1; }
 warn() { printf 'PRE-PR CHECK WARNING: %s\n' "$1" >&2; }
 
-git fetch -q origin main || { echo "Could not fetch origin/main." >&2; exit 2; }
+# CI (.github/workflows/ci.yml) checks out the full history without credentials, so it doesn't fetch here.
+if [ "${GITHUB_ACTIONS:-}" != true ]; then
+  git fetch -q origin main || { echo "Could not fetch origin/main." >&2; exit 2; }
+fi
+git rev-parse -q --verify "$BASE" >/dev/null || { echo "$BASE not found. Fetch it first." >&2; exit 2; }
 
 # 1. main is in the branch -----------------------------------------------------
 if ! git merge-base --is-ancestor "$BASE" "$HEAD_REF"; then

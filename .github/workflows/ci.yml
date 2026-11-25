@@ -31,6 +31,25 @@ jobs:
           persist-credentials: false
       - run: sh scripts/security-scan.sh
 
+  pre-pr-check:
+    # CHANGELOG.md rules for anything going into dev-staging or main: the branch
+    # contains main, no migration or edge function already on main is edited or
+    # deleted, new migrations are dated after main's newest, and there's a
+    # CHANGELOG entry. Reads git history only.
+    name: Pre-PR check (CHANGELOG rules)
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev-staging')
+    needs: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: sh scripts/pre-pr-check.sh "$PR_HEAD"
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+
   checks:
     name: Typecheck, lint, unit tests
     needs: security-scan
