@@ -148,6 +148,10 @@ academic-year and term reads and the chat names read `classes`, `class_membershi
 `teaching_assignments`, `academic_years`, `academic_terms` and `school_memberships` under the policies above, plus the
 granted `users` columns (`full_name`, `status`). The per-class filter is application code (`teachingClassIds`).
 
+Teacher reads part 2 (`TEACHER-READS.md`, no migration) read `homework_items`, `learning_materials` and `online_exam_papers`
+for the classes the caller teaches, and `inventory_issues` joined to `inventory_items` for the caller's own open issues
+(`GET /me/inventory/issues`), under the same policies; nothing is added or widened.
+
 ## Updating this file
 
 Add the row in the same commit as the migration that creates the table. The test above fails otherwise.

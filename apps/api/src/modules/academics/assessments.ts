@@ -780,13 +780,24 @@ function mapHomework(row: HomeworkRow): PublicHomework {
   };
 }
 
+/**
+ * `classIds`, when given, limits the list to those classes (the teacher reads, docs/TEACHER-READS.md: the classes the caller
+ * teaches). It is bound as a parameter, so it is part of the cursor fingerprint: a cursor cannot be replayed under another scope.
+ */
 export async function listHomework(
   tx: Tx,
-  input: { tenantId: string; classId?: string; page: PageInput },
+  input: { tenantId: string; classId?: string; classIds?: readonly string[]; page: PageInput },
 ): Promise<Page<PublicHomework>> {
   const params: unknown[] = [input.tenantId];
-  const classClause = input.classId ? ` AND class_id = $2` : "";
-  if (input.classId) params.push(input.classId);
+  let classClause = "";
+  if (input.classId) {
+    params.push(input.classId);
+    classClause += ` AND class_id = $${params.length}`;
+  }
+  if (input.classIds) {
+    params.push([...input.classIds]);
+    classClause += ` AND class_id = ANY($${params.length}::uuid[])`;
+  }
   const out = await pageQuery<HomeworkRow>(
     tx,
     `SELECT ${HOMEWORK_COLS} FROM homework_items WHERE tenant_id = $1${classClause}`,
@@ -899,13 +910,27 @@ function mapMaterial(row: MaterialRow): PublicMaterial {
   };
 }
 
+/**
+ * `classIds`, when given, limits the list to those classes (the teacher reads, docs/TEACHER-READS.md); `includeSchoolWide`
+ * also lists the materials that name no class (shared with every class). Both are bound parameters, so they are part of
+ * the cursor fingerprint.
+ */
 export async function listLearningMaterials(
   tx: Tx,
-  input: { tenantId: string; classId?: string; page: PageInput },
+  input: { tenantId: string; classId?: string; classIds?: readonly string[]; includeSchoolWide?: boolean; page: PageInput },
 ): Promise<Page<PublicMaterial>> {
   const params: unknown[] = [input.tenantId];
-  const classClause = input.classId ? " AND class_id = $2" : "";
-  if (input.classId) params.push(input.classId);
+  let classClause = "";
+  if (input.classId) {
+    params.push(input.classId);
+    classClause += ` AND class_id = $${params.length}`;
+  }
+  if (input.classIds) {
+    params.push([...input.classIds]);
+    classClause += input.includeSchoolWide
+      ? ` AND (class_id = ANY($${params.length}::uuid[]) OR class_id IS NULL)`
+      : ` AND class_id = ANY($${params.length}::uuid[])`;
+  }
   const out = await pageQuery<MaterialRow>(
     tx,
     `SELECT ${MATERIAL_COLS} FROM learning_materials WHERE tenant_id = $1${classClause}`,

@@ -530,12 +530,22 @@ export async function createOnlinePaper(
   };
 }
 
-export async function listOnlinePapers(tx: Tx, input: { tenantId: string; page: PageInput; id?: string }) {
+/**
+ * `classIds`, when given, limits the list to those classes (the teacher reads, docs/TEACHER-READS.md: the classes the caller
+ * teaches). It is a bound parameter, so it is part of the cursor fingerprint.
+ */
+export async function listOnlinePapers(tx: Tx, input: { tenantId: string; page: PageInput; id?: string; classIds?: readonly string[] }) {
+  const params: unknown[] = [input.tenantId];
+  let classClause = "";
+  if (input.classIds) {
+    params.push([...input.classIds]);
+    classClause = ` AND class_id = ANY($${params.length}::uuid[])`;
+  }
   const res = await pageQuery<{ id: string }>(
     tx,
     `SELECT id, tenant_id, class_id, subject_id, title, max_score::text AS max_score, created_at
-       FROM online_exam_papers WHERE tenant_id = $1`,
-    [input.tenantId],
+       FROM online_exam_papers WHERE tenant_id = $1${classClause}`,
+    params,
     { name: "online_exam_papers", expr: "q.created_at", type: "timestamptz", dir: "desc" },
     input.page,
     input.id,

@@ -9,6 +9,7 @@ import {
   getInventoryItem,
   issueInventoryItem,
   listInventoryItems,
+  listMyOpenIssues,
   listOpenIssues,
   retireInventoryItem,
 } from "../../modules/inventory/inventory.js";
@@ -126,6 +127,16 @@ export async function registerInventoryRoutes(app: FastifyInstance, pool: AppPoo
       await requirePermission(tx, auth.authz, "resource.inventory.read", { ip, deferAudit: true });
       return listOpenIssues(tx, params.tenantId, page.limit, page.rawCursor);
     });
+  });
+
+  // The caller's own open issues (docs/TEACHER-READS.md, "My items"). Any active member of the school may read their own:
+  // the rows are filtered to `holder_user_id = the caller`, so no inventory permission is needed or checked.
+  app.get("/v1/tenants/:tenantId/me/inventory/issues", async (request) => {
+    const params = request.params as { tenantId: string };
+    const page = pageFrom(request);
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth }) =>
+      listMyOpenIssues(tx, { tenantId: params.tenantId, userId: auth.user.id, page }),
+    );
   });
 
   app.post(`${P}/issues/:issueId/close`, async (request) => {
