@@ -6,10 +6,13 @@ Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md) and implementing 
 ## Current status (handoff)
 
 - **P1 (done on `dev-joe`)**: `GET /v1/platform/schools` and `GET /v1/platform/schools/{schoolId}` (`platform.tenants.read`).
-- **P2 (this branch, `feature/web-api-platform-console`)**: platform console shell on the API build, `super_admin` sign-in,
+- **P2 (done on `feature/web-api-platform-console`)**: platform console shell on the API build, `super_admin` sign-in,
   `platform/tenants` (read-only directory + onboarding via `POST /v1/platform/schools`), and `platform/health` (live ops snapshot
-  via `GET /v1/platform/ops/status`). Everything else is hidden behind `platformCapabilities()` and unbacked functions in
-  `packages/shared/src/platform.ts` fail loudly with `NotOnApiError`.
+  via `GET /v1/platform/ops/status`).
+- **P3 (done on `feature/web-api-platform-console`)**:
+  - Migration `apps/api/migrations/111_platform_organizations_and_admins_read.sql` (`platform.organizations.read`, `platform.tenants.admins.read`, `super_admin` only).
+  - API routes: `GET /v1/platform/organizations`, `GET /v1/platform/organizations/{organizationId}`, `GET /v1/platform/organizations/{organizationId}/admins` (audited `platform.organization.admins_read`), `GET /v1/platform/schools/{schoolId}/admins` (audited `platform.school.admins_read`).
+  - Web: `platform/organizations` (`ApiPlatformOrganizations.tsx`) showing all organizations, their administrators, and their member schools; plus the **School administrators** panel on `platform/tenants`. `platformCapabilities()` now enables `organizationsPage` and `tenantAdminsPanel`.
 
 ## What works in P2
 

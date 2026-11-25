@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   acceptInviteLink,
+  apiFetchPlatformSchoolAdmins,
   apiFetchPlatformSchools,
   apiProvisionSchool,
   formatShortDate,
@@ -22,7 +23,7 @@ import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/DataTable";
 import { SelectField, TextField } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
-import { TableSkeleton } from "../../components/ui/Skeleton";
+import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
@@ -243,6 +244,10 @@ export function ApiPlatformTenants() {
 }
 
 function SchoolDetail({ school }: { school: PlatformSchoolItem }) {
+  const { data: admins, loading: adminsLoading, error: adminsError } = useAsync(
+    () => apiFetchPlatformSchoolAdmins(school.id),
+    [school.id],
+  );
   return (
     <>
       <div className="border-b border-line bg-white px-7 py-6">
@@ -310,6 +315,40 @@ function SchoolDetail({ school }: { school: PlatformSchoolItem }) {
               <dd className="mt-0.5 font-mono text-[12px] text-ink">{formatShortDate(school.createdAt)}</dd>
             </div>
           </dl>
+        </section>
+
+        <section className="rounded-lg border border-line bg-white p-4">
+          <div className="flex items-center justify-between">
+            <div className="font-mono text-micro uppercase tracking-[0.1em] text-ink-faint">School administrators</div>
+            <span className="font-mono text-[11px] text-ink-faint">
+              {adminsLoading ? "…" : `${(admins ?? []).length} active`}
+            </span>
+          </div>
+          {adminsError ? (
+            <p className="mt-2 text-small text-warn-ink">Could not load administrators: {userMessage(adminsError)}</p>
+          ) : adminsLoading ? (
+            <div className="mt-3 space-y-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          ) : (admins ?? []).length === 0 ? (
+            <p className="mt-2 text-small text-ink-muted">No active school administrators yet.</p>
+          ) : (
+            <ul className="mt-3 divide-y divide-line-soft">
+              {(admins ?? []).map((a) => (
+                <li key={a.userId} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-body font-medium">{a.fullName}</div>
+                    <div className="font-mono text-[11.5px] text-ink-muted">{a.email ?? "No email"}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-ink-faint">since {formatShortDate(a.since)}</span>
+                    <Badge tone={a.status === "active" ? "ok" : "muted"}>{a.status}</Badge>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
     </>

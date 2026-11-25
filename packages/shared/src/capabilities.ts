@@ -951,7 +951,7 @@ const PLATFORM_ON_SUPABASE: PlatformCapabilities = {
 };
 
 const PLATFORM_ON_API: PlatformCapabilities = {
-  organizationsPage: false,
+  organizationsPage: true,
   curriculumPage: false,
   usagePage: false,
   incidentsPage: false,
@@ -961,7 +961,7 @@ const PLATFORM_ON_API: PlatformCapabilities = {
   auditPage: false,
   tenantFiguresAndBilling: false,
   tenantLifecycleActions: false,
-  tenantAdminsPanel: false,
+  tenantAdminsPanel: true,
   tenantIllustrativeCharts: false,
   liveProviderChecks: false,
 };

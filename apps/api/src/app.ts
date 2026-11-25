@@ -43,6 +43,7 @@ import { registerReportingRoutes } from "./http/routes/reporting.js";
 import { registerTeacherReportRoutes } from "./http/routes/teacherReports.js";
 import { registerImportRoutes } from "./http/routes/imports.js";
 import { registerOpsStatusRoutes } from "./http/routes/opsStatus.js";
+import { registerPlatformOrganizationRoutes } from "./http/routes/platformOrganizations.js";
 import { registerPlatformSchoolRoutes } from "./http/routes/platformSchools.js";
 import { registerUnmatchedCallbackRoutes } from "./http/routes/unmatchedCallbacks.js";
 import { registerAccountRoutes } from "./http/routes/accounts.js";
@@ -239,6 +240,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerTeacherReportRoutes(app, pool);
   await registerImportRoutes(app, pool);
   await registerOpsStatusRoutes(app, pool);
+  await registerPlatformOrganizationRoutes(app, pool);
   await registerPlatformSchoolRoutes(app, pool);
   await registerUnmatchedCallbackRoutes(app, pool);
   await registerAccountRoutes(app, pool);

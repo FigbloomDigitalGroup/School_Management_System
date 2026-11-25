@@ -145,6 +145,131 @@ export async function apiFetchPlatformSchool(schoolId: string): Promise<Platform
   return platformSchoolFromApi(row);
 }
 
+// ---------------------------------------------------------------- organizations & admins (slice P3)
+
+export interface PlatformOrganizationItem {
+  id: string;
+  name: string;
+  slug: string;
+  kind: Organization["kind"];
+  status: Organization["status"];
+  createdAt: string;
+  schoolCount: number;
+}
+
+interface RawPlatformOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  kind: string;
+  status: string;
+  createdAt: string;
+  schoolCount: number;
+}
+
+export function platformOrganizationFromApi(raw: RawPlatformOrganization): PlatformOrganizationItem {
+  return {
+    id: raw.id,
+    name: raw.name,
+    slug: raw.slug,
+    kind: (ORG_KINDS as readonly string[]).includes(raw.kind) ? (raw.kind as Organization["kind"]) : "group_owner",
+    status: (ORG_STATUSES as readonly string[]).includes(raw.status) ? (raw.status as Organization["status"]) : "pending",
+    createdAt: raw.createdAt,
+    schoolCount: typeof raw.schoolCount === "number" && Number.isFinite(raw.schoolCount) ? Math.max(0, Math.trunc(raw.schoolCount)) : 0,
+  };
+}
+
+export function platformOrganizationToOrg(o: PlatformOrganizationItem): Organization {
+  return {
+    id: o.id,
+    name: o.name,
+    slug: o.slug,
+    kind: o.kind,
+    county: null,
+    contact_name: null,
+    contact_email: null,
+    contact_phone: null,
+    status: o.status,
+    created_at: o.createdAt,
+    created_by: null,
+  };
+}
+
+export interface PlatformAdminItem {
+  userId: string;
+  fullName: string;
+  email: string | null;
+  status: "active" | "disabled" | "invited";
+  since: string;
+}
+
+/** Every organization in the platform directory (`GET /v1/platform/organizations`). */
+export async function apiFetchPlatformOrganizations(filter?: {
+  status?: Organization["status"];
+  kind?: Organization["kind"];
+}): Promise<PlatformOrganizationItem[]> {
+  const rows = await listAllPages(async (cursor) => {
+    const res = await apiClient().get("/v1/platform/organizations", {
+      query: {
+        limit: API_PAGE_LIMIT,
+        cursor,
+        ...(filter?.status ? { status: filter.status } : {}),
+        ...(filter?.kind ? { kind: filter.kind } : {}),
+      },
+      tenantId: null,
+    });
+    return { items: res.items, page: res.page };
+  });
+  return rows.map(platformOrganizationFromApi);
+}
+
+/** One organization's directory record (`GET /v1/platform/organizations/{organizationId}`). */
+export async function apiFetchPlatformOrganization(organizationId: string): Promise<PlatformOrganizationItem> {
+  const row = await apiClient().get("/v1/platform/organizations/{organizationId}", {
+    path: { organizationId },
+    tenantId: null,
+  });
+  return platformOrganizationFromApi(row);
+}
+
+/** Administrators of one organization (`GET /v1/platform/organizations/{organizationId}/admins`, read-audited). */
+export async function apiFetchPlatformOrganizationAdmins(organizationId: string): Promise<PlatformAdminItem[]> {
+  const rows = await listAllPages(async (cursor) => {
+    const res = await apiClient().get("/v1/platform/organizations/{organizationId}/admins", {
+      path: { organizationId },
+      query: { limit: API_PAGE_LIMIT, cursor },
+      tenantId: null,
+    });
+    return { items: res.items, page: res.page };
+  });
+  return rows.map((a) => ({
+    userId: a.userId,
+    fullName: a.fullName,
+    email: a.email ?? null,
+    status: a.status,
+    since: a.since,
+  }));
+}
+
+/** Active school administrators of one school (`GET /v1/platform/schools/{schoolId}/admins`, read-audited). */
+export async function apiFetchPlatformSchoolAdmins(schoolId: string): Promise<PlatformAdminItem[]> {
+  const rows = await listAllPages(async (cursor) => {
+    const res = await apiClient().get("/v1/platform/schools/{schoolId}/admins", {
+      path: { schoolId },
+      query: { limit: API_PAGE_LIMIT, cursor },
+      tenantId: null,
+    });
+    return { items: res.items, page: res.page };
+  });
+  return rows.map((a) => ({
+    userId: a.userId,
+    fullName: a.fullName,
+    email: a.email ?? null,
+    status: a.status,
+    since: a.since,
+  }));
+}
+
 // ---------------------------------------------------------------- provisioning (POST /v1/platform/schools)
 
 export interface ProvisionSchoolInput {

@@ -12,6 +12,7 @@ import { TenantTheme } from "../components/TenantTheme";
 import { Skeleton } from "../components/ui/Skeleton";
 import { useAsync } from "../lib/useAsync";
 import { ApiPlatformHealth } from "../screens/platform/ApiPlatformHealth";
+import { ApiPlatformOrganizations } from "../screens/platform/ApiPlatformOrganizations";
 import { ApiPlatformTenants } from "../screens/platform/ApiPlatformTenants";
 
 /**
@@ -70,7 +71,7 @@ export function ApiPlatformShell() {
   const badges: Record<string, string> = {};
   if (counts?.tenants) badges["/platform/tenants"] = String(counts.tenants);
 
-  if (page !== "tenants" && page !== "health") {
+  if (page !== "tenants" && page !== "organizations" && page !== "health") {
     return <Navigate to="/platform/tenants" replace />;
   }
 
@@ -89,6 +90,8 @@ export function ApiPlatformShell() {
       >
         {page === "tenants" ? (
           <div className="h-screen"><ApiPlatformTenants /></div>
+        ) : page === "organizations" ? (
+          <div className="h-screen"><ApiPlatformOrganizations /></div>
         ) : (
           <ApiPlatformHealth />
         )}

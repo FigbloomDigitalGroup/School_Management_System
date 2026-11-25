@@ -5,6 +5,7 @@ import {
   activateTenant,
   fetchAllTenants,
   fetchImpersonationLog,
+  fetchOrganizationAdminProfiles,
   fetchOrganizations,
   fetchPlatformAudit,
   fetchPlatformIncidents,
@@ -12,17 +13,23 @@ import {
   fetchPlatformNavCounts,
   fetchPlatformSubscriptions,
   fetchPlatformUsage,
+  fetchSchoolAdmins,
   fetchServiceHistory,
 } from "../platform";
 import { BASE, createFakeApi, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiTokenStore } from "./client";
 import {
   apiFetchPlatformOpsStatus,
+  apiFetchPlatformOrganization,
+  apiFetchPlatformOrganizationAdmins,
+  apiFetchPlatformOrganizations,
   apiFetchPlatformSchool,
+  apiFetchPlatformSchoolAdmins,
   apiFetchPlatformSchools,
   apiLoadPlatformSession,
   apiProvisionSchool,
   parsePlatformOpsStatus,
+  platformOrganizationFromApi,
   platformSchoolFromApi,
   platformSchoolToTenant,
 } from "./platformApi";
@@ -222,10 +229,33 @@ describe("platformApi HTTP calls", () => {
 });
 
 describe("platform.ts on API backend & platformCapabilities", () => {
-  it("routes fetchAllTenants and fetchPlatformNavCounts through the API and fails loudly on unbacked pages", async () => {
+  it("routes P2 + P3 platform reads through the API and fails loudly on unbacked pages", async () => {
     boot({
       "GET /v1/platform/schools": {
         body: { items: [rawSchool(SCHOOL_A, "Alpha", "alpha")], page: { limit: 200, next_cursor: null } },
+      },
+      "GET /v1/platform/organizations": {
+        body: {
+          items: [{ id: ORG_1, name: "Rift Group", slug: "rift-group", kind: "group_owner", status: "active", createdAt: "2026-11-20T08:00:00.000Z", schoolCount: 2 }],
+          page: { limit: 200, next_cursor: null },
+        },
+      },
+      [`GET /v1/platform/organizations/${ORG_1}`]: {
+        body: { id: ORG_1, name: "Rift Group", slug: "rift-group", kind: "group_owner", status: "active", createdAt: "2026-11-20T08:00:00.000Z", schoolCount: 2 },
+      },
+      [`GET /v1/platform/organizations/${ORG_1}/admins`]: {
+        body: {
+          organizationId: ORG_1,
+          items: [{ userId: USER, fullName: "Org Lead", email: "lead@rift.org", status: "active", since: "2026-11-20T08:00:00.000Z" }],
+          page: { limit: 200, next_cursor: null },
+        },
+      },
+      [`GET /v1/platform/schools/${SCHOOL_A}/admins`]: {
+        body: {
+          schoolId: SCHOOL_A,
+          items: [{ userId: USER, fullName: "Principal", email: "head@alpha.ac.ke", status: "active", since: "2026-11-20T08:00:00.000Z" }],
+          page: { limit: 200, next_cursor: null },
+        },
       },
     });
 
@@ -233,12 +263,24 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     expect(tenants).toHaveLength(1);
     expect(tenants[0]!.slug).toBe("alpha");
 
+    const orgs = await fetchOrganizations();
+    expect(orgs).toHaveLength(1);
+    expect(orgs[0]!.slug).toBe("rift-group");
+
+    const orgOne = await apiFetchPlatformOrganization(ORG_1);
+    expect(orgOne.schoolCount).toBe(2);
+    expect((await apiFetchPlatformOrganizations()).length).toBe(1);
+    expect((await apiFetchPlatformOrganizationAdmins(ORG_1))[0]!.email).toBe("lead@rift.org");
+    expect((await fetchOrganizationAdminProfiles(ORG_1))[0]!.full_name).toBe("Org Lead");
+    expect((await apiFetchPlatformSchoolAdmins(SCHOOL_A))[0]!.fullName).toBe("Principal");
+    expect((await fetchSchoolAdmins(SCHOOL_A))[0]!.email).toBe("head@alpha.ac.ke");
+    expect(platformOrganizationFromApi({ id: ORG_1, name: "X", slug: "x", kind: "bad", status: "bad", createdAt: "2026-01-01T00:00:00.000Z", schoolCount: -1 }).status).toBe("pending");
+
     const nav = await fetchPlatformNavCounts();
     expect(nav).toEqual({ tenants: 1, openIncidents: 0, dueInvoices: 0 });
 
     const unbacked = [
       () => activateTenant(SCHOOL_A),
-      () => fetchOrganizations(),
       () => fetchServiceHistory(),
       () => fetchPlatformUsage(),
       () => fetchPlatformIncidents(),
@@ -252,7 +294,8 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     }
 
     const apiCaps = platformCapabilities();
-    expect(apiCaps.organizationsPage).toBe(false);
+    expect(apiCaps.organizationsPage).toBe(true);
+    expect(apiCaps.tenantAdminsPanel).toBe(true);
     expect(apiCaps.tenantIllustrativeCharts).toBe(false);
     expect(apiCaps.liveProviderChecks).toBe(false);
 

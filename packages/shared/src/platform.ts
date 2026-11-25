@@ -1,5 +1,12 @@
 import type { FunctionInvokeOptions } from "@supabase/supabase-js";
-import { apiFetchPlatformSchools, platformSchoolToTenant } from "./api/platformApi";
+import {
+  apiFetchPlatformOrganizationAdmins,
+  apiFetchPlatformOrganizations,
+  apiFetchPlatformSchoolAdmins,
+  apiFetchPlatformSchools,
+  platformOrganizationToOrg,
+  platformSchoolToTenant,
+} from "./api/platformApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import type { EmailOutcome } from "./passwordReset";
@@ -293,6 +300,10 @@ export interface SchoolAdmin {
  * which also lets the school's own admin read them; this list is shown to the first two).
  */
 export async function fetchSchoolAdmins(tenantId: string): Promise<SchoolAdmin[]> {
+  if (onApi()) {
+    const admins = await apiFetchPlatformSchoolAdmins(tenantId);
+    return admins.map((a) => ({ id: a.userId, full_name: a.fullName, email: a.email, staff_title: null }));
+  }
   const { data, error } = await supabase()
     .from("profiles")
     .select("id, full_name, email, staff_title")
@@ -330,7 +341,7 @@ export async function createOrganization(input: NewOrganizationInput): Promise<O
 }
 
 export async function fetchOrganizations(): Promise<Organization[]> {
-  if (onApi()) throw new NotOnApiError("Platform organizations");
+  if (onApi()) return (await apiFetchPlatformOrganizations()).map(platformOrganizationToOrg);
   const { data, error } = await supabase().from("organizations").select("*").order("name").returns<Organization[]>();
   if (error) throw error;
   return data ?? [];
@@ -374,7 +385,10 @@ export interface OrganizationAdminProfile { id: string; full_name: string; email
 
 /** The people who administer one organization. */
 export async function fetchOrganizationAdminProfiles(organizationId: string): Promise<OrganizationAdminProfile[]> {
-  if (onApi()) throw new NotOnApiError("Organization administrators");
+  if (onApi()) {
+    const admins = await apiFetchPlatformOrganizationAdmins(organizationId);
+    return admins.map((a) => ({ id: a.userId, full_name: a.fullName, email: a.email }));
+  }
   // organization_admins has two FKs into profiles (profile_id, added_by), so
   // the embed is ambiguous without a hint — PostgREST rejects it (PGRST201)
   // rather than guessing, and that rejection was previously going unnoticed
