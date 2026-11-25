@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppPool } from "../../db/pool.js";
 import type { IdentityDb } from "../../db/sql.js";
-import { withIdentityAccess } from "../../db/identityAccess.js";
+import { withIdentityAccess, withIdentityUserScope } from "../../db/identityAccess.js";
 import { recordSecurityEvent } from "../../modules/audit/audit.js";
 import { buildAuthzContext, requirePermission } from "../../modules/rbac/authorize.js";
 import { clientIp } from "../clientIp.js";
@@ -170,34 +170,39 @@ export async function registerPlatformSchoolRoutes(app: FastifyInstance, pool: A
   /**
    * Active school administrators for one school (slice P3). Personal data (name, email), so the read is audited.
    */
-  app.get("/v1/platform/schools/:schoolId/admins", async (request) =>
-    withIdentityAccess(
+  app.get("/v1/platform/schools/:schoolId/admins", async (request) => {
+    const ip = clientIp(request);
+    const { schoolId } = request.params as { schoolId: string };
+    const sort = "since";
+
+    // Who may read, the school and the paging, checked before anything is read.
+    const { actorUserId, limit, cursor, fingerprint } = await withIdentityAccess(
       pool,
       async (db) => {
-        const actorUserId = await requirePlatformReader(db, request, "platform.tenants.admins.read");
-        const { schoolId } = request.params as { schoolId: string };
+        const actor = await requirePlatformReader(db, request, "platform.tenants.admins.read");
         if (!uuidString.safeParse(schoolId).success) throw validationError("schoolId must be a UUID");
 
         const exists = await db.query(`SELECT 1 FROM tenants WHERE id = $1::uuid`, [schoolId]);
         if (exists.rowCount !== 1) throw notFound("School not found");
 
-        const query = request.query as Record<string, unknown>;
-        const sort = "since";
-        const { limit, cursor, fingerprint } = parseListQuery(query, {
+        const paging = parseListQuery(request.query as Record<string, unknown>, {
           sort,
           filter: { scope: "platform_school_admins", schoolId },
           keySpecs: [{ kind: "timestamptz_micros" }, { kind: "uuid" }],
         });
+        return { actorUserId: actor, ...paging };
+      },
+      opts(),
+    );
 
-        const params: unknown[] = [schoolId];
-        let keyset = "";
-        if (cursor) {
-          params.push(cursor.k[0]!, cursor.k[1]!);
-          keyset = `AND (sm.created_at, sm.id) > ($2::timestamptz, $3::uuid)`;
-        }
-        params.push(limit + 1);
-
-        const result = await db.query<{
+    // school_memberships is tenant-scoped (forced RLS) and this request carries no school, so a direct read sees no
+    // rows. The rows come from platform_school_admins() (migration 114), which re-checks the super administrator from
+    // the acting user that withIdentityUserScope sets.
+    const rows = await withIdentityUserScope(
+      pool,
+      actorUserId,
+      async (db) => {
+        const res = await db.query<{
           membership_id: string;
           since: string;
           user_id: string;
@@ -205,46 +210,49 @@ export async function registerPlatformSchoolRoutes(app: FastifyInstance, pool: A
           email: string | null;
           status: string;
         }>(
-          `SELECT sm.id AS membership_id,
-                  to_char(sm.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS since,
-                  u.id AS user_id, u.full_name, u.email, u.status
-             FROM school_memberships sm
-             JOIN users u ON u.id = sm.user_id
-            WHERE sm.tenant_id = $1::uuid AND sm.role = 'school_admin' AND sm.archived_at IS NULL
-            ${keyset}
-            ORDER BY sm.created_at, sm.id
-            LIMIT $${params.length}`,
-          params,
+          `SELECT a.membership_id,
+                  to_char(a.since AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS since,
+                  a.user_id, a.full_name, a.email, a.status
+             FROM public.platform_school_admins($1::uuid, $2::timestamptz, $3::uuid, $4::integer) a
+            ORDER BY a.since, a.membership_id`,
+          [schoolId, cursor ? cursor.k[0]! : null, cursor ? cursor.k[1]! : null, limit + 1],
         );
+        return res.rows;
+      },
+      opts(),
+    );
 
-        const page = pageFromKeysetRows(result.rows, {
-          limit,
-          sort,
-          fingerprint,
-          keysOf: (row) => [row.since, row.membership_id],
-        });
+    const page = pageFromKeysetRows(rows, {
+      limit,
+      sort,
+      fingerprint,
+      keysOf: (row) => [row.since, row.membership_id],
+    });
 
+    await withIdentityAccess(
+      pool,
+      async (db) => {
         await recordSecurityEvent(db, {
           eventType: "platform.school.admins_read",
           actorUserId,
           tenantId: schoolId,
           detail: { schoolId, count: page.items.length },
-          ip: clientIp(request),
+          ip,
         });
-
-        return {
-          schoolId,
-          items: page.items.map((r) => ({
-            userId: r.user_id,
-            fullName: r.full_name,
-            email: r.email,
-            status: r.status,
-            since: r.since,
-          })),
-          page: page.page,
-        };
       },
       opts(),
-    ),
-  );
+    );
+
+    return {
+      schoolId,
+      items: page.items.map((r) => ({
+        userId: r.user_id,
+        fullName: r.full_name,
+        email: r.email,
+        status: r.status,
+        since: r.since,
+      })),
+      page: page.page,
+    };
+  });
 }

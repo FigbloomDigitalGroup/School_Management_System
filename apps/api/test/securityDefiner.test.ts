@@ -42,6 +42,8 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "transport_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: resolves only the calling guardian account's linked, active learners in the current tenant" },
   // Migration 099: family reads (docs/FAMILY-READS.md)
   "family_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: the calling account's children in the current school (live link, active account, parent membership, active guardian record, live relationship, active learner); no argument, so no other account can be asked about" },
+  // Migration 114: platform school administrators read (docs/PLATFORM-CONSOLE.md slice P3, fix)
+  "platform_school_admins(uuid,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "school_memberships is tenant-scoped (forced RLS) and the platform request has no school: lists one school's active school_admin members (name, e-mail, status) for super_admin (re-checked from app.user_id); at most 201 rows; the route audits every read" },
   // Migration 113: platform audit read (docs/PLATFORM-CONSOLE.md slice P5)
   "platform_audit_events(uuid,text,timestamp with time zone,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "security_audit_events has no SELECT grant: platform-wide audit read for super_admin (re-checked from app.user_id); never returns ip or detail; at most 201 rows" },
   // Migration 112: platform usage counts (docs/PLATFORM-CONSOLE.md slice P4)
@@ -517,6 +519,7 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "auth_session_idle_seconds(uuid)",
   "finance_ops_snapshot()",
   "platform_usage_counts()",
+  "platform_school_admins(uuid,timestamp with time zone,uuid,integer)",
   "platform_audit_events(uuid,text,timestamp with time zone,timestamp with time zone,uuid,integer)",
   "platform_provision_school(uuid,text,text,text,text,text,text,timestamp with time zone)",
   "transport_fanout_notifications(uuid)",
