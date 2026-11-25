@@ -287,6 +287,7 @@ export function signatureTally(rows: SignatureStatusRow[]): Map<string, { signed
 
 /** The ids of an announcement's attachments that need a signature, in creation order. */
 export async function fetchSignableAttachmentIds(announcementId: string): Promise<string[]> {
+  if (onApi()) return [];
   const { data, error } = await supabase()
     .from("attachments")
     .select("id")

@@ -9,7 +9,8 @@ import { loadParentHomework, setHomeworkDone } from "../homework";
 import { fetchLearnerInventory } from "../inventory";
 import { fetchChildMedical } from "../medical";
 import { payWithMpesa } from "../mpesaPay";
-import { loadParentData } from "../parentData";
+import { fetchParentUnreadCount, loadParentData, markMessageRead } from "../parentData";
+import { fetchSignableAttachmentIds } from "../signatures";
 import { BASE, createFakeApi, type FakeApi, type FakeReply, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
 import {
@@ -126,10 +127,27 @@ describe("marks and exams", () => {
   });
 });
 
+const emptyInbox = { announcements: [], page: { limit: 200, next_cursor: null } };
+
 describe("loadParentData on the API", () => {
   it("builds each child from the family reads only, with money in cents", async () => {
     boot({
       [`GET ${P}/me/children`]: ok({ children: [kid(K2, "Zawadi Ochieng", "ADM-1002"), kid()] }),
+      [`GET ${P}/communications/announcements/inbox`]: ok({
+        announcements: [
+          {
+            id: "ann-1", tenant_id: T, author_id: "staff-1", subject: "Mid-term break",
+            body: "School closes Friday.", audience: { kind: "whole_school" }, channels: ["in_app"],
+            published_at: "2026-11-10T08:00:00Z", created_at: "2026-11-10T07:55:00Z",
+          },
+          {
+            id: "ann-2", tenant_id: T, author_id: "staff-2", subject: "Algebra quiz",
+            body: "Bring geometry sets.", audience: { kind: "class", class_id: CLS1 }, channels: ["in_app"],
+            published_at: "2026-11-12T09:00:00Z", created_at: "2026-11-12T08:50:00Z",
+          },
+        ],
+        page: { limit: 200, next_cursor: null },
+      }),
       [per(K1, "fees")]: ok({ invoices: [invoice({ id: INV_OLD, voided_at: "2026-11-30T00:00:00Z", status: "voided" }), invoice(), invoice({ id: "older", term: term(TERM2, "Term 3, 2025"), payments: [] })] }),
       [per(K1, "attendance")]: ok({ attendance: attendance() }),
       [per(K1, "results")]: ok({ marks: [mark(), mark({ assessment_id: "as-2", subject: { id: SUBJ_ENG, name: "English" }, score: "80", class_mean: null, grade: "A" })], cbe_results: [] }),
@@ -138,7 +156,7 @@ describe("loadParentData on the API", () => {
       [per(K2, "results")]: ok(emptyResults),
     });
     const data = await loadParentData("profile-id");
-    expect(api.calls.every((c) => c.path.startsWith(`${P}/me/children`))).toBe(true);
+    expect(api.calls.every((c) => c.path.startsWith(`${P}/me/children`) || c.path === `${P}/communications/announcements/inbox`)).toBe(true);
     expect(data.children.map((c) => c.adm)).toEqual(["ADM-1001", "ADM-1002"]);
     expect(data.termLabel).toBe("Term 1, 2026");
     const [amina, zawadi] = data.children;
@@ -152,13 +170,17 @@ describe("loadParentData on the API", () => {
     expect(amina!.proofs).toMatchObject([{ id: "pr-1", invoice_id: INV1, status: "rejected", rejection_reason: "Wrong amount", file_path: null, txn_amount_cents: 500_000 }]);
     expect(amina!.subjects.map((s) => [s.name, s.score, s.classMean, s.grade])).toEqual([["English", 80, null, "A"], ["Mathematics", 72, 60.5, "B"]]);
     expect(zawadi).toMatchObject({ invoiceId: null, balance: 0, billed: 0, attendancePct: null, mean: null, examId: null, exams: [], receipts: [], feeLines: [] });
-    expect(data.messages).toEqual([]);
+    expect(data.messages).toMatchObject([
+      { id: "ann-2", who: "teacher", from: "Class teacher", subject: "Algebra quiz", unread: false, body: "Bring geometry sets." },
+      { id: "ann-1", who: "school", from: "School office", subject: "Mid-term break", unread: false, body: "School closes Friday." },
+    ]);
     expect(data.feeItems).toEqual([]);
   });
 
   it("leaves an afternoon absence after an early sign-out out of the figures", async () => {
     boot({
       [`GET ${P}/me/children`]: ok({ children: [kid()] }),
+      [`GET ${P}/communications/announcements/inbox`]: ok(emptyInbox),
       [per(K1, "fees")]: ok({ invoices: [] }),
       [per(K1, "attendance")]: ok({
         attendance: attendance({
@@ -178,14 +200,18 @@ describe("loadParentData on the API", () => {
   });
 
   it("answers no children, and makes no per-child call, when the link has been revoked", async () => {
-    boot({ [`GET ${P}/me/children`]: ok({ children: [] }) });
+    boot({
+      [`GET ${P}/me/children`]: ok({ children: [] }),
+      [`GET ${P}/communications/announcements/inbox`]: ok(emptyInbox),
+    });
     expect((await loadParentData("p")).children).toEqual([]);
-    expect(api.calls).toHaveLength(1);
+    expect(api.calls.map((c) => c.path).sort()).toEqual([`${P}/communications/announcements/inbox`, `${P}/me/children`]);
   });
 
   it("reads a child with no class as having none", async () => {
     boot({
       [`GET ${P}/me/children`]: ok({ children: [kid(K1, "Amina Ochieng", "ADM-1001", null)] }),
+      [`GET ${P}/communications/announcements/inbox`]: ok(emptyInbox),
       [per(K1, "fees")]: ok({ invoices: [] }),
       [per(K1, "attendance")]: ok({ attendance: attendance({ marks: [] }) }),
       [per(K1, "results")]: ok(emptyResults),
@@ -196,6 +222,7 @@ describe("loadParentData on the API", () => {
   it("fails the load when one of a child's reads is refused", async () => {
     boot({
       [`GET ${P}/me/children`]: ok({ children: [kid()] }),
+      [`GET ${P}/communications/announcements/inbox`]: ok(emptyInbox),
       [per(K1, "fees")]: refused(404, "not_found"),
       [per(K1, "attendance")]: ok({ attendance: attendance() }),
       [per(K1, "results")]: ok(emptyResults),
@@ -470,9 +497,17 @@ describe("what a parent can do on each backend", () => {
     expect(sb).toMatchObject({ homeworkDone: true, paymentProofSubmit: true, signatures: true, calls: true, familyReportCards: false, medicationConsent: false });
     initBackend({ kind: "api", apiUrl: BASE });
     const on = parentCapabilities();
-    expect(on).toMatchObject({ homeworkDone: false, paymentProofSubmit: false, signatures: false, calls: false, childProfile: false, examPapers: false, reportCardPdf: false, familyReportCards: true, medicationConsent: true });
-    // Every flag the API turns on is one of the two the API alone has.
-    expect(Object.entries(on).filter(([, v]) => v).map(([k]) => k).sort()).toEqual(["familyReportCards", "medicationConsent"]);
+    expect(on).toMatchObject({ inbox: true, homeworkDone: false, paymentProofSubmit: false, signatures: false, calls: false, childProfile: false, examPapers: false, reportCardPdf: false, familyReportCards: true, medicationConsent: true });
+    // Every flag the API turns on is supported on the API build.
+    expect(Object.entries(on).filter(([, v]) => v).map(([k]) => k).sort()).toEqual(["familyReportCards", "inbox", "medicationConsent"]);
+  });
+
+  it("acknowledges read inbox messages and short-circuits unread/signature reads on API", async () => {
+    boot({ [`POST ${P}/communications/announcements/ann-1/read`]: ok({ ok: true }) });
+    await markMessageRead("profile-id", "ann-1");
+    expect(api.calls.map((c) => `${c.method} ${c.path}`)).toEqual([`POST ${P}/communications/announcements/ann-1/read`]);
+    expect(await fetchParentUnreadCount("profile-id")).toBe(0);
+    expect(await fetchSignableAttachmentIds("ann-1")).toEqual([]);
   });
 
   it("does not call the family endpoints off the API build", async () => {

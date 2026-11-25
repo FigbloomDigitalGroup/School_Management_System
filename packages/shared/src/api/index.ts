@@ -33,7 +33,7 @@ export {
 } from "./accessApi";
 export { apiFetchMyProfile, apiFetchNotificationPreferences, apiSetNotificationPreferences, notificationPreferencesFromApi } from "./accountApi";
 export {
-  apiFetchChildMaterials, apiFetchChildReportCards, levelOfChildClass, type FamilyMaterialView, type FamilyReportCardView,
+  apiFetchChildMaterials, apiFetchChildReportCards, apiFetchParentMessages, levelOfChildClass, type FamilyMaterialView, type FamilyReportCardView,
 } from "./parentApi";
 export { apiAnswerMedicationConsent, type FamilyHealthView, type MedicationAuthorizationView } from "./parentHealthApi";
 export { apiFetchFamilyRides, rideStatusText, ridesFromTransport, type FamilyRide, type RideStatus } from "./parentBusApi";

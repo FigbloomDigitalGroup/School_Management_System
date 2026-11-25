@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { markMessageRead, type MessageInfo } from "@figbloom/shared";
+import { useEffect, useRef, useState } from "react";
+import { announcementsCapabilities, markMessageRead, onApi, parentCapabilities, type MessageInfo } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { OwnerAttachments } from "../../components/Media";
 import { MessageToSign } from "../../components/signatures/PendingSignatures";
@@ -20,11 +20,18 @@ export function ParentInbox() {
   const { data, loading, error } = useParentData();
   const [messages, setMessages] = useState<MessageInfo[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const toldOnApi = useRef(new Set<string>());
+  const canAttach = announcementsCapabilities().attachments;
+  const canSign = parentCapabilities().signatures;
 
   useEffect(() => { setMessages(data?.messages ?? null); }, [data]);
 
   function open(id: string) {
     setSelectedId(id);
+    if (onApi() && !toldOnApi.current.has(id)) {
+      toldOnApi.current.add(id);
+      void markMessageRead(profile.id, id).catch(() => {});
+    }
     setMessages((ms) => {
       if (!ms) return ms;
       const target = ms.find((m) => m.id === id);
@@ -111,8 +118,8 @@ export function ParentInbox() {
                 <h2 className="mt-1.5 text-h2 font-semibold leading-snug tracking-tight">{selected.subject}</h2>
                 <div className="mt-1.5 text-[12.5px] text-ink-muted">{selected.from} · {selected.when}</div>
                 <p className="mt-4 whitespace-pre-line text-[14px] leading-relaxed">{selected.body}</p>
-                <div className="mt-5"><OwnerAttachments owner="announcement" id={selected.id} /></div>
-                <div className="mt-4"><MessageToSign announcementId={selected.id} /></div>
+                {canAttach && <div className="mt-5"><OwnerAttachments owner="announcement" id={selected.id} /></div>}
+                {canSign && <div className="mt-4"><MessageToSign announcementId={selected.id} /></div>}
               </div>
             ) : (
               <EmptyState title="Nothing here yet." body="Announcements from the school and your child's class teacher will appear here." />

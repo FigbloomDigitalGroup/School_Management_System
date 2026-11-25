@@ -8,10 +8,11 @@ import type { FeeCharge } from "../feeCharges";
 import { rubricFor, summariseStrands } from "../gradingSchemes";
 import type { ChildHomework, HomeworkItem } from "../homework";
 import type { InventoryCategory, InventoryIssueRow, IssueStatus, ItemCondition } from "../inventory";
-import type { ChildInfo, ChildSubject, ParentData, Receipt } from "../parentData";
+import { formatWhen, type ChildInfo, type ChildSubject, type MessageInfo, type ParentData, type Receipt } from "../parentData";
 import type { PaymentProof } from "../paymentProofs";
 import type { ClassLevel } from "../types";
 import { apiClient } from "./client";
+import { apiListInbox } from "./noticesApi";
 import type { components } from "./schema";
 
 /**
@@ -233,8 +234,30 @@ export function attendanceOfChild(learnerId: string, a: FamilyAttendance): { pct
   return { pct: attendanceFigures(countAttendance(entries, "session", signOuts)).pct, absentDates: [...absent].sort() };
 }
 
+/** Published school and class announcements addressed to this parent, newest first. */
+export async function apiFetchParentMessages(tenantId?: string): Promise<MessageInfo[]> {
+  const tid = tenantId ?? familyTenantId();
+  const rows = await apiListInbox(tid);
+  return rows
+    .slice()
+    .sort((a, b) => (b.published_at ?? b.created_at).localeCompare(a.published_at ?? a.created_at))
+    .map((a) => {
+      const isClass = a.audience.kind === "class";
+      return {
+        id: a.id,
+        who: isClass ? "teacher" : "school",
+        from: isClass ? "Class teacher" : "School office",
+        subject: a.subject,
+        when: formatWhen(a.published_at ?? a.created_at),
+        unread: false,
+        body: a.body,
+      };
+    });
+}
+
 export async function apiLoadParentData(): Promise<ParentData> {
-  const kids = [...(await apiFetchChildren())].sort((a, b) => a.admission_no.localeCompare(b.admission_no));
+  const [rawKids, messages] = await Promise.all([apiFetchChildren(), apiFetchParentMessages()]);
+  const kids = [...rawKids].sort((a, b) => a.admission_no.localeCompare(b.admission_no));
   const per = await Promise.all(kids.map(async (k) => {
     const [invoices, attendance, results] = await Promise.all([apiFetchChildFees(k.learner_id), apiFetchChildAttendance(k.learner_id), apiFetchChildResults(k.learner_id)]);
     return { k, invoices, attendance, results };
@@ -279,7 +302,7 @@ export async function apiLoadParentData(): Promise<ParentData> {
     };
   });
 
-  return { children, feeItems: [], termLabel, messages: [] };
+  return { children, feeItems: [], termLabel, messages };
 }
 
 // ---------------------------------------------------------------- homework
