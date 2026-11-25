@@ -1,5 +1,7 @@
 import type { Role } from "./types";
 import { ROLE_ID_PREFIX } from "./auth";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { invokeEdge } from "./edge";
 import { supabase } from "./supabase";
 
@@ -102,6 +104,7 @@ export interface PasswordResetRequest {
 
 /** Open "Forgot password?" requests at a school, oldest first. Readable by the school's admins and its org admins. */
 export async function fetchOpenPasswordResetRequests(tenantId: string): Promise<PasswordResetRequest[]> {
+  if (onApi()) throw new NotOnApiError("Password reset requests");
   const { data, error } = await supabase()
     .from("password_reset_requests")
     .select("id, profile_id, created_at, profiles!password_reset_requests_profile_id_fkey(full_name, role, login_id)")
@@ -150,6 +153,7 @@ export function roleFromLoginId(loginId: string): Role | null {
  * a login for has nothing to reset.
  */
 export async function fetchChildLogins(studentIds: string[]): Promise<Map<string, string>> {
+  if (onApi()) throw new NotOnApiError("Learner sign-in accounts");
   if (studentIds.length === 0) return new Map();
   const { data, error } = await supabase()
     .from("students").select("id, profile_id").in("id", studentIds)

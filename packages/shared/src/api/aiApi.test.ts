@@ -498,12 +498,43 @@ describe("Study helper settings, opt-ins and roster", () => {
     expect(await fetchAiHelperRoster(T)).toEqual([]);
   });
 
-  it("records a parent opt-in choice on the current term", async () => {
+  it("reads a linked child's study-helper status and records a parent opt-in choice on the current term", async () => {
     const api = boot({
-      [`GET /v1/tenants/${T}/academic-terms`]: list("terms", [{ id: TERM1, label: "Term 1", is_current: true }]),
+      [`GET /v1/tenants/${T}/me/children/${L1}/ai-helper`]: {
+        body: {
+          ai_helper: {
+            school_on: true,
+            access_mode: "opt_in",
+            price_minor: 50_000,
+            currency: "KES",
+            cancel_days: 7,
+            billing_enabled: false,
+            current_term: { id: TERM1, label: "Term 1" },
+            optin: { opted_in: true, changed_at: "2026-11-24T12:00:00Z" },
+          },
+        },
+      },
       [`PUT /v1/tenants/${T}/finance/ai-helper/optins`]: {
         body: { optin: { learner_id: L1, term_id: TERM1, opted_in: true, changed_by: "u-1", changed_at: "2026-11-24T12:00:00Z" } },
       },
+    });
+    const status = await fetchAiHelperStatus(L1);
+    expect(status).toMatchObject({
+      studentId: L1,
+      schoolOn: true,
+      access: "opt_in",
+      priceCents: 50_000,
+      cancelDays: 7,
+      billingEnabled: false,
+      status: "on",
+      optInActive: true,
+      termName: "Term 1",
+      turnedOnBy: null,
+      turnedOnAt: "2026-11-24T12:00:00Z",
+      changedBy: null,
+      changedAt: "2026-11-24T12:00:00Z",
+      questionsThisMonth: 0,
+      lastUsedAt: null,
     });
     expect(await setAiHelperOptIn(L1, true)).toBe("on");
     expect(api.callsTo(`PUT /v1/tenants/${T}/finance/ai-helper/optins`)[0]?.body).toEqual({
@@ -512,16 +543,67 @@ describe("Study helper settings, opt-ins and roster", () => {
       opted_in: true,
     });
   });
+
+  it("maps turned-off status and returns null when the child link is missing (404)", async () => {
+    boot({
+      [`GET /v1/tenants/${T}/me/children/${L1}/ai-helper`]: {
+        body: {
+          ai_helper: {
+            school_on: false,
+            access_mode: "all",
+            price_minor: 0,
+            currency: "KES",
+            cancel_days: 7,
+            billing_enabled: false,
+            current_term: null,
+            optin: { opted_in: false, changed_at: "2026-11-24T13:00:00Z" },
+          },
+        },
+      },
+      [`GET /v1/tenants/${T}/me/children/${L2}/ai-helper`]: refused("not_found", 404, "Child not found"),
+    });
+    expect(await fetchAiHelperStatus(L1)).toMatchObject({
+      schoolOn: false,
+      access: "all",
+      status: "off",
+      optInActive: false,
+      termName: null,
+      turnedOnAt: null,
+      changedAt: "2026-11-24T13:00:00Z",
+    });
+    expect(await fetchAiHelperStatus(L2)).toBeNull();
+  });
 });
 
 describe("Study helper opt-in refusals", () => {
   it("needs a current term, and passes on the API's 403 for a person who is not the child's parent", async () => {
-    const api = boot({ [`GET /v1/tenants/${T}/academic-terms`]: list("terms", []) });
+    const noTerm = {
+      body: {
+        ai_helper: {
+          school_on: true,
+          access_mode: "opt_in",
+          price_minor: 0,
+          currency: "KES",
+          cancel_days: 7,
+          billing_enabled: false,
+          current_term: null,
+          optin: null,
+        },
+      },
+    };
+    const api = boot({ [`GET /v1/tenants/${T}/me/children/${L1}/ai-helper`]: noTerm });
     await expect(setAiHelperOptIn(L1, true)).rejects.toThrow("There is no current term open.");
     expect(api.callsTo(`PUT /v1/tenants/${T}/finance/ai-helper/optins`)).toHaveLength(0);
 
     boot({
-      [`GET /v1/tenants/${T}/academic-terms`]: list("terms", [{ id: TERM1, label: "Term 1", is_current: true }]),
+      [`GET /v1/tenants/${T}/me/children/${L1}/ai-helper`]: {
+        body: {
+          ai_helper: {
+            ...noTerm.body.ai_helper,
+            current_term: { id: TERM1, label: "Term 1" },
+          },
+        },
+      },
       [`PUT /v1/tenants/${T}/finance/ai-helper/optins`]: refused("forbidden", 403, "Only a parent of this learner may do that"),
     });
     await expect(setAiHelperOptIn(L1, false)).rejects.toMatchObject({ status: 403 });
@@ -553,7 +635,7 @@ describe("NotOnApiError guards for unsupported AI/edge functions", () => {
     await expect(deleteAiChat("c1")).rejects.toBeInstanceOf(NotOnApiError);
     await expect(saveAiChatTurns("c1", [])).rejects.toBeInstanceOf(NotOnApiError);
     await expect(deleteAiChatMessage("m1")).rejects.toBeInstanceOf(NotOnApiError);
-    await expect(fetchAiHelperStatus(L1)).rejects.toBeInstanceOf(NotOnApiError);
+    await expect(fetchAiHelperStatus(null)).rejects.toBeInstanceOf(NotOnApiError);
     await expect(fetchSetupExisting(T)).rejects.toBeInstanceOf(NotOnApiError);
     await expect(applySetupPlan(T, [], null)).rejects.toBeInstanceOf(NotOnApiError);
     await expect(invokeEdge("ai-assist", {}, { timeoutMs: 1000 })).rejects.toBeInstanceOf(NotOnApiError);

@@ -161,3 +161,48 @@ export async function childFees(tx: Tx, input: { tenantId: string; learnerId: st
     })),
   }));
 }
+
+export interface ChildAiHelper {
+  school_on: boolean;
+  access_mode: "all" | "opt_in";
+  price_minor: number;
+  currency: typeof CURRENCY;
+  cancel_days: number;
+  billing_enabled: false;
+  current_term: { id: string; label: string } | null;
+  optin: { opted_in: boolean; changed_at: string } | null;
+}
+
+/**
+ * The school's study-helper settings, the current term (so the parent can call PUT /finance/ai-helper/optins without
+ * reading /academic-terms) and this child's opt-in choice in that term. Never returns `changed_by` user ids.
+ */
+export async function childAiHelper(tx: Tx, input: { tenantId: string; learnerId: string }): Promise<ChildAiHelper> {
+  const settingsRes = await tx.query<{ access_mode: "all" | "opt_in"; price_minor: string; cancel_days: number }>(
+    `SELECT access_mode, price_minor, cancel_days FROM finance_ai_helper_settings WHERE tenant_id = $1`,
+    [input.tenantId],
+  );
+  const settings = settingsRes.rows[0];
+  const termRes = await tx.query<{ id: string; label: string }>(
+    `SELECT id, label FROM academic_terms WHERE tenant_id = $1 AND is_current = true LIMIT 1`,
+    [input.tenantId],
+  );
+  const term = termRes.rows[0] ?? null;
+  const optRes = term
+    ? await tx.query<{ opted_in: boolean; changed_at: Date }>(
+        `SELECT opted_in, changed_at FROM finance_ai_helper_optins WHERE tenant_id = $1 AND learner_id = $2 AND term_id = $3`,
+        [input.tenantId, input.learnerId, term.id],
+      )
+    : null;
+  const opt = optRes?.rows[0];
+  return {
+    school_on: Boolean(settings),
+    access_mode: settings?.access_mode ?? "all",
+    price_minor: settings ? toMinor(settings.price_minor) : 0,
+    currency: CURRENCY,
+    cancel_days: settings?.cancel_days ?? 7,
+    billing_enabled: false,
+    current_term: term ? { id: term.id, label: term.label } : null,
+    optin: opt ? { opted_in: opt.opted_in, changed_at: opt.changed_at.toISOString() } : null,
+  };
+}

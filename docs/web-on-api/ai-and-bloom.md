@@ -51,7 +51,7 @@ the shell, so they are in `apps/web/src/api/ApiConsole.tsx` (`AdminPage` and `Te
 | School assistant setup plans ("Create N") and links to pages | `bloom-school/1` has `tools: []`, so no structured actions or links come back |
 | Study helper "Turned on by", monthly usage columns (questions, tokens, last used) | `/finance/ai-helper/optins` returns `changed_by` ids only, and per-learner AI usage is not tracked |
 | School AI on/off and web-search switches (`saveAiSettings`), and the "turn it on in School settings" wording | no endpoint to turn Bloom on or off (finding `ai-1`) |
-| Study helper chat for learners and the learner status call (`askTutor`, `fetchAiHelperStatus`) | learners and parents have no sign-in on the API build yet, and `/ai/query` is the only AI route |
+| Study helper chat for learners and the learner's own status call (`askTutor`, `fetchAiHelperStatus(null)`) | learners have no sign-in on the API build yet (A4), and `/ai/query` is the only AI route (`fetchAiHelperStatus(childId)` works for linked parents via `/me/children/{id}/ai-helper`) |
 
 `invokeEdge` now throws `NotOnApiError` on an API build, so a Supabase edge function is never called by mistake.
 
