@@ -52,7 +52,7 @@ export function visitFromApi(v: ApiGateVisit): Visit {
 }
 
 /** Visits that arrived since `since` (and before `until`, when given), newest first. */
-export async function apiListVisits(tenantId: string, since: Date, until?: Date): Promise<Visit[]> {
+export async function apiListVisits(tenantId: string, since: Date, until?: Date, opts?: { mine?: boolean }): Promise<Visit[]> {
   const sinceIso = since.toISOString();
   const untilIso = until?.toISOString();
   const out: Visit[] = [];
@@ -61,7 +61,7 @@ export async function apiListVisits(tenantId: string, since: Date, until?: Date)
   for (;;) {
     const res = await apiClient().get("/v1/tenants/{tenantId}/gate-visits", {
       path: { tenantId },
-      query: { limit: API_PAGE_LIMIT, cursor },
+      query: { limit: API_PAGE_LIMIT, cursor, ...(opts?.mine ? { mine: "true" as const } : {}) },
       tenantId,
     });
     for (const v of res.visits) {
@@ -164,8 +164,9 @@ export async function apiFindVisitLearners(tenantId: string, query: string): Pro
 export function apiSubscribeVisits(
   tenantId: string,
   onChange: (v: Visit, isNew: boolean) => void,
-  pollOpts?: Partial<PollOptions>,
+  pollOpts?: Partial<PollOptions> & { mine?: boolean },
 ): () => void {
+  const { mine, ...restPollOpts } = pollOpts ?? {};
   const seen = new Map<string, string>();
   let seeded = false;
 
@@ -173,7 +174,7 @@ export function apiSubscribeVisits(
     async (signal) => {
       const res = await apiClient().get("/v1/tenants/{tenantId}/gate-visits", {
         path: { tenantId },
-        query: { limit: POLL_VISITS_LIMIT },
+        query: { limit: POLL_VISITS_LIMIT, ...(mine ? { mine: "true" as const } : {}) },
         tenantId,
         signal,
       });
@@ -197,6 +198,6 @@ export function apiSubscribeVisits(
         }
       }
     },
-    { intervalMs: POLL_MS.live, ...pollOpts },
+    { intervalMs: POLL_MS.live, ...restPollOpts },
   );
 }

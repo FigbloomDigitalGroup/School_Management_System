@@ -4,7 +4,7 @@ import { TableSkeleton } from "../../components/ui/Skeleton";
 
 /** Today's visitors for this teacher, live from the gate and reception. They pop up on any page too. */
 export function TeacherVisitors() {
-  const { visits, loading, error } = useDayVisits(new Date());
+  const { visits, loading, error } = useDayVisits(new Date(), { mine: true });
   return (
     <>
       <PageHead eyebrow="Gate & reception" title="Your visitors" blurb="Anyone who asks for you at the gate or reception today. Reception brings them to you." />

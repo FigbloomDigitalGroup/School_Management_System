@@ -185,8 +185,8 @@ export async function escalateVisit(id: string): Promise<void> {
 }
 
 /** Visits that arrived since `since` (and before `until`, when given), newest first. */
-export async function listVisits(tenantId: string, since: Date, until?: Date): Promise<Visit[]> {
-  if (onApi()) return apiListVisits(tenantId, since, until);
+export async function listVisits(tenantId: string, since: Date, until?: Date, opts?: { mine?: boolean }): Promise<Visit[]> {
+  if (onApi()) return apiListVisits(tenantId, since, until, opts);
   let q = supabase().from("visits").select("*").eq("tenant_id", tenantId).gte("arrived_at", since.toISOString());
   if (until) q = q.lt("arrived_at", until.toISOString());
   const { data, error } = await q.order("arrived_at", { ascending: false }).limit(500).returns<Visit[]>();
@@ -216,8 +216,8 @@ export async function pushVisit(id: string): Promise<void> {
 }
 
 /** Every visit this person may see, as it's recorded or changes. RLS decides which rows arrive. */
-export function subscribeVisits(tenantId: string, onChange: (v: Visit, isNew: boolean) => void): () => void {
-  if (onApi()) return apiSubscribeVisits(tenantId, onChange);
+export function subscribeVisits(tenantId: string, onChange: (v: Visit, isNew: boolean) => void, opts?: { mine?: boolean }): () => void {
+  if (onApi()) return apiSubscribeVisits(tenantId, onChange, opts);
   const channel = supabase()
     .channel(`visits-${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     .on(

@@ -92,6 +92,19 @@ describe("listVisits, recordVisit, setVisitStatus on API", () => {
     expect(rows.map((r) => r.id)).toEqual([V1, V2]);
     // Stopped at cursor c1 because the last row was older than since; never fetched c2.
     expect(server.calls).toHaveLength(2);
+    expect(server.calls[0]!.query.get("mine")).toBeNull();
+  });
+
+  it("passes mine=true to listVisits and subscribeVisits when requested", async () => {
+    const server = boot({ [`GET ${P}/gate-visits`]: () => list("visits", [gateVisit()]) });
+    await listVisits(T, new Date("2026-05-10T00:00:00Z"), new Date("2026-05-11T00:00:00Z"), { mine: true });
+    expect(server.calls[0]!.query.get("mine")).toBe("true");
+
+    vi.useFakeTimers();
+    const stop = subscribeVisits(T, () => {}, { mine: true });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(server.calls[1]!.query.get("mine")).toBe("true");
+    stop();
   });
 
   it("posts strict create and advance bodies", async () => {

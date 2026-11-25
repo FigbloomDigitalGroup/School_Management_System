@@ -47,8 +47,9 @@ export function startOfDay(day = new Date()): Date {
  * along anywhere shows up here without a reload. RLS decides whose visits a
  * person gets, so the same hook serves the desk, the office and a teacher.
  */
-export function useDayVisits(day: Date): { visits: Visit[]; loading: boolean; error: Error | null; replace: (v: Visit) => void } {
+export function useDayVisits(day: Date, opts?: { mine?: boolean }): { visits: Visit[]; loading: boolean; error: Error | null; replace: (v: Visit) => void } {
   const { tenant } = useTenantSession();
+  const mine = opts?.mine ?? false;
   const from = startOfDay(day);
   const key = from.getTime();
   const [visits, setVisits] = useState<Visit[]>([]);
@@ -62,16 +63,16 @@ export function useDayVisits(day: Date): { visits: Visit[]; loading: boolean; er
     const until = new Date(key);
     until.setDate(until.getDate() + 1);
     setError(null);
-    listVisits(tenant.id, new Date(key), until)
+    listVisits(tenant.id, new Date(key), until, { mine })
       .then((rows) => { if (alive) setVisits(rows); })
       .catch((err: Error) => { if (alive) setError(err); })
       .finally(() => { if (alive) setLoadedFor(key); });
     const off = subscribeVisits(tenant.id, (v) => {
       const at = new Date(v.arrived_at).getTime();
       if (at >= key && at < until.getTime()) replace(v);
-    });
+    }, { mine });
     return () => { alive = false; off(); };
-  }, [tenant.id, key]);
+  }, [tenant.id, key, mine]);
 
   return { visits, loading: loadedFor !== key, error, replace };
 }
