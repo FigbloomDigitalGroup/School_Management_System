@@ -79,7 +79,7 @@ on the web reads it, so it is not used.
 42. **A higher-education section has no instructor, room, capacity or schedule**, and an enrolment cannot be ended. So a lecturer's
     "My sections" cannot be built on the API, and the admin cannot name an instructor.
     *Resolved for the instructor and "My sections" in API PR #406 (migration 107, `PATCH /he-sections/{id}`, `/me/teaching/he-sections`)
-    and the web PR that follows it: see [higher-ed-sections.md](higher-ed-sections.md). Still missing: room, capacity, schedule, and
+    and web PR #409: see [higher-ed-sections.md](higher-ed-sections.md). Still missing: room, capacity, schedule, and
     ending an enrolment.*
 43. **The OpenAPI file does not declare** `sectionId` on `GET /he-enrolments` or `courseId` on `GET /he-sections`, although the routes
     honour them. The typed client cannot send them, so a section's roster lists every enrolment of the school and picks the section
