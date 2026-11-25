@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  formatQty, inStore, monthsBack, movementDelta, movementProblem, periodRange, sortFlags, spendByMonthFor, stockOverview, stockStatus, stockTakeDelta,
+  capRange, formatQty, inStore, monthsBack, movementDelta, movementProblem, periodRange, sortFlags, spendByMonthFor, stockOverview, stockStatus, stockTakeDelta,
   storeOf, summariseStores, usageByItem,
   type ConsumptionFlag, type SpendRow, type StockLevel, type UsageRow,
 } from "./inventoryStock";
@@ -84,6 +84,13 @@ describe("periodRange", () => {
     expect(periodRange("term", NOW, { starts_on: "2026-08-31", ends_on: "2026-12-04" })).toEqual({ from: "2026-08-31", to: "2026-11-24" });
     expect(periodRange("term", NOW, { starts_on: "2026-05-04", ends_on: "2026-08-07" })).toEqual({ from: "2026-05-04", to: "2026-08-07" });
     expect(periodRange("term", NOW, null)).toEqual({ from: "2026-01-01", to: "2026-11-24" });
+  });
+  it("capRange leaves a range that fits and cuts a longer one to its last days (the API's report limit)", () => {
+    expect(capRange({ from: "2026-01-01", to: "2026-11-24" }, 366)).toEqual({ from: "2026-01-01", to: "2026-11-24" });
+    expect(capRange({ from: "2025-11-24", to: "2026-11-24" }, 365)).toEqual({ from: "2025-11-24", to: "2026-11-24" });
+    // a term whose dates were never moved on: two years back is cut to one year ending today
+    expect(capRange({ from: "2024-09-01", to: "2026-11-24" }, 366)).toEqual({ from: "2025-11-23", to: "2026-11-24" });
+    expect(capRange({ from: "2025-01-01", to: "2026-03-01" }, 30)).toEqual({ from: "2026-01-30", to: "2026-03-01" });
   });
   it("monthsBack gives the first of an earlier month", () => {
     expect(monthsBack(0, NOW)).toBe("2026-11-01");
