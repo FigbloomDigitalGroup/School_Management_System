@@ -93,8 +93,9 @@ async function newestMessages(tenantId: string, conversationId: string, limit: n
   return r.messages;
 }
 
+/** A parent's and a learner's list of people is `GET /me/chat-contacts` (the school's administrators and the teachers of their own child or class); everyone else's is the staff list. */
 function chatDirectoryFor(tenantId: string, role?: Role): Promise<Directory | null> {
-  return role === "parent" ? familyChatDirectory(tenantId) : staffDirectory(tenantId);
+  return role === "parent" || role === "student" ? familyChatDirectory(tenantId) : staffDirectory(tenantId);
 }
 
 export async function apiFetchMyConversations(role?: Role): Promise<ConversationSummary[]> {

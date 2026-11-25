@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   COUNTING_LABEL, PAPER_KIND_LABEL, canStartPaper, fetchPaperText, loadStudentPapers, paperResitWaiting, paperStanding, paperWindow,
-  scoreLabel, studentWindow, windowLabel,
+  scoreLabel, studentCapabilities, studentWindow, windowLabel,
   type AttemptRow, type ExamPaperRow, type StudentPaper,
 } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
@@ -102,7 +102,7 @@ export function StudentExams() {
               minWidth="520px"
               empty={
                 tab === "Done"
-                  ? { title: "Nothing here yet", body: "Papers you've handed in, and results once they're out, appear here." }
+                  ? { title: "Nothing here yet", body: studentCapabilities().examScores ? "Papers you've handed in, and results once they're out, appear here." : "Papers you've handed in appear here." }
                   : { title: "No exams coming up", body: "When a teacher posts an exam or a test for your class, it appears here." }
               }
             />
@@ -211,7 +211,8 @@ function PaperDetail({ view, now, onOpenFile, onSit, onReview }: {
         <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-ok-bg px-3.5 py-3">
           <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ok-ink text-[11px] text-white">✓</span>
           <span className="text-small leading-relaxed text-ok-ink">
-            Handed in. {paperResitWaiting(view) && w === "upcoming" ? "Your resit opens at the time above. " : ""}Your score appears here once your teacher releases the results.
+            Handed in. {paperResitWaiting(view) && w === "upcoming" ? "Your resit opens at the time above. " : ""}
+            {studentCapabilities().examScores ? "Your score appears here once your teacher releases the results." : "Your teacher has your answers. Scores are not shown here: ask your teacher how you did."}
           </span>
         </div>
       ) : w === "upcoming" ? (

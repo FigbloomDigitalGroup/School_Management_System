@@ -184,6 +184,15 @@ export async function apiAskBloomChat(
   });
 }
 
+/**
+ * The study helper's next reply for a learner: `POST /ai/query` with the PUBLIC scope, the only one the server gives a learner (`school`
+ * and `internal_figbloom` are a 403). The whole chat is packed into the one prompt, as for every Bloom chat on the API. The server does not
+ * look at the learner's opt-in or at whether an exam is open (finding `student-6`), so neither is checked here.
+ */
+export async function apiAskTutor(turns: readonly { role: "user" | "assistant"; content: string }[]): Promise<string> {
+  return (await apiQueryBloom({ scope: "public", prompt: formatBloomPrompt(turns) })).text;
+}
+
 export async function apiAskGuide(
   turns: GuideTurn[],
   opts: { pages: GuidePageInfo[]; here: string; tenantId?: string; signal?: AbortSignal },

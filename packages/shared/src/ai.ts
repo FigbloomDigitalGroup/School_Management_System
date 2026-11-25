@@ -1,4 +1,4 @@
-import { apiFetchAiStatus } from "./api/aiApi";
+import { apiAskTutor, apiFetchAiStatus } from "./api/aiApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
@@ -193,7 +193,8 @@ export interface TutorTurn { role: "user" | "assistant"; content: string }
 
 /** The helper's next reply. Throws an EdgeError with status 423 while an exam is open. */
 export async function askTutor(messages: TutorTurn[]): Promise<string> {
-  if (onApi()) throw new NotOnApiError("Bloom study helper chat");
+  // The learner's study helper on the API: the public scope of /ai/query (api/aiApi.ts).
+  if (onApi()) return apiAskTutor(messages);
   const { text } = await ask<{ text: string }>("tutor", { messages });
   return text;
 }

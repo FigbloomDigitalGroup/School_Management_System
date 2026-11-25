@@ -12,6 +12,9 @@ const COPY = {
   student: {
     blurb: "Chat with your parents and guardians.",
     empty: "Start a chat with a parent or guardian.",
+    // On the API a learner talks with the teachers of their own class and the school office, and with nobody else (owner decision, 25 November 2026).
+    apiBlurb: "Chat with your class teachers and the school office.",
+    apiEmpty: "Start a chat with your class teacher, a subject teacher, or the school office.",
   },
   teacher: {
     blurb: "One-to-one chats with the parents of learners you teach and with colleagues. For the whole class, use Messages.",

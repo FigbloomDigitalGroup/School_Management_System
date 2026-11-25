@@ -1,9 +1,13 @@
 import type { ClassLevel, Weekday } from "../types";
 import type { InventoryIssueRow } from "../inventory";
-import type { NoticeInfo, StudentData, WorkItem } from "../studentData";
+import type { PaymentProof } from "../paymentProofs";
+import type { NoticeInfo, StudentData, StudentFeeData, WorkItem } from "../studentData";
 import type { TimetableRow } from "../timetable";
 import { apiClient } from "./client";
-import { apiFetchLearnerInventory, apiFetchChildResults, apiFetchParentMessages, familyTenantId, groupExams, levelOfChildClass } from "./parentApi";
+import {
+  apiFetchChildFees, apiFetchChildResults, apiFetchLearnerInventory, apiFetchParentMessages, chargesFromInvoice, currentInvoice, familyTenantId, groupExams,
+  levelOfChildClass, receiptsFromInvoices,
+} from "./parentApi";
 import { apiFetchOwnLearner, isNoLearnerError } from "./ownLearner";
 import type { components } from "./schema";
 import { UNNAMED_PERIOD, weekdayFromApi } from "./timetableApi";
@@ -102,4 +106,45 @@ export async function apiFetchOwnTimetable(): Promise<Record<Weekday, TimetableR
 export async function apiFetchOwnLearnerInventory(): Promise<InventoryIssueRow[]> {
   const learner = await apiFetchOwnLearner();
   return apiFetchLearnerInventory([learner.learner_id]);
+}
+
+// ---------------------------------------------------------------- fees
+
+/**
+ * The learner's own fees (`GET .../me/children/{l}/fees`): the balance of "this term's invoice" (the newest one that is not voided: the API
+ * has no current term for a learner, finding `parent-4`), what it is made of, its charges, the receipts and the payment proofs already sent.
+ * The invoice's lines stand in for the term's fee structure, which a learner cannot read, as they do for a parent. Null for a login with no
+ * live learner.
+ */
+export async function apiLoadStudentFeeData(): Promise<StudentFeeData | null> {
+  let learner;
+  try {
+    learner = await apiFetchOwnLearner();
+  } catch (err) {
+    if (isNoLearnerError(err)) return null;
+    throw err;
+  }
+  const invoices = await apiFetchChildFees(learner.learner_id);
+  const inv = currentInvoice(invoices);
+  return {
+    studentId: learner.learner_id,
+    invoiceId: inv?.id ?? null,
+    name: learner.full_name,
+    admissionNo: learner.admission_no,
+    className: learner.class?.name ?? "",
+    formLevel: learner.class?.form_level ?? 1,
+    classLevel: levelOfChildClass(learner.class),
+    boarding: learner.boarding,
+    balance: inv ? Math.max(inv.balance_minor, 0) : 0,
+    billed: inv ? inv.total_minor : 0,
+    charges: inv ? chargesFromInvoice(inv, learner.learner_id) : [],
+    dueOn: inv?.due_on ?? null,
+    termLabel: inv?.term.label ?? null,
+    feeItems: inv ? inv.lines.map((l, i) => ({ id: `${inv.id}:line:${i}`, name: l.name, amount_cents: l.amount_minor, applies_to: "all" as const, form_level: null, level: null })) : [],
+    receipts: receiptsFromInvoices(invoices),
+    proofs: inv ? inv.proofs.map((p): PaymentProof => ({
+      id: p.id, invoice_id: inv.id, file_path: null, file_name: p.file_name, note: p.note, status: p.status, uploaded_at: p.created_at,
+      txn_code: p.txn_code, txn_amount_cents: p.txn_amount_minor, rejection_reason: p.rejection_reason,
+    })) : [],
+  };
 }

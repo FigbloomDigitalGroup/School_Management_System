@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  fetchSittingQuestions, formatTimeLeft, saveExamAttempt, scoreLabel, startExamAttempt, timeLeftMs, totalPoints,
+  fetchSittingQuestions, formatTimeLeft, saveExamAttempt, scoreLabel, startExamAttempt, studentCapabilities, timeLeftMs, totalPoints,
   type Answers, type AttemptRow, type AttemptSession, type ExamPaperRow,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -154,7 +154,8 @@ function Sitting({ paper, onExit }: { paper: ExamPaperRow; onExit: () => void })
           <div className="flex items-center gap-2.5 rounded-lg bg-ok-bg px-3.5 py-3">
             <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ok-ink text-[11px] text-white">✓</span>
             <span className="text-small leading-relaxed text-ok-ink">
-              {session?.timedOut ? "Time ran out, so your last saved answers were handed in." : "Handed in."} Your score appears on the Exams page once your teacher releases the results.
+              {session?.timedOut ? "Time ran out, so your last saved answers were handed in." : "Handed in."}{" "}
+              {studentCapabilities().examScores ? "Your score appears on the Exams page once your teacher releases the results." : "Your teacher has your answers. Scores are not shown here: ask your teacher how you did."}
             </span>
           </div>
         ) : (

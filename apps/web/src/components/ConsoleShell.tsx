@@ -137,9 +137,9 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
     }
     if (pageIsNotForInstitution(item.to, institutionType)) return false;
     if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
-    // Only where the school has turned the study helper on (School settings -> AI). On the API build, admin/study-helper and parent/study-helper are gated by their page registries and read settings from the API.
+    // Only where the school has turned the study helper on (School settings -> AI). On the API build, admin/study-helper, parent/study-helper and student/study-helper are gated by their page registries and read settings from the API.
     if (item.to === "student/study-helper" || item.to === "parent/study-helper" || item.to === "admin/study-helper") {
-      return onApi() ? item.to === "admin/study-helper" || item.to === "parent/study-helper" : !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
+      return onApi() ? true : !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
     }
     return true;
   });
