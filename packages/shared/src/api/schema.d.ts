@@ -442,6 +442,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/public/schools/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find a school by its exact address (for login-id sign-in)
+         * @description Public, rate limited per caller address with the login limiter's numbers (AUTH_RATE_*: 5 at once, then 2 every 5 s; an IPv6 caller is counted per /64). Turns the school's web address (`/s/<slug>`) into the school id that POST /v1/auth/login/login-id takes. Exact match only: there is no list, search, prefix or wildcard. A school that is not open for sign-in (onboarding, stalled in setup or suspended) answers exactly like an address nobody has: the same 404 with the standard not-found body. Only the school id and name are returned. A malformed address is a 400 before the database is touched. See apps/api/docs/PUBLIC-SCHOOL-LOOKUP.md.
+         */
+        get: operations["publicSchoolBySlug"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/logout": {
         parameters: {
             query?: never;
@@ -10150,6 +10170,36 @@ export interface operations {
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    publicSchoolBySlug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The school's address, as in /s/<slug>. Lower-case letters, digits and hyphens, 3 to 40. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The school (its id and name, nothing else) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        tenant_id: string;
+                        name: string;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
         };
     };
