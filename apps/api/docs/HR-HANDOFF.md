@@ -1,6 +1,7 @@
 # HR-run leave and the "HR & Payroll" handoff on the API: design note
 
-Written 2026-11-25 against `dev-joe` at `1624da4d`. Design only: no code, no migration, no setting is added by this note.
+Written 2026-11-25 against `dev-joe` at `1624da4d`, and updated the same day to match the My HR work as pushed
+(`feature/api-my-hr` at `49dcb66c`, `apps/api/docs/MY-HR.md`). Design only: no code, no migration, no setting is added by this note.
 It decides no product question. Those are listed in section 6 for the owner.
 
 ## 0. Scope, and what this note leaves out
@@ -9,18 +10,27 @@ Six web pages are HR-backed and are hidden on the API build today. The work on t
 
 | Part | Who | Where |
 |---|---|---|
-| My HR: payslips, balances, attendance, KPIs (the **view** routes `summary`, `payslips`, `payslip`, `leave`, `attendance`, `kpis`, and a status route) for `teacher/my-hr`, `staff/my-hr`, `admin/my-hr` | the My HR work (branches `feature/api-my-hr`, then `feature/web-api-my-hr`) | `apps/api/docs/MY-HR.md` on that branch. **Not on `dev-joe` and not pushed when this was written.** |
+| My HR: payslips, balances, attendance, KPIs (the **view** routes `summary`, `payslips`, `payslip`, `leave`, `attendance`, `kpis`, and a status route) for `teacher/my-hr`, `staff/my-hr`, `admin/my-hr` | the My HR work (branches `feature/api-my-hr`, then `feature/web-api-my-hr`) | `apps/api/docs/MY-HR.md` on that branch (pushed, **not yet merged into `dev-joe`**). Routes `GET /v1/tenants/{tenantId}/me/hr/{status,summary,payslips,payslips/{payslipId},leave,attendance,kpis}`. |
 | Loans (`teacher/loans`, `staff/loans`) | nobody | `staff/Loans.tsx` is a preview with no backend on Supabase either. The pages stay hidden. |
 | The **HR-run leave actions** of the `my-hr` function: `leave_form`, `leave_applications`, `leave_apply`, `leave_cancel`, `approvals`, `approval_decide`. They serve `admin/leave-to-approve` and the HR parts of `teacher/leave` and `staff/leave`. | **this note** | sections 1 to 5 |
 | The **"HR & Payroll" handoff**: `open-hr`, `hr_handoff_status`, the sidebar item | **this note** | sections 1 to 5 |
 
-Everything below sits on top of the My HR work's platform token client, HR caller and settings. I read its worktree
-(read only) once. It had these files, uncommitted: `apps/api/src/platform/platformClient.ts` (`PlatformTokenClient`,
-`PlatformError`), `hrApi.ts` (`callHr`, `HrCall`, `HrAnswer`, `HrCallError`, `hrMessage`, `hrErrorCode`), `http.ts`, and
-config fields `myHrEnabled`, `platformClientId`, `platformClientSecret`, `platformTokenUrl`, `platformApiUrl`, `hrMyHrUrl`,
-`myHrHttpTimeoutMs`. **Everything I say about them is an assumption to align with**, because they may change before they
-merge. Its "off" behaviour and its route prefix are in `MY-HR.md`, which did not exist yet. Where this note says "as My
-HR", it means whatever `MY-HR.md` says. This note promises no HTTP code for the off state.
+Everything below sits on top of the My HR work's platform token client, HR caller and settings. I read its pushed branch
+(`MY-HR.md` and the code, read only). What these slices reuse:
+
+- `src/platform/platformClient.ts`: `PlatformTokenClient` (token kept until a minute before expiry, one 401 retry) with
+  `call(method, path, body, signal?)` for the platform's own API. It throws `PlatformError` with `.status` and `.code` (the
+  platform's `error.code`, else `http_<status>`; status 0 for unreachable; `not_configured` without `PLATFORM_API_URL`). Config
+  helper `platformTokenConfigFrom(config)`.
+- `src/platform/hrApi.ts`: `callHr(tokens, url, call)`, which sends `x-figbloom-school` and `x-figbloom-person`.
+- `src/modules/hr/hrRefusal.ts`: **one** mapper, `refusalFromHr(answer, {notFound?})`, plus `hrUnavailable()` and `hrBadAnswer()`.
+  HR's `503 my_hr_off` is always `503 hr_off` there.
+- The settings (all optional, unset means off) and the routes under `/v1/tenants/{tenantId}/me/hr/`. This note's routes go
+  under the same prefix.
+- Migration 108: `platform_school_links`, one row per school (`hr_enabled`, `hr_reason`, `hr_checked_at`). Nothing writes it yet.
+
+`MY-HR.md` names this work as the next step: leave through HR and the handoff are "not in this slice" and "can reuse
+`src/platform/` and `src/modules/hr/hrRefusal.ts`". Where this note says "as My HR", it means `MY-HR.md`.
 
 **Contract documents.** The code cites `SCHOOLS_HR_HANDOFF_CONTRACT.md` (sections 1 and 3), `SCHOOLS_HR_LEAVE_CONTRACT.md`
 (sections 2 and 3), `SCHOOLS_HR_PHASE1_CONTRACT.md` and `SCHOOLS_HR_PHASE2_CONTRACT.md`. **I did not find any of them** on the
@@ -241,10 +251,15 @@ So HR knowing a school and its people depends on **school registration and staff
 
 ### 3.1 What the API already is, and what that changes
 
-- **No platform state.** The API has no `platform_links`, `platform_settings`, module status or event tables. It has
-  `external_identities` (provider `supabase_auth`, subject to user) but no legacy school id.
-- **Ids.** `scripts/supabase-to-api` writes through the API's HTTP endpoints, so a moved school and its staff get **new
-  ids**. HR and the platform know the Supabase ids (`tenants.id`, `profiles.id`). See risk R1 and question 3.
+- **Platform state.** My HR's migration 108 adds `platform_school_links` (tenant-scoped, forced RLS, `SELECT` only for the
+  API). No row means `not_linked`. A row never asked about (`hr_enabled` NULL) means `available`: ask HR on each call. Only an
+  explicit "no" in the last hour (`target_not_enabled`, `target_not_linked`) means `not_enabled`. **Nothing writes the row**: an
+  operator does, until question 2 is decided, and migration 108 leaves the write grant to the slice that learns HR's state
+  from the handoff. There are no `platform_settings` or event tables. `external_identities` (provider `supabase_auth`) maps a
+  user to a Supabase user id, but there is no legacy school id.
+- **Ids.** The API sends **its own** `tenants.id` and `users.id` (`x-figbloom-school`, `x-figbloom-person`), not the Supabase
+  ones. HR and the platform know the Supabase ids, and `scripts/supabase-to-api` creates new ids over HTTP. Whether HR and the
+  platform learn the API's ids is open: `MY-HR.md` Q1b. See risk R1 and question 3.
 - **Org admins have no school powers** unless delegated (`ORG-ADMIN-POLICY.md`). Supabase lets any org admin of the school's
   organisation open HR & Payroll. On the API that needs a delegation or a decision.
 - **Fees area.** `FEES_AREA_IMPLIED` is `resource.finance.read` and `.write`. The implied sets are exported so tests can pin
@@ -256,7 +271,8 @@ So HR knowing a school and its people depends on **school registration and staff
 - **Request body limit is 64 KiB.** A 3 MB document does not fit in a JSON body. See slice L3.
 - **No transaction across the HR call.** Transactions are bounded (statement 15 s, idle in transaction 15 s, pool 10). HR
   takes up to 15 s (45 s with a document). So: check permission and status in a short tenant transaction, release it, call
-  HR, then open a second short one to record. Never hold a connection while waiting.
+  HR, then open a second short one to record. Never hold a connection while waiting. My HR does the same: its rule and rate
+  limit commit before any network call.
 - **The "not configured" pattern.** Bloom, storage and reporting answer `503` with `{status: "not_configured", reason}` (for
   example `routes/ai.ts`, `routes/storage.ts`). E-mail (Resend) reports `not_configured` as a delivery result instead. The
   settings are all optional in `config.ts`; unset means off; a value that is set but unusable stops the start (names only).
@@ -267,17 +283,26 @@ Reuse the My HR work's names. Add only what these slices need, under the Supabas
 
 | Name | Used by | Notes |
 |---|---|---|
-| `PLATFORM_CLIENT_ID`, `PLATFORM_CLIENT_SECRET`, `PLATFORM_TOKEN_URL` | all | the My HR work reads them. The secret is an ECS task secret in production. |
-| `PLATFORM_API_URL` | handoff | the My HR work already reads it ("kept for registration and hand-off"). `POST /handoffs` is its first use. |
+| `PLATFORM_CLIENT_ID`, `PLATFORM_CLIENT_SECRET`, `PLATFORM_TOKEN_URL` | all | read by the My HR work (`MY-HR.md`). The secret is an ECS task secret in production. |
+| `PLATFORM_API_URL` | handoff, leave | My HR reads and checks it but does not use it. The handoff needs it (`PlatformTokenClient.call("POST", "/handoffs", ...)`), and leave lists it as required too, as the Supabase config required all four platform settings. |
 | `HR_MY_HR_URL` | leave | as My HR. https only. |
-| `MY_HR_ENABLED` | My HR | not used here. **Question for the My HR work:** does it gate the leave routes? On Supabase it does not. Leave has its own switch. |
+| `MY_HR_ENABLED` | My HR | not used here. My HR is off when it is not `true`. The handoff and leave have **their own** switches, as on Supabase, so My HR can be on while they are off. |
 | `PLATFORM_HANDOFF_ENABLED` | handoff | **new**, boolean, default false, as `MY_HR_ENABLED` is read |
 | `HR_LEAVE_ENABLED` | leave | **new**, boolean, default false |
 | `PLATFORM_EVENTS_ENABLED`, `PLATFORM_WEBHOOK_SECRET` | slice L4 only | **new**. The secret is an ECS task secret (at least 32 characters, like the other HMAC keys). |
 
-A feature is **on** only when its switch is true **and** the settings it needs are all set. Anything less is off. Off means
-no call to the platform, no token fetch, and the same off answer as My HR. A status route answers its value (`off`) so the
-web can hide the control. The platform's address is called only if it is `https`.
+A feature is **on** only when its switch is true **and** the settings it needs are all set. My HR: `MY_HR_ENABLED` plus
+`PLATFORM_CLIENT_ID`, `PLATFORM_CLIENT_SECRET`, `PLATFORM_TOKEN_URL`, `HR_MY_HR_URL`. The handoff: `PLATFORM_HANDOFF_ENABLED`
+plus the three platform settings and `PLATFORM_API_URL`. Leave: `HR_LEAVE_ENABLED` plus the four of My HR and
+`PLATFORM_API_URL`. Anything less is off.
+
+Off follows My HR's behaviour (`MY-HR.md`, "exactly what off does"). **Proposed** for these routes: the status route answers
+`200 {"status":"off"}` to a staff member (`not_staff` to anyone else); an action route answers `403` with a code of its own
+(`handoff_off`, `hr_leave_off`, the Supabase codes, added to the OpenAPI `Error` enum); a person who may not use the route gets
+`403 forbidden`; a school with no `platform_school_links` row gets `409 school_not_linked`. Nothing is sent to the platform or
+HR and the token endpoint is not asked. The start logs one line per feature (`outcome` `off`, `on` or `incomplete`, with the
+names of missing settings, never a value). Addresses must be `https` (loopback `http` only in local and test), which
+`config.ts` already checks.
 
 Production: plain values (the addresses, the switches) go in the task definition; the two secrets go in ECS task secrets.
 Nothing goes in `env.example` but commented names.
@@ -287,9 +312,10 @@ Nothing goes in `env.example` but commented names.
 Forward-only. Migrations 106 (school audit), 107 (HE section instructor) and 108 (My HR) are taken. One migration per slice
 that needs one.
 
-- **Slice H1:** table `platform_module_status (tenant_id, module, enabled, reason, checked_at)`, primary key
-  `(tenant_id, module)`, **forced RLS** on `tenant_id = app_current_tenant_id()`, `SELECT, INSERT, UPDATE` for `figbloom_app`.
-  The permission `resource.hr.handoff` and the audit type `hr.handoff.opened` (below).
+- **Slice H1:** **no new table.** The handoff records the platform's answer in My HR's `platform_school_links`
+  (`hr_enabled`, `hr_reason`, `hr_checked_at`). H1's migration gives `figbloom_app` `UPDATE` on those three columns only. That
+  closes `MY-HR.md`'s open point "Who writes `not_enabled`?". It also adds the permission `resource.hr.handoff` and the audit
+  type `hr.handoff.opened` (below).
 - **Slice L1:** the permission `resource.hr.leave_approvals` and the audit type `hr.leave.decided`. Permissions are catalogue
   rows, so this is a small migration of its own.
 - **Slice L4 only:** `platform_event_deliveries` (`delivery_id` primary key, type, school, outcome, detail), HR columns on
@@ -298,9 +324,11 @@ that needs one.
   re-dated by HR, and one `SECURITY DEFINER` function `platform_hr_leave_event(...)`. It follows the pattern of
   `org_my_audit_events` (migrator owner, `search_path = pg_catalog, pg_temp`, `EXECUTE` for `figbloom_app` only) and must be
   listed in `SECURITY-DEFINER-INVENTORY.md` and its tests. It takes the school from the verified event, never from a session.
-- **No `platform_links` table in H1.** The platform's own answer is the truth: `404` means "not registered" and is
-  recorded as a "no" (`reason = school_not_linked`) so the item hides for an hour. A local table is only worth having once
-  the API registers schools itself (question 2). This is a small change from Supabase, which does not record a 404.
+- **A platform `404`** (it does not know the school) is answered `409 school_not_linked` and **not recorded**, as on
+  Supabase. A school with no row is already `not_linked`. Who writes the row is question 2.
+- **Which "no" hides what.** The handoff item hides for **any** refusal in the last hour (`target_not_enabled`,
+  `target_not_linked`, `target_no_handoff_url`), as `hr_handoff_status()` does. My HR hides only for the first two. Leave
+  never lets a "no" wear off, as `hr_leave_on()` does. All three read the same three columns.
 
 **Permissions (proposed codes).**
 
@@ -310,22 +338,26 @@ that needs one.
 | `resource.hr.leave_approvals` | `school_admin`; implied by the Leave area **and** the Fees area | `approver` today |
 
 Neither is added to `FEES_AREA_IMPLIED` or `LEAVE_AREA_IMPLIED`. They are added next to them, with their own pinned tests.
-Whether they are delegable to org admins is question 6. Any signed-in staff member may read `leave/access`, `form`,
-`applications`, and apply or cancel their **own** (HR still decides).
+Whether they are delegable to org admins is question 6. **A permission alone is not enough.** A platform super admin holds
+every permission, and Supabase refuses them (HR has no account for them); My HR refuses them for the same reason
+(`x-figbloom-authz: authenticated` plus a role check in code, `MY-HR.md`). So every route here also checks in code that the
+caller is an active member of the school and not a super admin. The staff-side leave routes (`leave/access`, `leave/form`,
+apply, cancel) use My HR's rule alone: an active `teacher`, `driver`, `staff` or `school_admin` of a school that is not
+suspended, acting for their **own** record (HR still decides).
 
 ### 3.4 Endpoints (proposed)
 
-All are under `/v1/tenants/{tenantId}/hr/` (**the prefix must match My HR's routes**), authenticate through
-`requireSessionAuth` / `withTenantRequest`, take the school from the path (it must equal the session's school or a proven
-`X-Tenant-Id`), and carry `x-figbloom-authz` annotations in the OpenAPI file. Nothing in a body names a school or a person.
+Paths are relative to `/v1/tenants/{tenantId}/me/hr/`, the prefix My HR uses, and follow its rules: the school and the
+person come from the verified session (the path's school must be the session's school), nothing in a body or header can
+name another, and the OpenAPI file carries `x-figbloom-authz`. The person's own applications list is **not** a new route:
+`leave_applications` is HR's `GET leave`, which is `GET .../me/hr/leave` already.
 
 | Method and path | Permission | Body | Answer |
 |---|---|---|---|
 | `GET handoff-status` | `resource.hr.handoff` | none | `{status: off \| not_linked \| not_enabled \| available}` |
 | `POST handoff` | `resource.hr.handoff` | none | `{url, expires_at}` |
-| `GET leave/access` | any active staff member (as `GET /staff/me`) | none | `{status: not_staff \| off \| not_linked \| not_enabled \| available, approver: boolean}` |
+| `GET leave/access` | any member; only staff get past `not_staff` (as My HR's status) | none | `{status: not_staff \| off \| not_linked \| not_enabled \| available, approver: boolean}` |
 | `GET leave/form` | same | none | HR's form |
-| `GET leave/applications` | same | none | HR's list |
 | `POST leave/applications` | same | `{type_id, start_date, end_date, half_day?, reason, document?}` | `201 {application}` |
 | `POST leave/applications/{id}/cancel` | same | none | `{application}` |
 | `GET leave/approvals` | `resource.hr.leave_approvals` | none | `{approvals: [...]}` |
@@ -335,12 +367,20 @@ All are under `/v1/tenants/{tenantId}/hr/` (**the prefix must match My HR's rout
 A person who may not have the handoff is refused with the same audited 403 as any missing permission, so the answer says
 nothing about other schools. Validation is HR's rule copied from `my-hr` (reason 10 to 2,000 characters, comment up to 1,000,
 dates `YYYY-MM-DD`, at most 366 days, a half day is one day, an application id matches `[A-Za-z0-9_-]{1,64}`), and anything
-else is passed to HR unchanged. Errors map as the two tables in section 1, carrying HR's reason as a stable string in the
-body and HR's own short sentence when it sent one (at most 300 characters). No automatic retry. A POST that reaches HR is
+else is passed to HR unchanged. Errors use the API's shape `{error: {code, message, request_id}}`. HR's refusals go through the **one** mapper,
+`refusalFromHr`, so the leave routes read like the My HR routes. It does not know the leave-only refusals yet. L1 and L3 add
+them **to that function**, with their codes, and to the OpenAPI `Error` enum: 409 `approver_not_linked`, 422 `leave_rules`
+(with `problems[]` as details), 409 `not_cancellable`, 409 `already_decided`, 403 `approver_no_access`, 403 `not_your_approval`,
+413 `document_too_large`. The mapper now turns HR's 400 and 422 into 400 `validation_error` and every 409 into `conflict`,
+so the specific rows must be matched **before** those generic ones. The handoff's own refusals are mapped next to its route,
+from `PlatformError.status` and `.code`: `409 target_not_enabled`, `target_not_linked`, `target_no_handoff_url` as the
+platform sent them, `404` as 409 `school_not_linked`, `429`, and `5xx`, no token or a non-https URL through
+`hrUnavailable()` and `hrBadAnswer()`. No automatic retry. A POST that reaches HR is
 never repeated by the API. HR refuses repeats itself (`already_decided`, overlapping leave).
 
-Add a per-user bucket (and a per-school one for the handoff) with `consume_rate_token`, as the Bloom provider does, so a
-click storm never becomes a storm at the platform. The numbers are chosen in review.
+Spend rate tokens as My HR does: `consume_rate_token`, in the same short transaction, before any network call (My HR uses
+30 a minute per person, 300 per school and 1,500 for the platform token, answering 429 with `Retry-After`). The handoff and
+leave get their own buckets and share the token bucket. The numbers are chosen in review.
 
 ### 3.5 How a person's identity reaches the platform and HR
 
@@ -350,7 +390,10 @@ click storm never becomes a storm at the platform. The numbers are chosen in rev
   `realEmail` rule (trimmed, lower case, `null` for a malformed address or one ending `.internal` or `.invalid`). `role` is the
   school role (`school_admin`, `teacher`, `staff`, or `org_admin` for an acting org admin).
 - **HR calls:** `x-figbloom-school` and `x-figbloom-person`.
-- **Which ids** is the open problem (R1, question 3). Until it is settled, nothing here can reach a real person.
+- **Which ids.** They are the API's own: `x-figbloom-school` is `tenants.id` and `x-figbloom-person` is `users.id`, not the
+  Supabase ids (`MY-HR.md`). Whether HR and the platform know them is open (`MY-HR.md` Q1b, risk R1, question 3). On Supabase
+  the handoff is also what links an approver's HR user to the person id it sends, so with the API's ids that link would be made
+  against the API's `users.id`. Until the ids are settled, nothing here can reach a real person.
 
 ### 3.6 What the API must never log
 
@@ -379,17 +422,18 @@ in Schools. `hr.handoff.refused` is not needed: the permission denial is already
 
 API first, then web. One pull request each. "Stub" means a fake platform and a fake HR in the tests, with no credentials.
 The Supabase fakes (`supabase/functions/_shared/fakePlatform.ts`, `fakeHr.ts`) are the model: they already know `/handoffs`,
-the token endpoint, `leave/form`, `approvals`, `decide`, and the events HR would send. The My HR work is expected to write a
-Node fake HR for its own tests (I did not see one yet); extend it, do not write a second.
+the token endpoint, `leave/form`, `approvals`, `decide`, and the events HR would send. The My HR work has a fake HR and platform for its own tests
+(`test/support/fakeHr.ts`, per `MY-HR.md`); extend it with the leave routes, `approvals`, `decide` and `/handoffs`, do not
+write a second.
 
 | # | Slice | Delivers | Tests | Stub or real |
 |---|---|---|---|---|
-| H1 | API: handoff | `createHandoff` on the platform client; `handoff-status`, `handoff`; `PLATFORM_HANDOFF_ENABLED`; `platform_module_status`; permission; audit; migration 109 | Negative first: parent, teacher without Fees, another school (path and `X-Tenant-Id`), org admin without delegation, super admin, suspended school; off, unset settings, no token (401 retry once), 404, each 409, 429, 5xx, timeout, non-https URL; one audit row and no code in it; the URL never in a log line. Permission registry, RBAC matrix, grants matrix, RLS catalogue tests | **Stub: fully** |
+| H1 | API: handoff | the handoff call through `PlatformTokenClient.call`; `handoff-status`, `handoff`; `PLATFORM_HANDOFF_ENABLED`; write grant on `platform_school_links`; permission; audit; migration 109 | Negative first: parent, teacher without Fees, another school (path and `X-Tenant-Id`), org admin without delegation, super admin, suspended school; off, unset settings, no token (401 retry once), 404, each 409, 429, 5xx, timeout, non-https URL; one audit row and no code in it; the URL never in a log line. Permission registry, RBAC matrix, grants matrix, RLS catalogue tests | **Stub: fully** |
 | H2 | Web and shared: the item | `onApi()` branches; item in the API shells; tab opened inside the click | Vitest on the shared module; the browser spec against a throwaway API with the fake platform | **Stub: fully** |
-| L1 | API: leave access, approvals, decide | the three routes, `HR_LEAVE_ENABLED`, permission `resource.hr.leave_approvals`, audit `hr.leave.decided`, the shared HR refusal mapper | Negative first: not an approver, not staff, an org admin, another school; `approver_not_linked`, `approver_no_access`, `not_your_approval`, `already_decided`, decline without a comment (422), `pending_hr`, off, HR 401 once then 502; no HR body in logs | **Stub: fully** |
+| L1 | API: leave access, approvals, decide | the three routes, `HR_LEAVE_ENABLED`, permission `resource.hr.leave_approvals`, audit `hr.leave.decided`, the leave-only refusals added to `refusalFromHr` | Negative first: not an approver, not staff, an org admin, another school; `approver_not_linked`, `approver_no_access`, `not_your_approval`, `already_decided`, decline without a comment (422), `pending_hr`, off, HR 401 once then 502; no HR body in logs | **Stub: fully** |
 | L2 | Web: Leave to approve | page in `hr-leave.pages.tsx`; the "connect once" message with the HR button; document links opened only if `https` and not expired | component tests; browser spec | **Stub: fully** |
 | L4 | API: inbound events | `POST /v1/platform/events`, signature check, `platform_event_deliveries`, HR columns and relaxed guards on `leave_requests`, `platform_hr_leave_event`, notice, audit; migration | Signature wrong, timestamp old, replay, wrong school, person of another school, not staff, `stale`, date change in both orders, overlap (409), cancel before approve, off; the existing school leave flow unchanged | **Stub: fully** (the platform signs with a test secret) |
-| L3 | API and web: staff apply, cancel | `leave/form`, `applications`, apply, cancel; the HR mode of `teacher/leave` and `staff/leave` | rules (`leave_rules` with `problems[]`), half day, reason length, dates; documents see below | **Stub: fully** |
+| L3 | API and web: staff apply, cancel | `leave/form`, apply, cancel (the list is `GET me/hr/leave`, already built); the HR mode of `teacher/leave` and `staff/leave` | rules (`leave_rules` with `problems[]`), half day, reason length, dates; documents see below | **Stub: fully** |
 | X | Switch-on check (not code) | one real handoff, one real approvals read, one real decision on a test school | a written checklist | **Real platform and HR only** |
 
 **Order and dependencies.** H1 then H2. L1 needs H1 (the "connect once" step and the "is HR on" knowledge). L2 needs L1.
@@ -431,8 +475,8 @@ own, so the school's leave and cover keep working.
 Each is answerable in a line. This note decides none of them.
 
 1. **Port at all?** Should HR leave and the handoff move to the API now, or stay on the Supabase edge functions until cutover (so a school that uses HR cannot move yet)?
-2. **Registration.** Who registers schools (and sends staff events) to the platform for API schools: the API, or the other console (`PLATFORM-CONSOLE.md` Q1)? Without it the platform answers "unknown school" and HR cannot know the school or its staff.
-3. **Ids.** After the data move a school and its people have new ids, but the platform and HR know the Supabase ids. Should the API send the old ids (we keep a mapping), or register fresh and let HR re-link people?
+2. **Registration.** Who registers schools (and sends staff events) to the platform for API schools: the API, or the other console (`PLATFORM-CONSOLE.md` Q1, `MY-HR.md` Q1)? Until then an operator inserts `platform_school_links` rows by hand, and without a row every HR feature says `not_linked`.
+3. **Ids.** The API sends its own school and person ids (`MY-HR.md` Q1b), but the platform and HR know the Supabase ids. Should the platform learn the API's ids at registration (and HR re-link people), or should we send the old ids (a column on `platform_school_links` for the school and a mapping for people)?
 4. **Credentials.** Will you give the API's environment its own platform service client (a separate `schools-service` client from Supabase's), and put its secret and the webhook secret in ECS task secrets?
 5. **Network.** Will the platform and HR accept calls from the API's address (any allow-list)? What are the real platform, HR and handoff addresses for staging and production?
 6. **Who opens HR & Payroll.** School admin and Fees-area holders as today? May an org admin (Supabase: yes; API policy: only by delegation)? May that be delegated?
@@ -452,7 +496,7 @@ Days of one person who knows this code, with the fakes ready. They include tests
 |---|---|---|
 | H1 handoff API | 2 to 3 | the platform call is small; the tests are most of it |
 | H2 web item | 1.5 to 2 | shared branches, shells, e2e |
-| L1 approvals API | 3 | the refusal mapper is shared with the My HR work |
+| L1 approvals API | 3 | the leave-only refusals go into the shared `refusalFromHr` |
 | L2 approvals page | 2 | documents and "connect once" |
 | L4 inbound events | 4 to 5 | the hardest: signature, triggers, definer function, ordering |
 | L3 staff leave | 3 to 4 | plus 1 to 2 for L3b (documents) |
@@ -462,8 +506,9 @@ Days of one person who knows this code, with the fakes ready. They include tests
 
 **Risks.**
 
-- **R1 Ids.** Described in question 3. If the API sends its own ids, HR finds no school and no person. This blocks every real
-  call, including My HR's. It is the largest risk and not a coding one.
+- **R1 Ids.** The API sends its own `tenants.id` and `users.id`. HR and the platform know the Supabase ids. Unless the
+  platform learns the API's ids at registration, or we send the old ones, HR answers `school_not_linked` or `not_linked` and no
+  real call works, My HR's included. Open as `MY-HR.md` Q1b and question 3. It is the largest risk and not a coding one.
 - **R2 Unverified contract.** Section 2 comes from Schools' own code and fakes. HR's real shapes, document limits, link
   lifetimes and rate limits are unconfirmed.
 - **R3 Database guards.** `leave_requests` was built to forbid exactly what HR events do. Relaxing the triggers for one source
@@ -474,18 +519,22 @@ Days of one person who knows this code, with the fakes ready. They include tests
 - **R6 Secrets and links.** The handoff URL is a one-time sign-in; a logged copy within its minute is an account takeover.
   HR document links are personal data for 5 minutes.
 - **R7 Held connections.** Calling HR inside a transaction would exhaust the pool of 10 under a slow HR.
-- **R8 Collision with My HR.** Both change `config.ts`, `env.example`, the platform client and the OpenAPI file. Build after
-  the My HR API PR merges, or rebase on its branch.
+- **R8 Dependence on My HR.** These slices reuse `src/platform/`, `hrRefusal.ts` and migration 108, which are on
+  `feature/api-my-hr` and not yet merged. Start after that PR merges (or rebase on it). Both also touch `config.ts`,
+  `env.example` and the OpenAPI `Error` enum.
 
-## 8. For the My HR work: what this reading suggests it should know
+## 8. Agreed with the My HR work
 
-Short list, from reading the Supabase code. (1) **Ids:** `x-figbloom-person` and `x-figbloom-school` carry Supabase ids that
-HR knows; a moved school has new ids (R1), so its calls will answer `403 school_not_linked` or `404 not_linked` even when
-everything else is right. (2) **Shared platform call:** the handoff is the only way Schools learns whether HR is on, and the
-My HR status on Supabase reads that answer (`platform_module_status`); on the API there is none yet, so "unknown" should not
-mean "off", because HR answers per call. (3) **Shared client:** `POST /handoffs` needs `PLATFORM_API_URL` and a small
-`call(method, path, body)` on the platform token client; please keep its `PlatformError` carrying status and code. (4) **Shared
-refusal mapper:** the `my-hr` function maps HR's refusals in one place for every route (section 1.2). If the My HR work puts
-that mapping in its own route file, leave routes will copy it; exporting one function avoids two tables. (5) **HR's own
-switch:** HR answers `503 my_hr_off` to every route including leave, so My HR's off state and the leave routes' `hr_off`
-should read the same. (6) **Body limit:** 64 KiB, relevant only to leave documents.
+I checked the points I had for the My HR session against `MY-HR.md` and its code. Nothing in them contradicts it, and they are
+now facts used above: the shared `PlatformTokenClient.call` and `callHr`; one refusal mapper, to which L1 and L3 add the
+leave-only refusals; HR's `503 my_hr_off` is `503 hr_off` on every route; the 64 KiB body limit matters only for leave
+documents.
+
+Two differences from my first draft, both settled by `MY-HR.md`:
+
+1. **"Unknown" reads `available`.** A school with a `platform_school_links` row that was never asked about HR is `available`
+   (ask HR on each call), and a school with no row is `not_linked`. My first draft would have recorded a "not linked" row from
+   the handoff's `404`. Dropped: the handoff writes only the "yes" and the explicit "no".
+2. **The ids are the API's own.** `x-figbloom-school` is `tenants.id` and `x-figbloom-person` is `users.id`, not the Supabase
+   ids. Whether HR and the platform learn them is `MY-HR.md` Q1b, open and unsolved. My first draft treated sending the old
+   ids as the way forward; it is now one of two options in question 3.
