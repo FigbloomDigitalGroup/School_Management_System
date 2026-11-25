@@ -157,3 +157,10 @@ school administrator).
 | Function | Owner / mode | Execute | Notes |
 |---|---|---|---|
 | `platform_school_admins(uuid, timestamptz, uuid, integer)` | DEFINER (114), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | `school_memberships` has forced, tenant-scoped RLS and the platform request has no school, so a direct read saw no rows. Lists one school's active `school_admin` members (name, e-mail, status) for `super_admin` (`app_current_user_id()` re-checked against `platform_roles`, `42501` otherwise); keyset `(created_at, id)`, at most 201 rows. The route audits each read as `platform.school.admins_read` |
+
+## Addendum 2026-11-25 — migration 117 (the HR & Payroll hand-off, `docs/HR-HANDOFF.md` slice H1)
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `hr_record_request()` | DEFINER (117), `VOLATILE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | the one write path to `tenants.hr_requested_at` / `hr_requested_by` ("Request Figbloom HR"); `tenants` stays `SELECT`-only for the runtime role. No argument: the school is `app_current_tenant_id()` and the person `app_current_user_id()`, set by the API after it checked `resource.hr.handoff`, the switch and that HR is not already there. Defence in depth: `42501` without them, for an inactive account, a platform super administrator, a suspended school, or anyone who is neither an active `school_admin`, `teacher` or `staff` member of the school nor an organisation administrator with a live `area.fees` delegation there. Keeps the first request and returns its time with `recorded` (false for a repeat) |
+| `school_audit_events(text, timestamptz, text, timestamptz, uuid, integer)` | DEFINER (106, replaced in 117) | `figbloom_app` | unchanged but for one line: `hr.handoff.*` (opening HR, asking Figbloom for it) is shown under `access`, as Supabase files it. Same signature, grants and pinned classification fixture |

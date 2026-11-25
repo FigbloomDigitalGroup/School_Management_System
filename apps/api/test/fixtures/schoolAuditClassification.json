@@ -167,6 +167,8 @@
   "health.sick_bay.visit_created": "health",
   "health.sick_bay.visit_updated": "health",
   "health.sick_bay.visit_viewed": "hidden",
+  "hr.handoff.opened": "access",
+  "hr.handoff.requested": "access",
   "hr.leave.cancelled": "operations",
   "hr.leave.reviewed": "operations",
   "hr.leave.submitted": "operations",

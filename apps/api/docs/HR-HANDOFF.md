@@ -538,3 +538,61 @@ Two differences from my first draft, both settled by `MY-HR.md`:
 2. **The ids are the API's own.** `x-figbloom-school` is `tenants.id` and `x-figbloom-person` is `users.id`, not the Supabase
    ids. Whether HR and the platform learn them is `MY-HR.md` Q1b, open and unsolved. My first draft treated sending the old
    ids as the way forward; it is now one of two options in question 3.
+
+## 9. Slice H1 as built (2026-11-25)
+
+Branch `feature/api-hr-handoff`. A port of the live feature on `main` (`open-hr` after #355: status, request, open), not of the
+older `hr_handoff_status` answer that sections 1.1 and 3.4 describe. Where this differs from the proposal above, this section wins.
+
+**Routes** (under `/v1/tenants/{tenantId}/me/hr/`, `x-figbloom-authz: authenticated`, the rule in code):
+
+| Route | Supabase | Answer |
+|---|---|---|
+| `GET handoff-status` | `open-hr {action: "status"}` | `{enabled, connection, requested_at, can_request_hr}`; `connection` is `connected`, `setting_up`, `not_connected` or `unknown` (null while off) |
+| `POST handoff-request` | `{action: "request"}` | `{requested_at}`; 409 `already_connected`; 403 `handoff_off` |
+| `POST handoff` | `{action: "open"}` | `{url, expires_at}`; https only; 409 `school_not_linked`, `target_not_enabled`, `target_not_linked`, `target_no_handoff_url`; 429; 503 `hr_unavailable`; 502 `hr_bad_answer`; 403 `handoff_off` |
+
+`GET /v1/platform/schools` and `/{schoolId}` carry `hrRequestedAt` and `hrRequestedBy` (camelCase, like the rest of that object;
+the account's id only, no name).
+
+**Who.** `resource.hr.handoff`: school administrators (role catalogue) and anyone holding the Fees area (`HR_HANDOFF_IMPLIED` in
+`authorize.ts`), including an organisation administrator with an `area.fees` delegation. Refused in code: a platform super
+administrator (audited as `rbac.permission.denied`, reason `platform_super_admin`). A suspended school is refused by the tenant
+path as always. The routes are not `permission`-annotated because the RBAC matrix requires every such route to admit a super
+administrator.
+
+**Settings.** `PLATFORM_HANDOFF_ENABLED` (new; `true` only) plus `PLATFORM_CLIENT_ID`, `PLATFORM_CLIENT_SECRET`,
+`PLATFORM_TOKEN_URL`, `PLATFORM_API_URL`. Anything less is off: status `{enabled: false, ...}`, the two POSTs 403
+`handoff_off`, nothing called. Calls share `MY_HR_HTTP_TIMEOUT_MS`. Start log line `hr_handoff` (`off`, `on`, `incomplete`).
+
+**Migration 117** (109 was never used; 115 and 116 belong to the stock slice): the permission; `platform_school_links.platform_tenant_id`
+(operator-written); `UPDATE (hr_enabled, hr_reason, hr_checked_at)` on that table for `figbloom_app`; `tenants.hr_requested_at`,
+`hr_requested_by` and their one write path `hr_record_request()` (definer); `school_audit_events` files `hr.handoff.*` under access.
+
+**Platform contract used** (section 2 lists only `POST /handoffs`; the live code after #355 also uses these two, through the
+platform's own id for the school, which is why `platform_tenant_id` was added):
+
+| Call | Read as |
+|---|---|
+| `GET {PLATFORM_API_URL}/tenants/{platform id}/modules/hr` | `module_status` `"active"` means on; `cache_seconds` (at most 60) |
+| `GET {PLATFORM_API_URL}/tenants/{platform id}/links/hr` | 2xx: connected; 404: setting up |
+
+No platform row: `not_connected`, nothing asked. A row without `platform_tenant_id`, a platform that cannot be asked: `unknown`
+(kept 15 seconds). Otherwise kept a minute per school, per API instance.
+
+**Audit.** `hr.handoff.opened` and `hr.handoff.requested` (detail `{target: "hr"}` only), written in the transaction after the
+platform answered; the link is returned only once that commits. A request is audited once (a repeat changes nothing).
+
+**Rate limits.** Per person 10 a minute (open and request), per school 120, and the platform-token bucket shared with My HR
+(`my_hr:platform`, 1,500) whenever the platform is asked. The status spends the school and platform buckets only when it asks.
+
+**Where the live rules could not be kept, and why.**
+
+- Organisation administrators need an `area.fees` delegation (R5). Supabase lets any org admin of the school's organisation in.
+- Incomplete settings are off (`enabled: false`, 403 `handoff_off`). Supabase shows the item with `connection: unknown` and answers
+  503 `platform_not_configured` on open.
+- The platform being down, slow or without a token is 503 `hr_unavailable` (Retry-After 30) and a non-https answer 502
+  `hr_bad_answer`, the API's own codes (section 3.4). Supabase says `platform_unavailable` / `platform_bad_answer`. The web's
+  `hrLaunchProblem` reads all four as "unreachable".
+- An audit write that fails stops the open (no link handed out). Supabase logs the failure and hands the link out anyway.
+- Ids are the API's own (`tenants.id`, `users.id`), as for My HR: question 3 and risk R1 still stand.

@@ -147,7 +147,8 @@ const EXPECTED: Record<string, string[]> = {
   curriculum_import_batches: ["INSERT", "SELECT"],
   transport_incidents: ["INSERT", "SELECT"],
   import_batches: ["INSERT", "SELECT"],
-  // Migration 108 (My HR): the platform link is written by an operator as the migrator; the API only reads it.
+  // Migration 108 (My HR): the platform link is written by an operator as the migrator; the API reads it. Migration 117 adds a
+  // column-level UPDATE of the three HR-answer columns (asserted below), so no table-level UPDATE appears here.
   platform_school_links: ["SELECT"],
 };
 
@@ -607,6 +608,40 @@ describe("migration 009 grants and policies", () => {
               has_table_privilege('figbloom_app', 'public.users', 'SELECT') AS tbl_sel`,
     );
     expect(eff.rows[0]).toEqual({ sel: false, upd: false, ins: false, tbl_sel: false });
+  });
+
+  it("HR & Payroll hand-off (migration 117): platform_school_links UPDATE is the three HR-answer columns only; tenants stays SELECT-only", async () => {
+    const cols = await ctx.pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.column_privileges
+        WHERE grantee = 'figbloom_app' AND table_schema = 'public' AND privilege_type = 'UPDATE'
+          AND table_name IN ('platform_school_links', 'tenants')
+        ORDER BY table_name, column_name`,
+    );
+    expect(cols.rows).toEqual([
+      { table_name: "platform_school_links", column_name: "hr_checked_at" },
+      { table_name: "platform_school_links", column_name: "hr_enabled" },
+      { table_name: "platform_school_links", column_name: "hr_reason" },
+    ]);
+    const eff = await ctx.pool.query<Record<string, boolean>>(
+      `SELECT has_table_privilege('figbloom_app', 'public.platform_school_links', 'UPDATE') AS links_tbl,
+              has_column_privilege('figbloom_app', 'public.platform_school_links', 'tenant_id', 'UPDATE') AS links_tenant,
+              has_column_privilege('figbloom_app', 'public.platform_school_links', 'platform_tenant_id', 'UPDATE') AS links_platform_id,
+              has_column_privilege('figbloom_app', 'public.platform_school_links', 'registered_at', 'UPDATE') AS links_registered,
+              has_table_privilege('figbloom_app', 'public.platform_school_links', 'INSERT') AS links_ins,
+              has_table_privilege('figbloom_app', 'public.platform_school_links', 'DELETE') AS links_del,
+              has_any_column_privilege('figbloom_app', 'public.tenants', 'UPDATE') AS tenants_upd,
+              has_column_privilege('figbloom_app', 'public.tenants', 'hr_requested_at', 'SELECT') AS tenants_hr_sel`,
+    );
+    expect(eff.rows[0]).toEqual({
+      links_tbl: false,
+      links_tenant: false,
+      links_platform_id: false,
+      links_registered: false,
+      links_ins: false,
+      links_del: false,
+      tenants_upd: false,
+      tenants_hr_sel: true,
+    });
   });
 
   it("revokes CREATE on schema public and does not reference a mode GUC", async () => {

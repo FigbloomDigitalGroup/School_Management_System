@@ -125,13 +125,18 @@ can meet (`approver_not_linked`, `leave_rules`, `not_cancellable`, `already_deci
 
 ## Linking a school (an operator, for now)
 
-Migration 108 adds `platform_school_links`: one row per school, tenant-scoped, forced row security, `SELECT` only for the API.
-**Nothing in the API writes it**, because it is not decided who registers schools with the platform (Q1 below). Until then an
-operator adds the row, as the migrator, the way the housekeeping functions are run (`OPERATIONS.md`):
+Migration 108 adds `platform_school_links`: one row per school, tenant-scoped, forced row security, `SELECT` only for the API
+(117 adds the hand-off's update of the three HR-answer columns, below). **Nothing in the API adds or removes a row**, because it is
+not decided who registers schools with the platform (Q1 below). Until then an operator adds the row, as the migrator, the way
+the housekeeping functions are run (`OPERATIONS.md`):
 
 ```sql
 -- the school is registered with the platform: My HR shows for its staff (when the feature is on)
 INSERT INTO platform_school_links (tenant_id) VALUES ('<tenant uuid>') ON CONFLICT (tenant_id) DO NOTHING;
+
+-- the platform's OWN id for the school (migration 117; Supabase: platform_links.platform_id). The HR & Payroll hand-off needs
+-- it to ask whether HR is there for the school; without it that answer is "unknown". My HR does not use it.
+UPDATE platform_school_links SET platform_tenant_id = '<the platform tenant id>' WHERE tenant_id = '<tenant uuid>';
 
 -- take it away again: the status becomes not_linked
 DELETE FROM platform_school_links WHERE tenant_id = '<tenant uuid>';
@@ -143,8 +148,9 @@ UPDATE platform_school_links SET hr_enabled = NULL, hr_reason = NULL, hr_checked
 
 `hr_reason` is the platform's refusal code. Only `target_not_enabled` and `target_not_linked` hide the page, as in
 `my_hr_status()`; `target_no_handoff_url` does not, because My HR signs nobody in. The row is the same fact as Supabase's
-`platform_links` (kind `tenant`) and `platform_module_status` (module `hr`) put together. Whichever slice later registers schools
-or learns HR's state from the hand-off adds the write grant it needs in its own migration.
+`platform_links` (kind `tenant`) and `platform_module_status` (module `hr`) put together. The HR & Payroll hand-off (migration
+117, `HR-HANDOFF.md` H1) now writes the platform's answer: the API may update `hr_enabled`, `hr_reason` and `hr_checked_at` of
+its own school's row, and nothing else. Registration (adding and removing rows) is still an operator's.
 
 ## To switch it on (for the owner)
 
@@ -164,8 +170,9 @@ or learns HR's state from the hand-off adds the write grant it needs in its own 
   (404, "Your HR record isn't ready yet") until the ids are mapped: either HR links the new ids, or the API keeps the old ones
   (a column on `platform_school_links` for the school and a mapping for people). Not decided and not built; if it is the second,
   the one place that chooses the ids is `gateMyHrRead` in `src/modules/hr/myHr.ts`.
-- **Who writes `not_enabled`?** Supabase learns it from the hand-off (`open-hr`, `POST /handoffs`). Until that slice exists nothing
-  records it, and a linked school reads `available`.
+- **Who writes `not_enabled`?** Answered by the hand-off (migration 117, `HR-HANDOFF.md` H1), as on Supabase: each
+  `POST .../me/hr/handoff` records the platform's yes, or its `target_not_enabled`, `target_not_linked` or
+  `target_no_handoff_url`. Only while the hand-off is switched on and people open HR from Schools.
 
 ## Where the code is
 
