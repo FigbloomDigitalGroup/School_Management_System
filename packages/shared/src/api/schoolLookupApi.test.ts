@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { initBackend } from "../backend";
 import { BASE, createFakeApi, type FakeApi, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiTokenStore } from "./client";
-import { apiLoginWithSchool, apiLookupSchool, parseSchoolLookup, schoolFromInput, SchoolNotFoundError } from "./schoolLookupApi";
+import { userMessage } from "./errors";
+import { apiLoginWithSchool, apiLookupSchool, keptSchool, parseSchoolLookup, schoolFromInput, SchoolNotFoundError } from "./schoolLookupApi";
 import { createMemoryTokenStore, type TokenStore } from "./tokenStore";
 
 const T = "9f4659ad-93e8-4599-b636-bda735b85149";
@@ -64,10 +65,64 @@ describe("the school lookup", () => {
   it("passes on throttling and outages, and never makes up a school from an answer it does not understand", async () => {
     boot({ [lookup("alliance")]: { status: 429, body: { error: { code: "rate_limited", message: "Slow down" } }, headers: { "retry-after": "30" } } });
     await expect(apiLookupSchool("alliance")).rejects.toMatchObject({ code: "rate_limited" });
+    // The form says how long to wait.
+    expect(userMessage(await apiLookupSchool("alliance").catch((e: unknown) => e))).toBe("Too many attempts. Try again in 30 seconds.");
     expect(() => parseSchoolLookup({ name: "No id" })).toThrow(/not understood/);
     expect(() => parseSchoolLookup({ tenant_id: "not-a-uuid" })).toThrow(/not understood/);
     expect(() => parseSchoolLookup(null)).toThrow(/not understood/);
     expect(parseSchoolLookup({ tenant_id: T })).toEqual({ tenantId: T, name: null });
+  });
+});
+
+describe("the schools this device has already found", () => {
+  const fakeStorage = () => {
+    const m = new Map<string, string>();
+    return { m, getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); } };
+  };
+
+  it("asks once, then answers from the device, so a computer room does not spend the lookup's rate limit", async () => {
+    const ls = fakeStorage();
+    vi.stubGlobal("localStorage", ls);
+    boot({ [lookup("alliance")]: { body: { tenant_id: T, name: "Alliance High School" } } });
+    expect(await apiLookupSchool("Alliance")).toEqual({ tenantId: T, name: "Alliance High School" });
+    expect(await apiLookupSchool("alliance")).toEqual({ tenantId: T, name: "Alliance High School" });
+    expect(await apiLookupSchool("/s/alliance")).toEqual({ tenantId: T, name: "Alliance High School" });
+    expect(api.callsTo(lookup("alliance"))).toHaveLength(1);
+    expect(keptSchool("alliance")).toEqual({ tenantId: T, name: "Alliance High School" });
+    expect(keptSchool("elsewhere")).toBeNull();
+  });
+
+  it("keeps only what a successful lookup answered: an unknown school and a throttled lookup are asked again", async () => {
+    vi.stubGlobal("localStorage", fakeStorage());
+    boot({ [lookup("nowhere")]: { status: 404, body: { error: { code: "not_found", message: "x" } } } });
+    await expect(apiLookupSchool("nowhere")).rejects.toBeInstanceOf(SchoolNotFoundError);
+    await expect(apiLookupSchool("nowhere")).rejects.toBeInstanceOf(SchoolNotFoundError);
+    expect(api.callsTo(lookup("nowhere"))).toHaveLength(2);
+    expect(keptSchool("nowhere")).toBeNull();
+  });
+
+  it("forgets an answer after a week, and a damaged one", () => {
+    const ls = fakeStorage();
+    vi.stubGlobal("localStorage", ls);
+    const now = Date.UTC(2026, 10, 25);
+    ls.setItem("figbloom.api.schools", JSON.stringify({
+      old: { tenantId: T, name: null, at: now - 8 * 86_400_000 },
+      fresh: { tenantId: T, name: "Fresh", at: now - 86_400_000 },
+      damaged: { tenantId: "not-a-uuid", name: null, at: now },
+    }));
+    expect(keptSchool("old", now)).toBeNull();
+    expect(keptSchool("fresh", now)).toEqual({ tenantId: T, name: "Fresh" });
+    expect(keptSchool("damaged", now)).toBeNull();
+    ls.setItem("figbloom.api.schools", "{not json");
+    expect(keptSchool("fresh", now)).toBeNull();
+  });
+
+  it("works with no storage, or storage that throws (a private window)", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } });
+    boot({ [lookup("alliance")]: { body: { tenant_id: T, name: "Alliance" } } });
+    expect(await apiLookupSchool("alliance")).toEqual({ tenantId: T, name: "Alliance" });
+    expect(await apiLookupSchool("alliance")).toEqual({ tenantId: T, name: "Alliance" });
+    expect(api.callsTo(lookup("alliance"))).toHaveLength(2);
   });
 });
 
