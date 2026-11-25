@@ -42,18 +42,26 @@ or the event's own name without its domain), `category`, `actor_user_id` and `ac
   school and an account in the request the function raises 42501.
 - **Only business events.** The function classifies each event kind by its name and returns a row only when it has a
   category. **Never returned**: sign-in, session and two-step events (`auth.*`), refusals (`...denied`), read events (`...viewed`),
-  `family.*`, `ai.*`, `notifications.*`, `identity.*`, personal settings (`communications.notification_preferences.updated`),
-  private chat starts, internal bookkeeping (`attendance.register.stale_ignored`, `finance.mpesa.operator_inconclusive`), storage
-  transfers (only `storage.object.deleted` is shown), and **every kind the function does not name**: a new event kind is
-  hidden until someone adds it on purpose.
+  `family.*`, `ai.*`, `notifications.*`, `identity.*`, personal settings (`communications.notification_preferences.updated`,
+  `communications.device_token.reclaimed`), private chat starts, internal bookkeeping (`attendance.register.stale_ignored`,
+  `import.learners.preview_expired`, `rbac.org_delegation.legacy_inert` and `.review_required`,
+  `finance.mpesa.operator_inconclusive`, jobs, the worker, a membership archived by the database), platform operators' notes on
+  unmatched M-Pesa callbacks (`finance.unmatched.*`), the platform's own `platform.school.provisioned`, storage transfers (only
+  `storage.object.deleted` is shown), and **every kind the function does not name**: a new event kind is hidden until someone
+  adds it on purpose.
+- **Shown under "access"**, though the database functions write them under other names: invitations (`account.invitation.*`,
+  `guardian.invitation.*`), a member deactivated (`account.membership.deactivated`), a guardian link revoked
+  (`guardian.account.revoked`), and an administrator issuing a password reset or resetting someone's two-step sign-in
+  (`auth.password.reset_issued`, `auth.mfa.admin_reset`). The person's own password change, reset request and sign-ins stay hidden.
 - **Never the `detail` and never the `ip`.** A row says what happened, who did it and when, not what the record held: the detail
   may carry names, amounts or health information, and its shape differs by event.
 - Newest first, keyset on `(occurred_at, id)`, at most 201 rows. The index `(tenant_id, occurred_at DESC)` serves it.
 
 ### Every kind the code writes is classified on purpose
 
-`test/fixtures/schoolAuditClassification.json` records, for each of the 183 event kinds the code can write (a scan of
-`src/` plus the kinds built from a template), the category the function gives it, or `hidden`. The test
+`test/fixtures/schoolAuditClassification.json` records, for each of the 222 event kinds the code can write (a scan of
+`src/`, the kinds built from a template, and every dotted literal inside an `INSERT INTO security_audit_events` of a migration,
+because the database functions write events too), the category the function gives it, or `hidden`. The test
 (`test/schoolAudit.test.ts`) inserts one event of each kind and reads the log back as the school's administrator. It fails when
 (a) the code writes a kind the file does not list ("decide if a school may see it, then regenerate with
 `SCHOOL_AUDIT_WRITE_SNAPSHOT=1` and review the diff") or (b) the function and the file disagree. So no event kind can start or
