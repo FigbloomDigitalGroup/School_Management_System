@@ -35,6 +35,8 @@ On `main` or in an open PR, not live in production yet.
 
 - **Pre-PR check and agent instructions**: `scripts/pre-pr-check.sh`, plus a "Before opening a PR into dev-staging
   or main" section in `CLAUDE.md` and `AGENTS.md`. Docs and tooling only.
+- **CI runs the pre-PR check** on every PR into `dev-staging` or `main` (job "Pre-PR check (CHANGELOG rules)" in
+  `.github/workflows/ci.yml`). A PR that fails it shows a red check.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:
