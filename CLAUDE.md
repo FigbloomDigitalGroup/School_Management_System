@@ -23,3 +23,29 @@ Quick version of the check, before build/lint/commit:
   exclusion.
 - If anything matches: stop, don't run the command, don't overwrite the
   file yourself, tell the user exactly what you found, and wait.
+
+## Before opening a PR into `dev-staging` or `main` — mandatory
+
+`main` is production. `CHANGELOG.md` lists what is live, the tables, functions, policies and edge function actions
+every branch must keep, and what the new API (`apps/api`) doesn't cover yet. Read it in full before you change
+anything under `supabase/` or `apps/api/`, and before you open a PR into `dev-staging` or `main`.
+
+Then, before you open the PR (or tell the developer it's ready):
+
+1. Run `sh scripts/pre-pr-check.sh`. If it fails, **don't open the PR**. Fix what it names, or tell the developer
+   exactly what it said and stop. Never work around it: don't edit the script, skip a step, or edit migrations that are
+   already on `main` to make it pass.
+2. If it warns, fix the warning or explain in the PR description why it's fine.
+3. Don't remove, rename or change the arguments or returned columns of anything `CHANGELOG.md` lists as live.
+   Add new objects next to the old ones instead.
+4. Don't build a second version of a feature `CHANGELOG.md` lists. Extend the one that's there.
+5. Code that touches attendance must work with and without the four pending attendance migrations named under
+   "Unreleased".
+6. If the PR moves a screen onto `apps/api`, every endpoint that screen uses must exist there first (see
+   "Missing from apps/api").
+7. Add what the PR changes to `CHANGELOG.md` under "Unreleased".
+8. In the PR description, list the database objects and endpoints it adds or changes, how it was tested, and paste
+   the `pre-pr-check.sh` output.
+
+Pulling `main` into a dev branch is how a branch catches up, and it's always allowed. Undoing or reworking what came
+in from `main`, while resolving conflicts or later, needs Mike's approval first.
