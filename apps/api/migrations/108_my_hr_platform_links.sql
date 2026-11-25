@@ -10,6 +10,8 @@
 -- by an operator, as the migrator (docs/MY-HR.md, "Linking a school"), or by whichever slice later owns registration or the
 -- HR hand-off, which will add the write grant it needs in its own migration.
 --
+-- Forward-only. Adds one table; changes nothing that exists.
+--
 -- Standing rule for tenant tables (TENANT-ISOLATION.md): tenant_id, ENABLE + FORCE row security, one FOR ALL policy for
 -- figbloom_app on app_current_tenant_id(), the owner-only policy, minimal grants. figbloom_app may only SELECT.
 
