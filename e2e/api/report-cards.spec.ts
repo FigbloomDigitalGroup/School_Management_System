@@ -66,7 +66,8 @@ test.describe("Report cards on the new API (VITE_BACKEND=api)", () => {
     await signInAdmin(page, seed);
     await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Report cards" }).click();
     await expect(page).toHaveURL(new RegExp(`/s/${seed.slug}/admin/report-cards`));
-    await expect(page.getByRole("heading", { name: "Report cards" })).toBeVisible();
+    // exact: the class list below has its own heading ("Form 1 East · 0 report cards"), which a substring match also hits.
+    await expect(page.getByRole("heading", { name: "Report cards", exact: true })).toBeVisible();
 
     const main = page.locator("main");
     await expect(main.locator("#rc-term")).toBeVisible({ timeout: 15_000 });
@@ -90,7 +91,7 @@ test.describe("Report cards on the new API (VITE_BACKEND=api)", () => {
     await signInTeacher(page, seed);
     await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Report cards" }).click();
     await expect(page).toHaveURL(new RegExp(`/s/${seed.slug}/teacher/report-cards`));
-    await expect(page.getByRole("heading", { name: "Report cards" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Report cards", exact: true })).toBeVisible();
     await expect(main.locator("#rc-class")).toBeVisible({ timeout: 15_000 });
     // Teacher cannot publish.
     await expect(main.getByRole("button", { name: /Publish/i })).toHaveCount(0);
