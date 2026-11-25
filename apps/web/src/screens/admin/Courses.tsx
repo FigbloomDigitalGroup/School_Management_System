@@ -175,6 +175,10 @@ export function AdminCourses() {
                       className="rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small"
                     >
                       <option value="">Unassigned</option>
+                      {/* An instructor who is not in the teacher list (an archived person, or one this reader may not list) still shows. */}
+                      {s.instructor_id && !(teachers ?? []).some((t) => t.id === s.instructor_id) && (
+                        <option value={s.instructor_id}>{s.instructor_name ?? "Instructor (not in the list)"}</option>
+                      )}
                       {(teachers ?? []).map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
                     </select>
                   ) },
@@ -212,6 +216,7 @@ export function AdminCourses() {
         <AddSectionModal
           semesters={semesters}
           courses={courses ?? []}
+          teachers={teachers ?? []}
           defaultSemesterId={activeSemesterId}
           onClose={() => setAddingSection(false)}
           onCreated={() => { setAddingSection(false); reload(); }}
@@ -365,8 +370,8 @@ function AddCourseModal({ onClose, onCreated, toast }: { onClose: () => void; on
   );
 }
 
-function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCreated, toast }: {
-  semesters: Semester[]; courses: Course[]; defaultSemesterId: string;
+function AddSectionModal({ semesters, courses, teachers, defaultSemesterId, onClose, onCreated, toast }: {
+  semesters: Semester[]; courses: Course[]; teachers: { id: string; full_name: string }[]; defaultSemesterId: string;
   onClose: () => void; onCreated: () => void; toast: ToastFn;
 }) {
   const { tenant } = useTenantSession();
@@ -374,6 +379,7 @@ function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCre
   const [semesterId, setSemesterId] = useState(defaultSemesterId);
   const [courseId, setCourseId] = useState(courses[0]?.id ?? "");
   const [label, setLabel] = useState("A");
+  const [instructorId, setInstructorId] = useState("");
   const [room, setRoom] = useState("");
   const [capacity, setCapacity] = useState("");
   const [saving, setSaving] = useState(false);
@@ -384,7 +390,7 @@ function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCre
     try {
       await createCourseSection({
         tenant_id: tenant.id, semester_id: semesterId, course_id: courseId, section_label: label.trim(),
-        instructor_id: null, room: room.trim() || null, capacity: capacity ? Number(capacity) : null,
+        instructor_id: instructorId || null, room: room.trim() || null, capacity: capacity ? Number(capacity) : null,
       });
       toast(`Section ${label.trim()} created.`);
       onCreated();
@@ -436,6 +442,16 @@ function AddSectionModal({ semesters, courses, defaultSemesterId, onClose, onCre
               </>
             )}
           </div>
+          {caps.sectionInstructor && (
+            <label className="block">
+              <span className="mb-1.5 block text-[12.5px] font-semibold">Instructor (optional)</span>
+              <select value={instructorId} onChange={(e) => setInstructorId(e.target.value)} aria-label="Instructor"
+                className="w-full rounded-md border border-[#D3DAD5] bg-white px-3 py-2 text-[13px]">
+                <option value="">Unassigned</option>
+                {teachers.map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+              </select>
+            </label>
+          )}
         </form>
       )}
     </Modal>

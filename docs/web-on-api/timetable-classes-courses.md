@@ -4,7 +4,8 @@ Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md), which explains w
 
 
 Pages: `teacher/timetable`, `teacher/classes`, the Timetable window of a class on `admin/classes`, and `admin/courses` (higher-education
-schools). `teacher/sections` is not on the API build (see below). Capability flags: `timetableCapabilities()` and
+schools). `teacher/sections` ("My sections") is on the API build since the section instructor was added; it and the instructor controls
+of Courses are described in [higher-ed-sections.md](higher-ed-sections.md). Capability flags: `timetableCapabilities()` and
 `coursesCapabilities()` in `packages/shared/src/capabilities.ts`. The API side is `api/timetableApi.ts`, `api/teachingLookups.ts`,
 `api/teachingApi.ts` and `api/coursesApi.ts`.
 
@@ -22,7 +23,7 @@ periods and classes are theirs, a period's subject shows as "Lesson", and My cla
 - **Classes > Timetable (admin):** the class's periods, Monday to Friday, with start and end times, subject, teacher and room; add a
   period (day, start, end, subject, room). An overlapping period is refused by the API and the window says so.
 - **Courses (admin, higher-education schools):** semesters (= academic terms: list, add, set as current), the course catalogue (list,
-  add), sections of a semester (list, add), a section's roster (list, enrol learners).
+  add), sections of a semester (list, add, with the instructor named or changed), a section's roster (list, enrol learners).
 
 ## How the model is mapped
 
@@ -59,9 +60,8 @@ who was never added to the directory) has no periods of their own.
 | "Needs cover" and "Covered by" on a teacher's timetable | `/attendance-coverage` is attendance cover by class and day, not cover for a period, and a plain teacher cannot read others' leave |
 | The "Live classes" panel on the teacher Timetable | calls and live classes are not in the API |
 | A course's department | a course is a code, a title and credit hours |
-| A section's instructor, room, capacity and weekly schedule | a section is a course in a term with a label |
+| A section's room, capacity and weekly schedule | a section is a course in a term with a label and an instructor (migration 107) |
 | Dropping a student from a section | an enrolment can be made; nothing ends it (the status `withdrawn` exists, with no endpoint) |
-| **`teacher/sections` ("My sections")** | no instructor on a section, so a lecturer's sections cannot be found. The page is not on the API build |
 
 `/timetable-publications` (a versioned snapshot of a class's timetable that is published) has no Supabase counterpart and nothing
 on the web reads it, so it is not used.
@@ -78,8 +78,12 @@ on the web reads it, so it is not used.
 41. **A timetable slot cannot be changed or removed**, and a slot needs a subject (no "Break", "Games", "Assembly").
 42. **A higher-education section has no instructor, room, capacity or schedule**, and an enrolment cannot be ended. So a lecturer's
     "My sections" cannot be built on the API, and the admin cannot name an instructor.
+    *Resolved for the instructor and "My sections" in API PR #406 (migration 107, `PATCH /he-sections/{id}`, `/me/teaching/he-sections`)
+    and web PR #409: see [higher-ed-sections.md](higher-ed-sections.md). Still missing: room, capacity, schedule, and
+    ending an enrolment.*
 43. **The OpenAPI file does not declare** `sectionId` on `GET /he-enrolments` or `courseId` on `GET /he-sections`, although the routes
     honour them. The typed client cannot send them, so a section's roster lists every enrolment of the school and picks the section
     out. Declaring them would make it one small call.
+    *Resolved in API PR #406: both are declared, and the roster asks for one section.*
 44. **Per-period cover for approved leave** (the Supabase "Needs cover" list) has no API counterpart: `/attendance-coverage` assigns
     who may take a class's register on a day.
