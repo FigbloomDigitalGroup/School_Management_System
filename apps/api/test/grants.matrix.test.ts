@@ -145,6 +145,8 @@ const EXPECTED: Record<string, string[]> = {
   curriculum_import_batches: ["INSERT", "SELECT"],
   transport_incidents: ["INSERT", "SELECT"],
   import_batches: ["INSERT", "SELECT"],
+  // Migration 108 (My HR): the platform link is written by an operator as the migrator; the API only reads it.
+  platform_school_links: ["SELECT"],
 };
 
 /** Stage 12: columns figbloom_app may UPDATE on announcements (identity/provenance never listed). */

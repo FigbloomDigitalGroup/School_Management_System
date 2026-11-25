@@ -136,6 +136,7 @@ no mode GUC and no application-settable bypass.
 | `finance_bank_statements` | tenant (`SELECT, INSERT` + column-level `UPDATE (matched_count, unmatched_count, status)`) | same | 097 | `bankReconciliation.unit` |
 | `finance_bank_statement_lines` | tenant (`SELECT, INSERT` + column-level `UPDATE (match_status, matched_payment_id, matched_invoice_id, matched_by, matched_at, match_note)`) | same | 097 | `bankReconciliation.unit` |
 | `teacher_reports` | tenant (`SELECT, INSERT` + column-level `UPDATE` on editable/review fields) | same | 098 | `teacherReports.unit` |
+| `platform_school_links` | tenant; `SELECT` only for the app (an operator writes it as the migrator; nothing in the API does): the school is known to the platform, and the platform's last answer about HR (My HR, `MY-HR.md`) | same | 108 | `myHr` |
 
 Not in this table on purpose: `security_audit_events` carries `tenant_id` for attribution but is an
 append-only log; the runtime role holds `INSERT` only (asserted in `phase3.runtimeIsolation`). Identity-plane
@@ -161,6 +162,8 @@ foreign key `(instructor_staff_id, tenant_id)` to `staff_members (id, tenant_id)
 `UPDATE` grant to `figbloom_app` on that column only. No table, policy or definer function is added. `GET /me/teaching/he-sections`
 and its `/enrolments` roster read `he_sections`, `he_courses`, `academic_terms`, `he_enrolments`, `learners` and `staff_members`
 under the policies above; "the caller is the instructor" is the join to the caller's own active, linked staff record.
+
+My HR (`MY-HR.md`, migration 108) adds the one table above and no function or definer. `/me/hr/*` read it under the tenant policy; every call to Figbloom HR happens after that transaction has committed.
 
 ## Updating this file
 

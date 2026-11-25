@@ -3,9 +3,10 @@ import { createPool, runtimePoolOptions } from "./db/pool.js";
 import { acquireClient } from "./db/tenantTransaction.js";
 import { assertRuntimeRole } from "./db/roleAssert.js";
 import { startServer } from "./server.js";
-import { describeError, logError, logInfo } from "./log.js";
+import { describeError, logError, logInfo, logWarn } from "./log.js";
 import { setAccountNotifier } from "./modules/account/notifier.js";
 import { resendNotifierFromEnv } from "./modules/account/resendNotifier.js";
+import { myHrSetup } from "./modules/hr/myHr.js";
 
 async function main(): Promise<void> {
   loadDotEnvForLocal();
@@ -15,6 +16,10 @@ async function main(): Promise<void> {
   const notifier = resendNotifierFromEnv(process.env, config.appEnv);
   if (notifier) setAccountNotifier(notifier);
   logInfo("account_email", { outcome: notifier ? "resend" : "not_configured" });
+  // My HR (docs/MY-HR.md): off unless MY_HR_ENABLED=true and every setting is there. Setting names only, never values.
+  const myHr = myHrSetup(config);
+  if (myHr.state === "incomplete") logWarn("my_hr", { outcome: "incomplete", reason: `missing ${myHr.missing.join(", ")}` });
+  else logInfo("my_hr", { outcome: myHr.state });
   const pool = createPool(runtimePoolOptions(config));
   try {
     const client = await acquireClient(pool, config.poolAcquireTimeoutMs);
