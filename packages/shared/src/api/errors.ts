@@ -26,6 +26,12 @@ export type ApiErrorCode =
   | "hr_not_connected"
   | "hr_unavailable"
   | "hr_bad_answer"
+  // The "HR & Payroll" hand-off (apps/api/docs/HR-HANDOFF.md, section 9): the switch is off, HR is already there, and the platform's refusals.
+  | "handoff_off"
+  | "already_connected"
+  | "target_not_enabled"
+  | "target_not_linked"
+  | "target_no_handoff_url"
   // Not from the server: the request never got an answer.
   | "network_error"
   | "timeout"
@@ -35,6 +41,7 @@ const SERVER_CODES: readonly ApiErrorCode[] = [
   "unauthorized", "forbidden", "reauth_required", "mfa_required", "not_found", "validation_error", "rate_limited",
   "conflict", "idempotency_key_reused", "service_unavailable", "internal_error",
   "my_hr_off", "school_not_linked", "not_linked", "pending_hr", "hr_off", "hr_forbidden", "hr_not_connected", "hr_unavailable", "hr_bad_answer",
+  "handoff_off", "already_connected", "target_not_enabled", "target_not_linked", "target_no_handoff_url",
 ];
 
 export interface ApiFieldError {

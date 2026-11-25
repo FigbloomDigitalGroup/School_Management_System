@@ -6,6 +6,7 @@ import { ApiSchool } from "./ApiHome";
 import { ApiForgotPassword, ApiResetPassword } from "./ApiPasswordReset";
 import { ApiSessionGuard } from "./ApiSessionGuard";
 import { ApiSignIn } from "./ApiSignIn";
+import { hrRoutes } from "./ApiHrRoutes";
 import { orgRoutes } from "./ApiOrgRoutes";
 import { platformRoutes } from "./ApiPlatformRoutes";
 
@@ -29,6 +30,7 @@ export function ApiApp() {
           <Route path="/s/:slug/*" element={<ApiSchool />} />
           {orgRoutes}
           {platformRoutes}
+          {hrRoutes}
           <Route path="*" element={<Navigate to="/signin" replace />} />
         </Routes>
       </ApiSessionGuard>

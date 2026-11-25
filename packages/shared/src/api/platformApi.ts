@@ -40,6 +40,10 @@ export interface PlatformSchoolItem {
   timezone: string;
   createdAt: string;
   organization: PlatformSchoolOrganization;
+  /** When the school asked Figbloom for HR & Payroll ("Request Figbloom HR", migration 117), or null. */
+  hrRequestedAt: string | null;
+  /** The id of the account that asked (the API gives no name or e-mail), or null. */
+  hrRequestedBy: string | null;
 }
 
 interface RawPlatformSchool {
@@ -49,6 +53,8 @@ interface RawPlatformSchool {
   status: string;
   timezone: string;
   createdAt: string;
+  hrRequestedAt?: string | null;
+  hrRequestedBy?: string | null;
   organization: {
     id: string;
     name: string;
@@ -78,6 +84,9 @@ export function platformSchoolFromApi(raw: RawPlatformSchool): PlatformSchoolIte
         ? (raw.organization.status as Organization["status"])
         : "pending",
     },
+    // A request with no time is no request; a person with no request is nobody (the API never sends one without the other's time).
+    hrRequestedAt: typeof raw.hrRequestedAt === "string" && raw.hrRequestedAt ? raw.hrRequestedAt : null,
+    hrRequestedBy: typeof raw.hrRequestedAt === "string" && raw.hrRequestedAt && typeof raw.hrRequestedBy === "string" && raw.hrRequestedBy ? raw.hrRequestedBy : null,
   };
 }
 

@@ -29,7 +29,9 @@ import { useToast } from "../../components/ui/Toast";
 import { useAsync } from "../../lib/useAsync";
 import { STATUS_LABEL, STATUS_TONE } from "./Tenants";
 
-type Filter = "All" | "Attention" | "Onboarding" | "Trial";
+type Filter = "All" | "Attention" | "Onboarding" | "Trial" | "HR asked";
+
+const FILTERS: Filter[] = ["All", "Attention", "Onboarding", "Trial", "HR asked"];
 
 const ORG_KIND_LABEL: Record<Organization["kind"], string> = {
   government: "Government",
@@ -77,6 +79,7 @@ export function ApiPlatformTenants() {
         if (filter === "All") return true;
         if (filter === "Attention") return schoolNeedsAttention(s.status);
         if (filter === "Onboarding") return s.status === "onboarding";
+        if (filter === "HR asked") return s.hrRequestedAt !== null;
         return s.status === "trial";
       })
       .filter(
@@ -93,6 +96,7 @@ export function ApiPlatformTenants() {
     Attention: all.filter((s) => schoolNeedsAttention(s.status)).length,
     Onboarding: all.filter((s) => s.status === "onboarding").length,
     Trial: all.filter((s) => s.status === "trial").length,
+    "HR asked": all.filter((s) => s.hrRequestedAt !== null).length,
   };
 
   const selected = all.find((s) => s.id === selectedId) ?? list[0] ?? all[0] ?? null;
@@ -148,7 +152,7 @@ export function ApiPlatformTenants() {
                 />
               </label>
               <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {(["All", "Attention", "Onboarding", "Trial"] as Filter[]).map((k) => (
+                {FILTERS.map((k) => (
                   <button
                     key={k}
                     type="button"
@@ -198,6 +202,7 @@ export function ApiPlatformTenants() {
                             {s.slug} · {s.organization.name}
                           </div>
                         </div>
+                        {s.hrRequestedAt && <Badge tone="info">HR asked</Badge>}
                         <Badge tone={STATUS_TONE[s.status]}>{STATUS_LABEL[s.status]}</Badge>
                       </button>
                     );
@@ -315,6 +320,25 @@ function SchoolDetail({ school }: { school: PlatformSchoolItem }) {
               <dd className="mt-0.5 font-mono text-[12px] text-ink">{formatShortDate(school.createdAt)}</dd>
             </div>
           </dl>
+        </section>
+
+        <section className="rounded-lg border border-line bg-white p-4" aria-label="HR & Payroll">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="font-mono text-micro uppercase tracking-[0.1em] text-ink-faint">HR &amp; Payroll</div>
+            <Badge tone={school.hrRequestedAt ? "info" : "muted"}>{school.hrRequestedAt ? "Asked for HR" : "Not asked"}</Badge>
+          </div>
+          {school.hrRequestedAt ? (
+            <>
+              <p className="mt-2 text-small text-ink">
+                This school asked Figbloom for HR &amp; Payroll on {formatShortDate(school.hrRequestedAt)}. Switch HR on for it in the platform, then it can open HR from its menu.
+              </p>
+              {school.hrRequestedBy && (
+                <p className="mt-1 font-mono text-[11.5px] text-ink-muted">Asked by account {school.hrRequestedBy}</p>
+              )}
+            </>
+          ) : (
+            <p className="mt-2 text-small text-ink-muted">This school has not asked for HR &amp; Payroll.</p>
+          )}
         </section>
 
         <section className="rounded-lg border border-line bg-white p-4">

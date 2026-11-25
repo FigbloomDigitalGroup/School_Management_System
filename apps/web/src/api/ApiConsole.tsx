@@ -4,6 +4,7 @@ import { NAV, adminAccessFor, apiFetchMyStaffRecord, fetchAiStatus, hasAdminCons
 import { BloomFab } from "../components/BloomFab";
 import { ConsoleShell } from "../components/ConsoleShell";
 import { useAsync } from "../lib/useAsync";
+import { useHrItem } from "../lib/useHrItem";
 import { ApiDriverConsole } from "./ApiDriver";
 import { ApiOverview, type SchoolSession } from "./ApiOverview";
 import { ApiParentConsole } from "./ApiParent";
@@ -27,11 +28,13 @@ export { API_ADMIN_PAGES, API_STAFF_PAGES, API_TEACHER_PAGES };
 
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
- * (App.tsx), without the parts that read Supabase (unread counts, the visitor alerts, My HR). The guide and the Ask Bloom button run on /ai/query. Full admins see
- * every page this build has; a teacher or other staff member holding admin areas sees the pages of those areas.
+ * (App.tsx), without the parts that read Supabase (unread counts, the visitor alerts). The guide and the Ask Bloom button run on /ai/query. Full admins see
+ * every page this build has; a teacher or other staff member holding admin areas sees the pages of those areas. The "HR & Payroll" side item
+ * (`sideActions`, lib/useHrItem.ts) is in all three shells, as on Supabase: it asks the API whether the hand-off is on and shows only then.
  */
 function AdminPage({ page, session, children }: { page: string; session: SchoolSession; children: ReactNode }) {
   const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
+  const hrItem = useHrItem(session);
   // The guide (and the School assistant's chat) exist only where Bloom is on for the school, as on the Supabase build. While this is
   // being read, or when it cannot be read, the guide stays: it then says why it cannot answer.
   const { data: ai, loading: aiLoading } = useAsync(() => fetchAiStatus(session.tenant.id).catch(() => null), [session.tenant.id]);
@@ -46,6 +49,7 @@ function AdminPage({ page, session, children }: { page: string; session: SchoolS
       consoleSwitch={session.profile.role === "staff" && showsAdminSwitch("staff", session.adminAreas)
         ? { current: "admin", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" }
         : undefined}
+      sideActions={hrItem}
       guide={guideOn ? { tenantId: session.tenant.id, adminAreas: !full } : undefined}
     >
       {children}
@@ -55,11 +59,13 @@ function AdminPage({ page, session, children }: { page: string; session: SchoolS
 }
 
 function TeacherPage({ session, children }: { session: SchoolSession; children: ReactNode }) {
+  const hrItem = useHrItem(session);
   return (
     <ConsoleShell
       role="teacher"
       user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? "Teacher" }}
       hiddenNav={NAV.teacher.map((i) => i.to).filter((to) => !API_TEACHER_PAGES.includes(to))}
+      sideActions={hrItem}
     >
       {children}
       <BloomFab console="teacher" />
@@ -75,12 +81,14 @@ function StaffPage({ session, children }: { session: SchoolSession; children: Re
   // The job title is the person's own staff record: the session carries none on the API. Until it is read (or if it cannot be), "Staff".
   const { data: record } = useAsync(() => apiFetchMyStaffRecord(session.tenant.id).catch(() => null), [session.tenant.id]);
   const pages = staffPagesFor(session.adminAreas);
+  const hrItem = useHrItem(session);
   return (
     <ConsoleShell
       role="staff"
       user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: record?.staff_title ?? "Staff" }}
       hiddenNav={NAV.staff.map((i) => i.to).filter((to) => !pages.includes(to))}
       consoleSwitch={showsAdminSwitch("staff", session.adminAreas) ? { current: "own", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" } : undefined}
+      sideActions={hrItem}
     >
       {children}
     </ConsoleShell>
