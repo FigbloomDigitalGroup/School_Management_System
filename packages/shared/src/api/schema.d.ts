@@ -5426,6 +5426,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/audit-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The school's audit log (business events, newest first)
+         * @description The school audit log (docs/SCHOOL-AUDIT.md), for a full administrator and for whoever holds the Audit area. Business events of THIS school only: people and setup, access changes, academic, financial, health, transport, communication and operations. Sign-in, session and two-step events, refusals, read events, personal settings and every kind of event not listed on purpose are never returned, and neither is the event's `detail` or the IP address: a row says what happened, who did it and when. `category` narrows to one of the eight; `since` is a day, yyyy-mm-dd (from 00:00 UTC); `search` matches who did it and the event's words, case-insensitively, as plain text (no wildcards). Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor` (bound to the school and to every filter), fixed sort (`sort` is refused).
+         */
+        get: operations["schoolAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/me/chat-contacts": {
         parameters: {
             query?: never;
@@ -7837,6 +7857,27 @@ export interface components {
             admission_no: string;
             /** Format: uuid */
             class_id: string;
+        };
+        /** @enum {string} */
+        SchoolAuditCategory: "provisioning" | "access" | "academic" | "financial" | "health" | "transport" | "communication" | "operations";
+        /** @description One business event of the school. No detail and no IP address. */
+        SchoolAuditEvent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @description The event's name, "<domain>.<thing>.<what happened>", for example `finance.payment.recorded`. */
+            event_type: string;
+            /** @description The event in words, for a person to read. */
+            label: string;
+            category: components["schemas"]["SchoolAuditCategory"];
+            /**
+             * Format: uuid
+             * @description Null for an event the system wrote on its own.
+             */
+            actor_user_id: string | null;
+            /** @description The account's name now; null for a system event or an account that no longer exists. */
+            actor_name: string | null;
         };
         TeachingColleague: {
             /** Format: uuid */
@@ -23436,6 +23477,47 @@ export interface operations {
                 content: {
                     "application/json": {
                         issues: components["schemas"]["MyInventoryIssue"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    schoolAuditEvents: {
+        parameters: {
+            query?: {
+                category?: components["schemas"]["SchoolAuditCategory"];
+                since?: string;
+                search?: string;
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        events: components["schemas"]["SchoolAuditEvent"][];
                         page: components["schemas"]["PageInfo"];
                     };
                 };

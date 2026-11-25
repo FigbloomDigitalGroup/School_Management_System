@@ -40,6 +40,7 @@ tags:
   - name: me
   - name: family
   - name: teaching
+  - name: audit
 paths:
   /livez:
     get:
@@ -18718,6 +18719,78 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/audit-events:
+    get:
+      tags:
+        - audit
+      summary: The school's audit log (business events, newest first)
+      description: "The school audit log (docs/SCHOOL-AUDIT.md), for a full administrator and for whoever holds the Audit area.
+        Business events of THIS school only: people and setup, access changes, academic, financial, health, transport,
+        communication and operations. Sign-in, session and two-step events, refusals, read events, personal settings and
+        every kind of event not listed on purpose are never returned, and neither is the event's `detail` or the IP address:
+        a row says what happened, who did it and when. `category` narrows to one of the eight; `since` is a day,
+        yyyy-mm-dd (from 00:00 UTC); `search` matches who did it and the event's words, case-insensitively, as plain text
+        (no wildcards). Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`
+        (bound to the school and to every filter), fixed sort (`sort` is refused)."
+      operationId: schoolAuditEvents
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.audit.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: category
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/SchoolAuditCategory"
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 80
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The events
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - events
+                  - page
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SchoolAuditEvent"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/me/chat-contacts:
     get:
       tags:
@@ -25754,6 +25827,48 @@ components:
         class_id:
           type: string
           format: uuid
+    SchoolAuditCategory:
+      type: string
+      enum:
+        - provisioning
+        - access
+        - academic
+        - financial
+        - health
+        - transport
+        - communication
+        - operations
+    SchoolAuditEvent:
+      type: object
+      additionalProperties: false
+      description: One business event of the school. No detail and no IP address.
+      required: [id, occurred_at, event_type, label, category, actor_user_id, actor_name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        event_type:
+          type: string
+          description: The event's name, "<domain>.<thing>.<what happened>", for example `finance.payment.recorded`.
+        label:
+          type: string
+          description: The event in words, for a person to read.
+        category:
+          $ref: "#/components/schemas/SchoolAuditCategory"
+        actor_user_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: Null for an event the system wrote on its own.
+        actor_name:
+          type:
+            - string
+            - "null"
+          description: The account's name now; null for a system event or an account that no longer exists.
     TeachingColleague:
       type: object
       additionalProperties: false
