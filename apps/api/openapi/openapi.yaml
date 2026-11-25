@@ -318,6 +318,257 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/platform/schools/{schoolId}/admins:
+    get:
+      tags:
+        - platform
+      summary: List a school's administrators (platform)
+      description: >
+        Super administrators only (`platform.tenants.admins.read`). Active `school_admin` accounts for one school,
+        keyset-paginated on `(created_at, id)`. Exposes personal data (name, sign-in e-mail), so each read is audited.
+        The caller's school (session or `X-Tenant-Id`) is ignored.
+      operationId: listPlatformSchoolAdmins
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.tenants.admins.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: schoolId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The school's administrators
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSchoolAdminList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/platform/organizations:
+    get:
+      tags:
+        - platform
+      summary: List every organization (platform directory)
+      description: >
+        Super administrators only (`platform.organizations.read`). Directory fields and school count for every
+        organization, keyset-paginated on `name COLLATE "C", id`. The caller's school (session or `X-Tenant-Id`)
+        is ignored.
+      operationId: listPlatformOrganizations
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.organizations.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - active
+              - suspended
+              - rejected
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - government
+              - county
+              - constituency
+              - group_owner
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: Organizations page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformOrganizationList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/platform/organizations/{organizationId}:
+    get:
+      tags:
+        - platform
+      summary: One organization's directory record (platform)
+      description: >
+        Super administrators only (`platform.organizations.read`). The same fields as one item of the platform
+        organization list. The caller's school (session or `X-Tenant-Id`) is ignored.
+      operationId: getPlatformOrganization
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.organizations.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformOrganization"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/platform/organizations/{organizationId}/admins:
+    get:
+      tags:
+        - platform
+      summary: List an organization's administrators (platform)
+      description: >
+        Super administrators only (`platform.organizations.read`). `org_admin` accounts for one organization,
+        keyset-paginated on `(created_at, id)`. Exposes personal data (name, sign-in e-mail), so each read is audited.
+        The caller's school (session or `X-Tenant-Id`) is ignored.
+      operationId: listPlatformOrganizationAdmins
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.organizations.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The organization's administrators
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformOrganizationAdminList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/platform/usage:
+    get:
+      tags:
+        - platform
+      summary: Per-school usage counts (platform)
+      description: >
+        Super administrators only (`platform.usage.read`). Returns counts only (active learners, active staff
+        memberships, active guardian links per school) via `platform_usage_counts()`. No names or person IDs.
+        The caller's school (session or `X-Tenant-Id`) is ignored.
+      operationId: getPlatformUsage
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.usage.read
+      x-figbloom-tenantScope: none
+      responses:
+        "200":
+          description: Per-school usage counts and totals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformUsageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/platform/audit-events:
+    get:
+      tags:
+        - platform
+      summary: Platform-wide audit trail (platform)
+      description: >
+        Super administrators only (`platform.audit.read`). Newest-first security audit events across every school
+        via `platform_audit_events()`, keyset-paginated on `(occurred_at, id)`. Never returns `ip` or `detail`.
+        Reading the log is itself audited (`platform.audit.read`). The caller's school (session or `X-Tenant-Id`)
+        is ignored.
+      operationId: listPlatformAuditEvents
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.audit.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: schoolId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: eventPrefix
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: "^[a-z0-9._-]{1,80}$"
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: Platform audit events page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAuditEventList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/invitations:
     post:
       tags:
@@ -1291,6 +1542,54 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/public/schools/{slug}:
+    get:
+      tags:
+        - auth
+      summary: Find a school by its exact address (for login-id sign-in)
+      description: >
+        Public, rate limited per caller address with the login limiter's numbers (AUTH_RATE_*: 5 at once, then 2 every
+        5 s; an IPv6 caller is counted per /64). Turns the school's web address (`/s/<slug>`) into the school id that
+        POST /v1/auth/login/login-id takes. Exact match only: there is no list, search, prefix or wildcard. A school that
+        is not open for sign-in (onboarding, stalled in setup or suspended) answers exactly like an address nobody has:
+        the same 404 with the standard not-found body. Only the school id and name are returned. A malformed address is
+        a 400 before the database is touched. See apps/api/docs/PUBLIC-SCHOOL-LOOKUP.md.
+      operationId: publicSchoolBySlug
+      x-figbloom-authz: public
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: The school's address, as in /s/<slug>. Lower-case letters, digits and hyphens, 3 to 40.
+          schema:
+            type: string
+            pattern: ^[a-z0-9-]{3,40}$
+            minLength: 3
+            maxLength: 40
+      responses:
+        "200":
+          description: The school (its id and name, nothing else)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - tenant_id
+                  - name
+                properties:
+                  tenant_id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/RateLimited"
   /v1/auth/logout:
@@ -20348,6 +20647,233 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PlatformSchool"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    PlatformOrganization:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - slug
+        - kind
+        - status
+        - createdAt
+        - schoolCount
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        kind:
+          type: string
+          enum:
+            - government
+            - county
+            - constituency
+            - group_owner
+        status:
+          type: string
+          enum:
+            - pending
+            - active
+            - suspended
+            - rejected
+        createdAt:
+          type: string
+          format: date-time
+        schoolCount:
+          type: integer
+          minimum: 0
+    PlatformOrganizationList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformOrganization"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    PlatformAdminSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - userId
+        - fullName
+        - email
+        - status
+        - since
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        email:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum:
+            - active
+            - disabled
+            - invited
+        since:
+          type: string
+          format: date-time
+    PlatformOrganizationAdminList:
+      type: object
+      additionalProperties: false
+      required:
+        - organizationId
+        - items
+        - page
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformAdminSummary"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    PlatformSchoolAdminList:
+      type: object
+      additionalProperties: false
+      required:
+        - schoolId
+        - items
+        - page
+      properties:
+        schoolId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformAdminSummary"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    PlatformUsageItem:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - name
+        - slug
+        - status
+        - activeLearners
+        - activeStaff
+        - activeGuardianLinks
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        status:
+          $ref: "#/components/schemas/PlatformSchoolStatus"
+        activeLearners:
+          type: integer
+          minimum: 0
+        activeStaff:
+          type: integer
+          minimum: 0
+        activeGuardianLinks:
+          type: integer
+          minimum: 0
+    PlatformUsageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - totals
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformUsageItem"
+        totals:
+          type: object
+          additionalProperties: false
+          required:
+            - schools
+            - activeLearners
+            - activeStaff
+            - activeGuardianLinks
+          properties:
+            schools:
+              type: integer
+              minimum: 0
+            activeLearners:
+              type: integer
+              minimum: 0
+            activeStaff:
+              type: integer
+              minimum: 0
+            activeGuardianLinks:
+              type: integer
+              minimum: 0
+    PlatformAuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - occurredAt
+        - eventType
+        - schoolId
+        - schoolName
+        - actorUserId
+        - actorName
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+        eventType:
+          type: string
+        schoolId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        schoolName:
+          type:
+            - string
+            - "null"
+        actorUserId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        actorName:
+          type:
+            - string
+            - "null"
+    PlatformAuditEventList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformAuditEvent"
         page:
           $ref: "#/components/schemas/PageInfo"
     PageInfo:

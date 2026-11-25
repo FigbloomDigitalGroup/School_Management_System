@@ -43,6 +43,39 @@ export { apiFetchFamilyRides, rideStatusText, ridesFromTransport, type FamilyRid
 export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayKeepVisitors, staffMayReadItems, type MyStaffRecord } from "./otherStaffApi";
 export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type BloomReadiness, type BloomScope } from "./aiApi";
 export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";
+export {
+  apiFetchPlatformAuditEvents,
+  apiFetchPlatformOpsStatus,
+  apiFetchPlatformOrganization,
+  apiFetchPlatformOrganizationAdmins,
+  apiFetchPlatformOrganizations,
+  apiFetchPlatformSchool,
+  apiFetchPlatformSchoolAdmins,
+  apiFetchPlatformSchools,
+  apiFetchPlatformUsage,
+  apiLoadPlatformSession,
+  apiProvisionSchool,
+  parsePlatformOpsStatus,
+  platformOrganizationFromApi,
+  platformOrganizationToOrg,
+  platformSchoolFromApi,
+  platformSchoolToTenant,
+  type OpsQueueStatus,
+  type OpsReconciliationStatus,
+  type OpsUnmatchedCasesStatus,
+  type OpsWorkerStatus,
+  type PlatformAdminItem,
+  type PlatformAuditEventItem,
+  type PlatformAuditPage,
+  type PlatformOpsStatus,
+  type PlatformOrganizationItem,
+  type PlatformSchoolItem,
+  type PlatformSchoolOrganization,
+  type PlatformUsageSchoolItem,
+  type PlatformUsageSummary,
+  type ProvisionSchoolInput,
+  type ProvisionSchoolResult,
+} from "./platformApi";
 export { OpenRidersError, isOpenRidersError } from "./fleetApi";
 export { feeTotalsFromInvoices } from "./adminOverviewApi";
 export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper, apiFetchMyTeachingPairs } from "./examPapersApi";

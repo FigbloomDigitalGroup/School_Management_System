@@ -118,6 +118,18 @@ All `search_path = pg_catalog, pg_temp`; `learner_accounts` is owner-only, so th
 |---|---|---|---|
 | `student_my_learner()` | DEFINER (110), `STABLE` | `figbloom_app` | no argument: the caller's own learner (and login id) in `app_current_tenant_id()` while the link is live, the account active, the caller a non-archived `student` member of a school that is not suspended and the learner active. The single source of "my learner" for every learner read, the payer rule and the learner exam branch |
 | `student_account_actor_may_manage(uuid)` | DEFINER (110), `STABLE` | none (internal) | the GUC actor is the school office of the tenant in context: super administrator, school administrator, or a teacher/staff member holding `people` (direct grant or school role). Organisation administrators are not |
+
+## Addendum 2026-11-25 — migration 112 (platform usage counts, `docs/PLATFORM-CONSOLE.md` slice P4)
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `platform_usage_counts()` | DEFINER (112), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | no argument: actor from `app_current_user_id()`, re-checked against `platform_roles (role = 'super_admin')` (`42501` otherwise). Returns per-school counts only (active learners, active staff memberships, active guardian links); zero names, zero person IDs |
+
+## Addendum 2026-11-25 — migration 113 (platform audit read, `docs/PLATFORM-CONSOLE.md` slice P5)
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `platform_audit_events(uuid, text, timestamptz, timestamptz, uuid, integer)` | DEFINER (113), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | reads `security_audit_events` (still no `SELECT` grant) across schools for `super_admin` (`app_current_user_id()` re-checked against `platform_roles`, `42501` otherwise); never returns `ip` or `detail`; filters by school, event prefix and `since`; newest first, keyset `(occurred_at, id)`, at most 201 rows |
 | `student_account_create(uuid, uuid, text)` | DEFINER (110) | `figbloom_app` | office only; Argon2id hash format-checked; learner row locked; 23505 when a live login exists; `ST-NNNN` under the per-school login-id advisory lock; user (no e-mail, `must_change_password`), `student` membership, link; audited without password material |
 | `student_account_reset_password(uuid, uuid, text)` | DEFINER (110) | `figbloom_app` | office only; new hash on a live, active login; `must_change_password`; every session revoked; open reset tokens voided; audited |
 | `student_account_revoke(uuid, uuid, text)` | DEFINER (110) | `figbloom_app` | office only; reason required; link revoked, `student` membership archived, every session revoked; audited |

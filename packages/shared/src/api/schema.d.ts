@@ -128,6 +128,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/platform/schools/{schoolId}/admins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPlatformSchoolAdmins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPlatformOrganizations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/organizations/{organizationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPlatformOrganization"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/organizations/{organizationId}/admins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPlatformOrganizationAdmins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPlatformUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/audit-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPlatformAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/invitations": {
         parameters: {
             query?: never;
@@ -436,6 +532,26 @@ export interface paths {
         put?: never;
         /** School + login_id + password login */
         post: operations["loginLoginId"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/public/schools/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find a school by its exact address (for login-id sign-in)
+         * @description Public, rate limited per caller address with the login limiter's numbers (AUTH_RATE_*: 5 at once, then 2 every 5 s; an IPv6 caller is counted per /64). Turns the school's web address (`/s/<slug>`) into the school id that POST /v1/auth/login/login-id takes. Exact match only: there is no list, search, prefix or wildcard. A school that is not open for sign-in (onboarding, stalled in setup or suspended) answers exactly like an address nobody has: the same 404 with the standard not-found body. Only the school id and name are returned. A malformed address is a 400 before the database is touched. See apps/api/docs/PUBLIC-SCHOOL-LOOKUP.md.
+         */
+        get: operations["publicSchoolBySlug"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5951,6 +6067,81 @@ export interface components {
             items: components["schemas"]["PlatformSchool"][];
             page: components["schemas"]["PageInfo"];
         };
+        PlatformOrganization: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            slug: string;
+            /** @enum {string} */
+            kind: "government" | "county" | "constituency" | "group_owner";
+            /** @enum {string} */
+            status: "pending" | "active" | "suspended" | "rejected";
+            /** Format: date-time */
+            createdAt: string;
+            schoolCount: number;
+        };
+        PlatformOrganizationList: {
+            items: components["schemas"]["PlatformOrganization"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        PlatformAdminSummary: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            email: string | null;
+            /** @enum {string} */
+            status: "active" | "disabled" | "invited";
+            /** Format: date-time */
+            since: string;
+        };
+        PlatformOrganizationAdminList: {
+            /** Format: uuid */
+            organizationId: string;
+            items: components["schemas"]["PlatformAdminSummary"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        PlatformSchoolAdminList: {
+            /** Format: uuid */
+            schoolId: string;
+            items: components["schemas"]["PlatformAdminSummary"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        PlatformUsageItem: {
+            /** Format: uuid */
+            tenantId: string;
+            name: string;
+            slug: string;
+            status: components["schemas"]["PlatformSchoolStatus"];
+            activeLearners: number;
+            activeStaff: number;
+            activeGuardianLinks: number;
+        };
+        PlatformUsageResponse: {
+            items: components["schemas"]["PlatformUsageItem"][];
+            totals: {
+                schools: number;
+                activeLearners: number;
+                activeStaff: number;
+                activeGuardianLinks: number;
+            };
+        };
+        PlatformAuditEvent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            occurredAt: string;
+            eventType: string;
+            /** Format: uuid */
+            schoolId: string | null;
+            schoolName: string | null;
+            /** Format: uuid */
+            actorUserId: string | null;
+            actorName: string | null;
+        };
+        PlatformAuditEventList: {
+            items: components["schemas"]["PlatformAuditEvent"][];
+            page: components["schemas"]["PageInfo"];
+        };
         PageInfo: {
             limit: number;
             next_cursor: string | null;
@@ -9559,6 +9750,167 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    listPlatformSchoolAdmins: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["PageLimit"];
+                cursor?: components["parameters"]["PageCursor"];
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path: {
+                schoolId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSchoolAdminList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPlatformOrganizations: {
+        parameters: {
+            query?: {
+                status?: "pending" | "active" | "suspended" | "rejected";
+                kind?: "government" | "county" | "constituency" | "group_owner";
+                limit?: components["parameters"]["PageLimit"];
+                cursor?: components["parameters"]["PageCursor"];
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOrganizationList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getPlatformOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOrganization"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPlatformOrganizationAdmins: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["PageLimit"];
+                cursor?: components["parameters"]["PageCursor"];
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path: {
+                organizationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOrganizationAdminList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getPlatformUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformUsageResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listPlatformAuditEvents: {
+        parameters: {
+            query?: {
+                schoolId?: string;
+                eventPrefix?: string;
+                since?: string;
+                limit?: components["parameters"]["PageLimit"];
+                cursor?: components["parameters"]["PageCursor"];
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformAuditEventList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     accountsCreateInvitation: {
         parameters: {
             query?: never;
@@ -10150,6 +10502,36 @@ export interface operations {
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    publicSchoolBySlug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The school's address, as in /s/<slug>. Lower-case letters, digits and hyphens, 3 to 40. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The school (its id and name, nothing else) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        tenant_id: string;
+                        name: string;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
         };
     };

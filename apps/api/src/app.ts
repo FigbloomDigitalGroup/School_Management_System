@@ -9,6 +9,7 @@ import { toClientError } from "./http/errors.js";
 import { registerHealthRoutes, type Lifecycle } from "./http/routes/health.js";
 import { RequestAbortedError } from "./db/cancel.js";
 import { registerAuthRoutes } from "./http/routes/auth.js";
+import { registerPublicSchoolRoutes } from "./http/routes/publicSchools.js";
 import { registerTenancyRoutes } from "./http/routes/tenancy.js";
 import { registerRbacRoutes } from "./http/routes/rbac.js";
 import { registerOrgRoutes } from "./http/routes/org.js";
@@ -43,7 +44,10 @@ import { registerReportingRoutes } from "./http/routes/reporting.js";
 import { registerTeacherReportRoutes } from "./http/routes/teacherReports.js";
 import { registerImportRoutes } from "./http/routes/imports.js";
 import { registerOpsStatusRoutes } from "./http/routes/opsStatus.js";
+import { registerPlatformAuditRoutes } from "./http/routes/platformAudit.js";
+import { registerPlatformOrganizationRoutes } from "./http/routes/platformOrganizations.js";
 import { registerPlatformSchoolRoutes } from "./http/routes/platformSchools.js";
+import { registerPlatformUsageRoutes } from "./http/routes/platformUsage.js";
 import { registerUnmatchedCallbackRoutes } from "./http/routes/unmatchedCallbacks.js";
 import { registerAccountRoutes } from "./http/routes/accounts.js";
 import { registerGuardianInvitationRoutes } from "./http/routes/guardianInvitations.js";
@@ -205,6 +209,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
 
   await registerHealthRoutes(app, pool, lifecycle);
   await registerAuthRoutes(app, pool, config);
+  await registerPublicSchoolRoutes(app, pool);
   await registerTenancyRoutes(app, pool);
   await registerOrgRoutes(app, pool);
   await registerRbacRoutes(app, pool);
@@ -239,7 +244,10 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerTeacherReportRoutes(app, pool);
   await registerImportRoutes(app, pool);
   await registerOpsStatusRoutes(app, pool);
+  await registerPlatformAuditRoutes(app, pool);
+  await registerPlatformOrganizationRoutes(app, pool);
   await registerPlatformSchoolRoutes(app, pool);
+  await registerPlatformUsageRoutes(app, pool);
   await registerUnmatchedCallbackRoutes(app, pool);
   await registerAccountRoutes(app, pool);
   await registerGuardianInvitationRoutes(app, pool);

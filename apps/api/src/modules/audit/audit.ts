@@ -4,6 +4,8 @@ import { normalizeIp } from "../../http/ip.js";
 export type SecurityEventType =
   | "auth.login.success"
   | "auth.login.failure"
+  // Public school lookup (docs/PUBLIC-SCHOOL-LOOKUP.md): an address that is unknown or not open for sign-in. No tenant.
+  | "auth.school_lookup.missed"
   | "auth.logout"
   | "auth.session.revoked"
   | "auth.tenant.selected"
@@ -223,7 +225,10 @@ export type SecurityEventType =
   | "finance.bank_line.ignored"
   | "reporting.teacher_report.created"
   | "reporting.teacher_report.updated"
-  | "reporting.teacher_report.reviewed";
+  | "reporting.teacher_report.reviewed"
+  | "platform.organization.admins_read"
+  | "platform.school.admins_read"
+  | "platform.audit.read";
 
 export async function recordSecurityEvent(
   db: Db,

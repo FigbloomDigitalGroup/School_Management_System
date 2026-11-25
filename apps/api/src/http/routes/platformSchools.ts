@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppPool } from "../../db/pool.js";
 import type { IdentityDb } from "../../db/sql.js";
 import { withIdentityAccess } from "../../db/identityAccess.js";
+import { recordSecurityEvent } from "../../modules/audit/audit.js";
 import { buildAuthzContext, requirePermission } from "../../modules/rbac/authorize.js";
 import { clientIp } from "../clientIp.js";
 import { requireSessionAuth } from "../middleware/authContext.js";
@@ -67,10 +68,11 @@ function toSchool(r: SchoolRow) {
 }
 
 /** Session, then the platform permission (denials are audited inline on the identity path). */
-async function requirePlatformReader(db: IdentityDb, request: FastifyRequest): Promise<void> {
+async function requirePlatformReader(db: IdentityDb, request: FastifyRequest, permission = "platform.tenants.read"): Promise<string> {
   const { user } = await requireSessionAuth(db, request);
   const authz = await buildAuthzContext(db, { userId: user.id, tenantId: null });
-  await requirePermission(db, authz, "platform.tenants.read", { ip: clientIp(request) });
+  await requirePermission(db, authz, permission, { ip: clientIp(request) });
+  return user.id;
 }
 
 function parseFilters(query: Record<string, unknown>): { status: string | null; organizationId: string | null } {
@@ -160,6 +162,87 @@ export async function registerPlatformSchoolRoutes(app: FastifyInstance, pool: A
         const row = result.rows[0];
         if (!row) throw notFound("School not found");
         return toSchool(row);
+      },
+      opts(),
+    ),
+  );
+
+  /**
+   * Active school administrators for one school (slice P3). Personal data (name, email), so the read is audited.
+   */
+  app.get("/v1/platform/schools/:schoolId/admins", async (request) =>
+    withIdentityAccess(
+      pool,
+      async (db) => {
+        const actorUserId = await requirePlatformReader(db, request, "platform.tenants.admins.read");
+        const { schoolId } = request.params as { schoolId: string };
+        if (!uuidString.safeParse(schoolId).success) throw validationError("schoolId must be a UUID");
+
+        const exists = await db.query(`SELECT 1 FROM tenants WHERE id = $1::uuid`, [schoolId]);
+        if (exists.rowCount !== 1) throw notFound("School not found");
+
+        const query = request.query as Record<string, unknown>;
+        const sort = "since";
+        const { limit, cursor, fingerprint } = parseListQuery(query, {
+          sort,
+          filter: { scope: "platform_school_admins", schoolId },
+          keySpecs: [{ kind: "timestamptz_micros" }, { kind: "uuid" }],
+        });
+
+        const params: unknown[] = [schoolId];
+        let keyset = "";
+        if (cursor) {
+          params.push(cursor.k[0]!, cursor.k[1]!);
+          keyset = `AND (sm.created_at, sm.id) > ($2::timestamptz, $3::uuid)`;
+        }
+        params.push(limit + 1);
+
+        const result = await db.query<{
+          membership_id: string;
+          since: string;
+          user_id: string;
+          full_name: string;
+          email: string | null;
+          status: string;
+        }>(
+          `SELECT sm.id AS membership_id,
+                  to_char(sm.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS since,
+                  u.id AS user_id, u.full_name, u.email, u.status
+             FROM school_memberships sm
+             JOIN users u ON u.id = sm.user_id
+            WHERE sm.tenant_id = $1::uuid AND sm.role = 'school_admin' AND sm.archived_at IS NULL
+            ${keyset}
+            ORDER BY sm.created_at, sm.id
+            LIMIT $${params.length}`,
+          params,
+        );
+
+        const page = pageFromKeysetRows(result.rows, {
+          limit,
+          sort,
+          fingerprint,
+          keysOf: (row) => [row.since, row.membership_id],
+        });
+
+        await recordSecurityEvent(db, {
+          eventType: "platform.school.admins_read",
+          actorUserId,
+          tenantId: schoolId,
+          detail: { schoolId, count: page.items.length },
+          ip: clientIp(request),
+        });
+
+        return {
+          schoolId,
+          items: page.items.map((r) => ({
+            userId: r.user_id,
+            fullName: r.full_name,
+            email: r.email,
+            status: r.status,
+            since: r.since,
+          })),
+          page: page.page,
+        };
       },
       opts(),
     ),
