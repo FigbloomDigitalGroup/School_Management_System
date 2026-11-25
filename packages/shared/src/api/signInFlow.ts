@@ -20,9 +20,9 @@ export function stepAfterSignIn(input: { mustChangePassword: boolean; mfa: Pick<
   return "done";
 }
 
-/** Whether a role's console exists on the API build yet. The platform console is not moved over (S12). */
-export function consoleOnApi(role: Role): boolean {
-  return role !== "super_admin";
+/** Whether a role's console exists on the API build yet (every role, including the platform console P2). */
+export function consoleOnApi(_role: Role): boolean {
+  return true;
 }
 
 export type SignInOutcome =
@@ -51,7 +51,10 @@ export async function continueSignIn(): Promise<SignInOutcome> {
 
   const profile = await apiSignInProfile();
   if (!profile) return refuse("Your account isn't fully set up yet. Contact the school office.");
-  if (!consoleOnApi(profile.role)) return refuse("The platform console is not on the new system yet.");
+  if (!consoleOnApi(profile.role)) return refuse("This console is not on the new system yet.");
+  if (profile.role === "super_admin") {
+    return { kind: "open", path: "/platform/tenants" };
+  }
   if (profile.role === "org_admin") {
     // One organisation: its dashboard. Several: the picker. None (a membership with no organisation left): nothing to open.
     const path = orgHomePath(await apiFetchMyOrganizations());

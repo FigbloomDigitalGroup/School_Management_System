@@ -34,6 +34,9 @@ describe("sessionLifecycle", () => {
     expect(safeReturnPath("/s/alliance/admin/fees?tab=proofs")).toBe("/s/alliance/admin/fees?tab=proofs");
     expect(safeReturnPath("/s/alliance/admin/fees", "/s/alliance")).toBe("/s/alliance/admin/fees");
     expect(safeReturnPath("/s/other/admin/fees", "/s/alliance")).toBeNull();
+    expect(safeReturnPath("/platform/health", "/platform/tenants")).toBe("/platform/health");
+    expect(safeReturnPath("/s/alliance/admin", "/platform/tenants")).toBeNull();
+    expect(safeReturnPath("/org/rift/schools", "/org/rift")).toBe("/org/rift/schools");
     expect(safeReturnPath("https://evil.example/s/alliance")).toBeNull();
     expect(safeReturnPath("//evil.example/s/alliance")).toBeNull();
     expect(safeReturnPath("/signin")).toBeNull();

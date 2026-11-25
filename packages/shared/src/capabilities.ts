@@ -898,3 +898,74 @@ const AUDIT_ON_API: AuditCapabilities = { fieldChanges: false, everyChange: fals
 export function auditCapabilities(): AuditCapabilities {
   return onApi() ? AUDIT_ON_API : AUDIT_ON_SUPABASE;
 }
+
+/**
+ * The Figbloom platform console (`/platform/*`, `super_admin`).
+ * On the API build (slice P2 of `apps/api/docs/PLATFORM-CONSOLE.md`), only the Tenants directory + onboarding
+ * (`GET/POST /v1/platform/schools`) and System health (`GET /v1/platform/ops/status`) are backed; every other page
+ * and every unbacked or invented widget is hidden until its API slice or owner decision lands.
+ */
+export interface PlatformCapabilities {
+  /** `/platform/organizations` — needs platform organisations read endpoints (slice P3) and Q1 for lifecycle. */
+  organizationsPage: boolean;
+  /** `/platform/curriculum` — blocked on owner decision Q6 (platform-verified vs per-school KICD catalogue). */
+  curriculumPage: boolean;
+  /** `/platform/usage` — needs counts-only owner function (slice P4) and Q2 for licensed seats. */
+  usagePage: boolean;
+  /** `/platform/incidents` — blocked on owner decision Q4 (hand-typed incident list vs external status/ops). */
+  incidentsPage: boolean;
+  /** `/platform/subscriptions` — blocked on owner decision Q2 (whether the API owns Figbloom billing). */
+  subscriptionsPage: boolean;
+  /** `/platform/invoices` — blocked on owner decision Q2 (whether the API owns Figbloom billing). */
+  invoicesPage: boolean;
+  /** `/platform/impersonation` — blocked on owner decision Q3 (impersonation / explicit support sessions). */
+  impersonationPage: boolean;
+  /** `/platform/audit` — needs platform-wide audit read endpoint (slice P5) and Q5 retention policy. */
+  auditPage: boolean;
+  /** MRR, learner seats, per-school headcounts and Figbloom invoice balances on `platform/tenants` (P4 / Q2). */
+  tenantFiguresAndBilling: boolean;
+  /** Activate, suspend, reactivate and move between organisations on `platform/tenants` (Q1 / R5). */
+  tenantLifecycleActions: boolean;
+  /** School administrators list/invite/remove on `platform/tenants` (slice P3). */
+  tenantAdminsPanel: boolean;
+  /** Illustrative "Daily active users" and "Role adoption" widgets (risk R6: never shown on the API build). */
+  tenantIllustrativeCharts: boolean;
+  /** Live external provider pings (Supabase/M-Pesa/Resend/Storage/Bloom) on `platform/health` (Q7). */
+  liveProviderChecks: boolean;
+}
+
+const PLATFORM_ON_SUPABASE: PlatformCapabilities = {
+  organizationsPage: true,
+  curriculumPage: true,
+  usagePage: true,
+  incidentsPage: true,
+  subscriptionsPage: true,
+  invoicesPage: true,
+  impersonationPage: true,
+  auditPage: true,
+  tenantFiguresAndBilling: true,
+  tenantLifecycleActions: true,
+  tenantAdminsPanel: true,
+  tenantIllustrativeCharts: true,
+  liveProviderChecks: true,
+};
+
+const PLATFORM_ON_API: PlatformCapabilities = {
+  organizationsPage: false,
+  curriculumPage: false,
+  usagePage: false,
+  incidentsPage: false,
+  subscriptionsPage: false,
+  invoicesPage: false,
+  impersonationPage: false,
+  auditPage: false,
+  tenantFiguresAndBilling: false,
+  tenantLifecycleActions: false,
+  tenantAdminsPanel: false,
+  tenantIllustrativeCharts: false,
+  liveProviderChecks: false,
+};
+
+export function platformCapabilities(): PlatformCapabilities {
+  return onApi() ? PLATFORM_ON_API : PLATFORM_ON_SUPABASE;
+}

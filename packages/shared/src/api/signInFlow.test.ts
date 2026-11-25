@@ -26,9 +26,10 @@ describe("stepAfterSignIn", () => {
 });
 
 describe("consoleOnApi", () => {
-  it("has every school role and the organization console, and not the platform console", () => {
-    for (const r of ["school_admin", "teacher", "parent", "student", "driver", "staff", "org_admin"] as const) expect(consoleOnApi(r)).toBe(true);
-    expect(consoleOnApi("super_admin")).toBe(false);
+  it("has every school role, the organization console, and the platform console", () => {
+    for (const r of ["school_admin", "teacher", "parent", "student", "driver", "staff", "org_admin", "super_admin"] as const) {
+      expect(consoleOnApi(r)).toBe(true);
+    }
   });
 });
 
@@ -85,7 +86,17 @@ describe("continueSignIn", () => {
     expect(await continueSignIn()).toEqual({ kind: "step", step: "mfa-enroll" });
   });
 
-  it("refuses an org admin with no organization left, and a platform account, and ends the session", async () => {
+  it("opens the platform console for a super admin after two-step verification", async () => {
+    const superMe = me({ user: user({ platform_role: "super_admin" }), memberships: [], authz: { role: "super_admin", tenantId: null, isSuperAdmin: true } });
+    boot({ "GET /v1/auth/me": superMe, "GET /v1/auth/mfa/status": mfa("challenge") });
+    expect(await continueSignIn()).toEqual({ kind: "step", step: "mfa-challenge" });
+
+    boot({ "GET /v1/auth/me": superMe, "GET /v1/auth/mfa/status": mfa("none") });
+    expect(await continueSignIn()).toEqual({ kind: "open", path: "/platform/tenants" });
+    expect(store.get()).not.toBeNull();
+  });
+
+  it("refuses an org admin with no organization left, and ends the session", async () => {
     const api = boot({
       "GET /v1/auth/me": me({ memberships: [], authz: { role: "org_admin", tenantId: null, isSuperAdmin: false } }),
       "GET /v1/auth/mfa/status": mfa("none"), "POST /v1/auth/logout": { body: { ok: true } },
@@ -94,12 +105,6 @@ describe("continueSignIn", () => {
     expect(await continueSignIn()).toEqual({ kind: "refused", message: "Your account is not linked to an organization any more. Contact Figbloom support." });
     expect(store.get()).toBeNull();
     expect(api.callsTo("POST /v1/auth/logout")).toHaveLength(1);
-
-    boot({
-      "GET /v1/auth/me": me({ user: user({ platform_role: "super_admin" }), memberships: [] }),
-      "GET /v1/auth/mfa/status": mfa("none"), "POST /v1/auth/logout": { body: { ok: true } },
-    });
-    expect(await continueSignIn()).toEqual({ kind: "refused", message: "The platform console is not on the new system yet." });
   });
 
   it("refuses an account with no school and no role", async () => {

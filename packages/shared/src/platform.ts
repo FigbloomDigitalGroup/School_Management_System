@@ -1,4 +1,7 @@
 import type { FunctionInvokeOptions } from "@supabase/supabase-js";
+import { apiFetchPlatformSchools, platformSchoolToTenant } from "./api/platformApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import type { EmailOutcome } from "./passwordReset";
 import { currentUserId } from "./session";
 import { supabase } from "./supabase";
@@ -71,6 +74,7 @@ export interface NewSchoolInput {
  * owning organization's admin, org_activate_school) activates them.
  */
 export async function activateTenant(tenantId: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Activating a school manually");
   const { error } = await supabase().from("tenants").update({ status: "active" }).eq("id", tenantId);
   if (error) throw error;
 }
@@ -314,6 +318,7 @@ export interface NewOrganizationInput {
 
 /** Org creation is staff-only, same as tenant creation — RLS (organization_write_super) allows a super_admin to insert directly. */
 export async function createOrganization(input: NewOrganizationInput): Promise<Organization> {
+  if (onApi()) throw new NotOnApiError("Creating an organization");
   const userId = await currentUserId();
   const { data, error } = await supabase()
     .from("organizations")
@@ -325,6 +330,7 @@ export async function createOrganization(input: NewOrganizationInput): Promise<O
 }
 
 export async function fetchOrganizations(): Promise<Organization[]> {
+  if (onApi()) throw new NotOnApiError("Platform organizations");
   const { data, error } = await supabase().from("organizations").select("*").order("name").returns<Organization[]>();
   if (error) throw error;
   return data ?? [];
@@ -336,12 +342,14 @@ export async function fetchOrganizations(): Promise<Organization[]> {
  * give it its own (giveSchoolOwnOrganization), never none.
  */
 export async function assignTenantOrganization(tenantId: string, organizationId: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Moving a school between organizations");
   const { error } = await supabase().from("tenants").update({ organization_id: organizationId }).eq("id", tenantId);
   if (error) throw error;
 }
 
 /** Moves a school into a new organisation of its own, named after it (Figbloom staff only). Returns its id. */
 export async function giveSchoolOwnOrganization(tenantId: string): Promise<string> {
+  if (onApi()) throw new NotOnApiError("Moving a school to its own organization");
   const { data, error } = await supabase().rpc("give_school_own_organization", { p_tenant_id: tenantId });
   if (error) throw error;
   return data as string;
@@ -349,12 +357,14 @@ export async function giveSchoolOwnOrganization(tenantId: string): Promise<strin
 
 /** One-click approve (FIG-375): a self-registered organization sits 'pending' until staff do this. */
 export async function approveOrganization(organizationId: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Approving an organization");
   const { error } = await supabase().from("organizations").update({ status: "active" }).eq("id", organizationId);
   if (error) throw error;
 }
 
 /** The schools in one organization, by name. */
 export async function fetchOrganizationMemberSchools(organizationId: string): Promise<Tenant[]> {
+  if (onApi()) return (await apiFetchPlatformSchools({ organizationId })).map(platformSchoolToTenant);
   const { data, error } = await supabase().from("tenants").select("*").eq("organization_id", organizationId).order("name").returns<Tenant[]>();
   if (error) throw error;
   return data ?? [];
@@ -364,6 +374,7 @@ export interface OrganizationAdminProfile { id: string; full_name: string; email
 
 /** The people who administer one organization. */
 export async function fetchOrganizationAdminProfiles(organizationId: string): Promise<OrganizationAdminProfile[]> {
+  if (onApi()) throw new NotOnApiError("Organization administrators");
   // organization_admins has two FKs into profiles (profile_id, added_by), so
   // the embed is ambiguous without a hint — PostgREST rejects it (PGRST201)
   // rather than guessing, and that rejection was previously going unnoticed
@@ -473,6 +484,7 @@ export async function fetchTakenSlugs(kind: SlugKind, slugs: string[]): Promise<
 
 /** Every school, by name (Figbloom staff read them all). */
 export async function fetchAllTenants(): Promise<Tenant[]> {
+  if (onApi()) return (await apiFetchPlatformSchools()).map(platformSchoolToTenant);
   const { data, error } = await supabase().from("tenants").select("*").order("name", { ascending: true });
   if (error) throw error;
   return (data ?? []) as Tenant[];
@@ -486,6 +498,7 @@ export interface PlatformTenantSummary {
 /** MRR needs the plan price list; learner seats need the real roster — neither
  *  lives on the tenant row itself, so this is its own fetch alongside it. */
 export async function fetchPlatformTenantSummary(): Promise<PlatformTenantSummary> {
+  if (onApi()) throw new NotOnApiError("Platform billing and seat totals");
   const sb = supabase();
   const [{ data: pricing, error: e1 }, { count: activeStudents, error: e2 }] = await Promise.all([
     sb.from("plan_pricing").select("plan,price_cents").returns<{ plan: string; price_cents: number }[]>(),
@@ -509,6 +522,7 @@ export interface PlatformTenantOverview {
 
 /** One school's headcounts and what it owes Figbloom. A failed count reads as 0, as it always did. */
 export async function fetchPlatformTenantOverview(tenantId: string): Promise<PlatformTenantOverview> {
+  if (onApi()) throw new NotOnApiError("Per-school headcounts and billing");
   const sb = supabase();
   const [{ count: learners }, { count: staff }, { count: parents }, { data: due }] = await Promise.all([
     sb.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("active", true),
@@ -530,6 +544,14 @@ export interface PlatformNavCounts { tenants: number; openIncidents: number; due
 
 /** The console's sidebar figures. A failed count reads as 0 (so no badge), as it always did. */
 export async function fetchPlatformNavCounts(): Promise<PlatformNavCounts> {
+  if (onApi()) {
+    try {
+      const schools = await apiFetchPlatformSchools();
+      return { tenants: schools.length, openIncidents: 0, dueInvoices: 0 };
+    } catch {
+      return { tenants: 0, openIncidents: 0, dueInvoices: 0 };
+    }
+  }
   const sb = supabase();
   const [{ count: tenantCount }, { count: openIncidents }, { count: dueInvoices }] = await Promise.all([
     sb.from("tenants").select("id", { count: "exact", head: true }),
@@ -550,6 +572,7 @@ export interface ServiceCheckResult {
 
 /** Triggers a fresh, live check of the services the Health page tracks — see supabase/functions/check-services. */
 export async function checkServices(): Promise<ServiceCheckResult[]> {
+  if (onApi()) throw new NotOnApiError("Live provider checks");
   return (await callFunction<{ results: ServiceCheckResult[] }>("check-services")).results;
 }
 
@@ -564,6 +587,7 @@ export interface ServiceStatusRow {
 
 /** The last 200 checks, newest first. */
 export async function fetchServiceHistory(): Promise<ServiceStatusRow[]> {
+  if (onApi()) throw new NotOnApiError("Service check history");
   const { data, error } = await supabase()
     .from("service_status")
     .select("*")
@@ -583,6 +607,7 @@ export interface PlatformUsageRow {
 }
 
 export async function fetchPlatformUsage(): Promise<PlatformUsageRow[]> {
+  if (onApi()) throw new NotOnApiError("Platform usage and capacity");
   const sb = supabase();
   const [{ data: tenants, error: e1 }, { data: counts, error: e2 }] = await Promise.all([
     sb.from("tenants").select("id,name,slug,licensed_seats,status").order("name").returns<PlatformUsageRow["tenant"][]>(),
@@ -602,6 +627,7 @@ export async function fetchPlatformUsage(): Promise<PlatformUsageRow[]> {
 
 /** Newest first. */
 export async function fetchPlatformIncidents(): Promise<PlatformIncident[]> {
+  if (onApi()) throw new NotOnApiError("Platform incidents");
   const { data, error } = await supabase()
     .from("platform_incidents")
     .select("*")
@@ -612,6 +638,7 @@ export async function fetchPlatformIncidents(): Promise<PlatformIncident[]> {
 }
 
 export async function resolvePlatformIncident(id: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Platform incidents");
   const { error } = await supabase()
     .from("platform_incidents").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", id);
   if (error) throw error;
@@ -625,6 +652,7 @@ export interface NewPlatformIncident {
 }
 
 export async function declarePlatformIncident(input: NewPlatformIncident): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Platform incidents");
   const { error } = await supabase().from("platform_incidents").insert({
     severity: input.severity, title: input.title, summary: input.summary,
     affected_schools: input.affected_schools,
@@ -640,6 +668,7 @@ export interface PlatformSubscriptionRow {
 }
 
 export async function fetchPlatformSubscriptions(): Promise<PlatformSubscriptionRow[]> {
+  if (onApi()) throw new NotOnApiError("Platform subscriptions");
   const sb = supabase();
   const [{ data: tenants, error: e1 }, { data: pricing, error: e2 }] = await Promise.all([
     sb.from("tenants")
@@ -665,6 +694,7 @@ export interface PlatformInvoicesData { invoices: PlatformInvoiceRow[]; tenants:
 
 /** Every invoice by due date, and the school list the "New invoice" form picks from. */
 export async function fetchPlatformInvoices(): Promise<PlatformInvoicesData> {
+  if (onApi()) throw new NotOnApiError("Platform invoices");
   const sb = supabase();
   const [{ data: invoices, error: e1 }, { data: tenants, error: e2 }] = await Promise.all([
     sb.from("platform_invoices")
@@ -682,6 +712,7 @@ export async function fetchPlatformInvoices(): Promise<PlatformInvoicesData> {
 }
 
 export async function markPlatformInvoicePaid(id: string): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Platform invoices");
   const { error } = await supabase()
     .from("platform_invoices").update({ status: "paid", paid_at: new Date().toISOString() }).eq("id", id);
   if (error) throw error;
@@ -690,6 +721,7 @@ export async function markPlatformInvoicePaid(id: string): Promise<void> {
 export interface NewPlatformInvoice { tenant_id: string; amount_cents: number; due_date: string }
 
 export async function createPlatformInvoice(input: NewPlatformInvoice): Promise<void> {
+  if (onApi()) throw new NotOnApiError("Platform invoices");
   const { error } = await supabase().from("platform_invoices").insert({
     tenant_id: input.tenant_id, amount_cents: input.amount_cents, due_date: input.due_date,
   });
@@ -705,6 +737,7 @@ export interface ImpersonationLogRow {
 
 /** The last 100 sessions, newest first. */
 export async function fetchImpersonationLog(): Promise<ImpersonationLogRow[]> {
+  if (onApi()) throw new NotOnApiError("Impersonation log");
   const { data, error } = await supabase()
     .from("impersonation_sessions")
     .select("id,started_at,ended_at,reason,scope,tenants(name),profiles(full_name)")
@@ -722,6 +755,7 @@ export interface PlatformAuditRow { id: string; created_at: string; actor_label:
 
 /** The last 200 events across every school, newest first. */
 export async function fetchPlatformAudit(): Promise<PlatformAuditRow[]> {
+  if (onApi()) throw new NotOnApiError("Platform audit trail");
   const { data, error } = await supabase()
     .from("audit_events")
     .select("id,created_at,actor_label,event,category,tenants(name)")
