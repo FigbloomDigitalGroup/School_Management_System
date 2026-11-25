@@ -16,6 +16,16 @@ export type ApiErrorCode =
   | "idempotency_key_reused"
   | "service_unavailable"
   | "internal_error"
+  // My HR (apps/api/docs/MY-HR.md): the answers of the HR proxy.
+  | "my_hr_off"
+  | "school_not_linked"
+  | "not_linked"
+  | "pending_hr"
+  | "hr_off"
+  | "hr_forbidden"
+  | "hr_not_connected"
+  | "hr_unavailable"
+  | "hr_bad_answer"
   // Not from the server: the request never got an answer.
   | "network_error"
   | "timeout"
@@ -24,6 +34,7 @@ export type ApiErrorCode =
 const SERVER_CODES: readonly ApiErrorCode[] = [
   "unauthorized", "forbidden", "reauth_required", "mfa_required", "not_found", "validation_error", "rate_limited",
   "conflict", "idempotency_key_reused", "service_unavailable", "internal_error",
+  "my_hr_off", "school_not_linked", "not_linked", "pending_hr", "hr_off", "hr_forbidden", "hr_not_connected", "hr_unavailable", "hr_bad_answer",
 ];
 
 export interface ApiFieldError {
