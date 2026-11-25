@@ -7560,14 +7560,19 @@ paths:
       tags:
         - academics
       summary: Start an online exam attempt
-      description: The learner must be a member of the paper's class (400). One in-progress attempt per learner and paper
-        (409). Replays return the original response.
+      description: "Staff (resource.academics.write): the learner must be a member of the paper's class (400); one in-progress
+        attempt per learner and paper (409); replays return the original response. A learner signed in with a student account
+        (resource.student.self.read) starts their OWN attempt only: learner_id must be their own learner (any other is 404), the
+        paper must be published for one of their own current classes (404 otherwise) and have questions (409), and a learner
+        may start one attempt per paper (409). The learner's answer is a StudentOnlineExamAttempt (questions without the answer
+        key); no Idempotency-Key replay for a learner. docs/STUDENT-ACCOUNTS.md"
       operationId: startOnlineExamAttempt
       security:
         - bearerAuth: []
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.academics.write
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -7602,7 +7607,9 @@ paths:
                   - attempt
                 properties:
                   attempt:
-                    $ref: "#/components/schemas/OnlineExamAttempt"
+                    anyOf:
+                      - $ref: "#/components/schemas/OnlineExamAttempt"
+                      - $ref: "#/components/schemas/StudentOnlineExamAttempt"
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
@@ -7620,13 +7627,17 @@ paths:
       tags:
         - academics
       summary: Submit an online exam attempt
-      description: A submitted attempt is final (409 on a second submit; database-enforced). Replays return the original response.
+      description: "A submitted attempt is final (409 on a second submit; database-enforced). Replays return the original response.
+        A learner signed in with a student account (resource.student.self.read) submits their OWN attempt only (another
+        learner's attempt is 404), with answers only (a score is 403); it is marked automatically and the answer carries no
+        mark (StudentOnlineExamSubmission). docs/STUDENT-ACCOUNTS.md"
       operationId: submitOnlineExamAttempt
       security:
         - bearerAuth: []
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.academics.write
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -7661,7 +7672,9 @@ paths:
                   - attempt
                 properties:
                   attempt:
-                    $ref: "#/components/schemas/OnlineExamSubmission"
+                    anyOf:
+                      - $ref: "#/components/schemas/OnlineExamSubmission"
+                      - $ref: "#/components/schemas/StudentOnlineExamSubmission"
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
@@ -7674,6 +7687,55 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/IdempotencyKeyReused"
+  /v1/tenants/{tenantId}/online-exam-papers/{paperId}/publish:
+    post:
+      tags:
+        - academics
+      summary: Publish an online exam paper to the learners of its class
+      description: "Until a paper is published no learner sees it (migration 110, docs/STUDENT-ACCOUNTS.md). Publishing again
+        keeps the first time. There is no unpublish."
+      operationId: publishOnlineExamPaper
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paperId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - paper
+                properties:
+                  paper:
+                    $ref: "#/components/schemas/OnlineExamPaper"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/attendance-settings:
     get:
       tags:
@@ -17879,6 +17941,7 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -17891,7 +17954,7 @@ paths:
         - name: learnerId
           in: path
           required: true
-          description: One of the caller's own children (GET /me/children); any other id answers 404
+          description: "One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404"
           schema:
             type: string
             format: uuid
@@ -17941,6 +18004,7 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -17953,7 +18017,7 @@ paths:
         - name: learnerId
           in: path
           required: true
-          description: One of the caller's own children (GET /me/children); any other id answers 404
+          description: "One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404"
           schema:
             type: string
             format: uuid
@@ -17990,6 +18054,7 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -18002,7 +18067,7 @@ paths:
         - name: learnerId
           in: path
           required: true
-          description: One of the caller's own children (GET /me/children); any other id answers 404
+          description: "One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404"
           schema:
             type: string
             format: uuid
@@ -18039,6 +18104,7 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -18051,7 +18117,7 @@ paths:
         - name: learnerId
           in: path
           required: true
-          description: One of the caller's own children (GET /me/children); any other id answers 404
+          description: "One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404"
           schema:
             type: string
             format: uuid
@@ -18098,6 +18164,7 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -18110,7 +18177,7 @@ paths:
         - name: learnerId
           in: path
           required: true
-          description: One of the caller's own children (GET /me/children); any other id answers 404
+          description: "One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404"
           schema:
             type: string
             format: uuid
@@ -18147,6 +18214,7 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -18159,7 +18227,7 @@ paths:
         - name: learnerId
           in: path
           required: true
-          description: One of the caller's own children (GET /me/children); any other id answers 404
+          description: "One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404"
           schema:
             type: string
             format: uuid
@@ -18197,6 +18265,7 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -18209,7 +18278,7 @@ paths:
         - name: learnerId
           in: path
           required: true
-          description: One of the caller's own children (GET /me/children); any other id answers 404
+          description: "One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404"
           schema:
             type: string
             format: uuid
@@ -18246,6 +18315,7 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -18258,7 +18328,7 @@ paths:
         - name: learnerId
           in: path
           required: true
-          description: One of the caller's own children (GET /me/children); any other id answers 404
+          description: "One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404"
           schema:
             type: string
             format: uuid
@@ -18295,6 +18365,7 @@ paths:
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -18307,7 +18378,7 @@ paths:
         - name: learnerId
           in: path
           required: true
-          description: One of the caller's own children (GET /me/children); any other id answers 404
+          description: "One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404"
           schema:
             type: string
             format: uuid
@@ -18338,7 +18409,7 @@ paths:
       tags:
         - family
       summary: "The child's health profile, medication authorizations (with consent status), active schedules, administrations of the last 60 days and the newest 100 sick-bay visits"
-      description: "A parent answers a consent request through POST /health/medications/authorizations/{authorizationId}/consent."
+      description: "A parent answers a consent request through POST /health/medications/authorizations/{authorizationId}/consent. Parents only: a learner signed in with a student account is refused with 403 (no student page shows health; docs/STUDENT-ACCOUNTS.md)."
       operationId: familyChildHealth
       security:
         - bearerAuth: []
@@ -18718,18 +18789,436 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/learners/{learnerId}/student-account:
+    get:
+      tags:
+        - accounts
+      summary: "A learner's login: whether one exists, its login id, whether the one-time password is still to be changed, last sign-in"
+      description: "The school office only: a school administrator, or a teacher or staff member holding the People area
+        (resource.learner.write, re-checked in the database, which also refuses organisation administrators). Never carries
+        password material. docs/STUDENT-ACCOUNTS.md"
+      operationId: getStudentAccount
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.learner.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [account]
+                properties:
+                  account:
+                    $ref: "#/components/schemas/StudentAccountStatus"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags:
+        - accounts
+      summary: "Make a learner's login: a login id (ST-0001...) and a one-time password, shown once"
+      description: "The school office only (as for the status read). The answer carries the one-time password ONCE: it is not
+        stored, logged or audited, and no later answer carries it (there is no Idempotency-Key replay; a second create for a
+        learner with a live login is 409, never a second account). The learner must change it at first sign-in
+        (POST /v1/auth/login/login-id with the school id and login id, then POST /v1/auth/password/change). Concurrent creates
+        give one account. 404 for a learner not in this school, 409 for an archived learner. Audited as student.account.created."
+      operationId: createStudentAccount
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.learner.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Created; the one-time password is in this answer only
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [account]
+                properties:
+                  account:
+                    $ref: "#/components/schemas/StudentAccountIssued"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/learners/{learnerId}/student-account/reset-password:
+    post:
+      tags:
+        - accounts
+      summary: "Give a learner's login a new one-time password (shown once); ends every session of the login"
+      description: "The school office only, with a recently confirmed password (403 reauth_required otherwise, POST /v1/auth/reauth).
+        The learner must change the new password at the next sign-in. A disabled login stays disabled (409). 404 when the learner
+        has no login. Audited as student.account.password_reset (no password material)."
+      operationId: resetStudentAccountPassword
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.learner.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK; the one-time password is in this answer only
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [account]
+                properties:
+                  account:
+                    $ref: "#/components/schemas/StudentAccountIssued"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/learners/{learnerId}/student-account/revoke:
+    post:
+      tags:
+        - accounts
+      summary: "Revoke a learner's login (final): the login id stops signing in and every session ends"
+      description: "The school office only, with a recently confirmed password and a reason. A new login is a new create (a new
+        account and login id). 404 when the learner has no login. Audited as student.account.revoked."
+      operationId: revokeStudentAccount
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.learner.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 3
+                  maxLength: 300
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [revoked]
+                properties:
+                  revoked:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/learner:
+    get:
+      tags:
+        - family
+      summary: "The signed-in learner's own record: learner id, name, admission number, boarding, login id and current class"
+      description: "A learner signed in with a student account (resource.student.self.read). 404 when the caller has no live
+        learner in this school (revoked login, archived learner). The learner id is the one to use on the shared per-learner
+        reads /me/children/{learnerId}/... docs/STUDENT-ACCOUNTS.md"
+      operationId: studentMyLearner
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.student.self.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [learner]
+                properties:
+                  learner:
+                    $ref: "#/components/schemas/StudentLearner"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/learner/online-exams:
+    get:
+      tags:
+        - family
+      summary: "The learner's online exam papers: published papers of their own current classes, with their own attempts (at most 200)"
+      description: "A learner signed in with a student account. No question, answer key, score or other learner's attempt is in
+        this list. Start an attempt with POST /online-exam-papers/{paperId}/attempts (learner_id = their own)."
+      operationId: studentMyOnlineExams
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.student.self.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [papers]
+                properties:
+                  papers:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StudentOnlineExam"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/learner/online-exam-attempts/{attemptId}:
+    get:
+      tags:
+        - family
+      summary: "One of the learner's own attempts: the paper's questions (without the answer key) and the answers saved so far"
+      description: "Another learner's attempt, or an attempt at a paper the learner no longer sees, is 404. No score."
+      operationId: studentMyOnlineExamAttempt
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.student.self.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: attemptId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [attempt]
+                properties:
+                  attempt:
+                    $ref: "#/components/schemas/StudentOnlineExamAttempt"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/learner/online-exam-attempts/{attemptId}/answers:
+    put:
+      tags:
+        - family
+      summary: "Save the answers of the learner's own attempt while it is in progress (replaces the saved set)"
+      description: "Keys must be this paper's question ids (400 otherwise); a submitted attempt is 409; another learner's attempt
+        is 404. Submit with POST /online-exam-attempts/{attemptId}/submit."
+      operationId: studentSaveOnlineExamAnswers
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.student.self.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: attemptId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - answers
+              properties:
+                answers:
+                  type: object
+                  propertyNames:
+                    type: string
+                    minLength: 1
+                    maxLength: 64
+                  additionalProperties:
+                    type: string
+                    maxLength: 1000
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [attempt]
+                properties:
+                  attempt:
+                    $ref: "#/components/schemas/StudentOnlineExamAttempt"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /v1/tenants/{tenantId}/me/chat-contacts:
     get:
       tags:
         - family
-      summary: "Who a parent may start a chat with: the school's administrators and the teachers of their children's current classes"
-      description: "The same rule as POST /chat/conversations (may_talk), which is checked again on every chat write."
+      summary: "Who a parent or a learner may start a chat with: the school's administrators and the teachers of their children's (or their own) current classes"
+      description: "The same rule as POST /chat/conversations (may_talk), which is checked again on every chat write. A parent needs resource.family.read; a learner signed in with a student account needs resource.student.self.read and gets the school's administrators and the teachers of their own class only (no staff list, no other learner; docs/STUDENT-ACCOUNTS.md)."
       operationId: familyChatContacts
       security:
         - bearerAuth: []
       x-figbloom-authz: permission
       x-figbloom-permissions:
         - resource.family.read
+        - resource.student.self.read
       x-figbloom-tenantScope: path.tenantId
       parameters:
         - $ref: "#/components/parameters/TenantHeader"
@@ -22264,6 +22753,12 @@ components:
         created_at:
           type: string
           format: date-time
+        published_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: When the paper was published to the learners of its class (null until then; migration 110).
         questions:
           type:
             - array
@@ -24267,6 +24762,7 @@ components:
           enum:
             - office
             - guardian
+            - learner
         note:
           type:
             - string
@@ -27100,6 +27596,199 @@ components:
           anyOf:
             - $ref: "#/components/schemas/FamilyChildClass"
             - type: "null"
+    StudentAccountStatus:
+      type: object
+      description: "A learner's login as the school office sees it (docs/STUDENT-ACCOUNTS.md). Never password material."
+      required: [learner_id, has_login, login_id, account_status, must_change_password, created_at, password_set_at, last_sign_in_at, revoked_logins]
+      additionalProperties: false
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+        has_login:
+          type: boolean
+        login_id:
+          type: [string, "null"]
+          description: "ST-0001 style; signs in with POST /v1/auth/login/login-id and the school id"
+        account_status:
+          type: [string, "null"]
+          enum: [active, disabled, invited, null]
+        must_change_password:
+          type: [boolean, "null"]
+          description: True until the learner replaces the one-time password; null without a login
+        created_at:
+          type: [string, "null"]
+          format: date-time
+        password_set_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the office last set a one-time password (create or reset)
+        last_sign_in_at:
+          type: [string, "null"]
+          format: date-time
+        revoked_logins:
+          type: integer
+          minimum: 0
+          description: Earlier logins of this learner that were revoked
+    StudentAccountIssued:
+      type: object
+      description: "The answer to a create or a reset: the ONLY place the one-time password ever appears."
+      required: [learner_id, user_id, login_id, must_change_password, one_time_password]
+      additionalProperties: false
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        login_id:
+          type: string
+        must_change_password:
+          type: boolean
+          const: true
+        one_time_password:
+          type: string
+          description: Shown once to the office, handed to the learner, changed at first sign-in
+    StudentLearner:
+      type: object
+      required: [learner_id, full_name, admission_no, boarding, login_id, class]
+      additionalProperties: false
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        admission_no:
+          type: string
+        boarding:
+          type: boolean
+        login_id:
+          type: [string, "null"]
+        class:
+          anyOf:
+            - $ref: "#/components/schemas/FamilyChildClass"
+            - type: "null"
+    StudentOnlineExamQuestion:
+      type: object
+      description: A question as a learner sees it (never the answer key)
+      required: [id, prompt, kind, options, points]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        prompt:
+          type: string
+        kind:
+          type: string
+          enum: [mcq, true_false]
+        options:
+          type: [array, "null"]
+          items:
+            type: string
+        points:
+          type: number
+    StudentOnlineExamAttemptSummary:
+      type: object
+      required: [id, status, started_at, submitted_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [in_progress, submitted]
+        started_at:
+          type: string
+          format: date-time
+        submitted_at:
+          type: [string, "null"]
+          format: date-time
+    StudentOnlineExam:
+      type: object
+      required: [id, title, max_score, class, subject, published_at, question_count, attempts]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        max_score:
+          type: string
+          description: Decimal number as text (exact PostgreSQL numeric).
+        class:
+          $ref: "#/components/schemas/FamilyRef"
+        subject:
+          $ref: "#/components/schemas/FamilyRef"
+        published_at:
+          type: string
+          format: date-time
+        question_count:
+          type: integer
+          minimum: 0
+        attempts:
+          type: array
+          description: The learner's own attempts at this paper, oldest first (a learner may start one)
+          items:
+            $ref: "#/components/schemas/StudentOnlineExamAttemptSummary"
+    StudentOnlineExamAttempt:
+      type: object
+      required: [id, status, started_at, submitted_at, answers, paper]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [in_progress, submitted]
+        started_at:
+          type: string
+          format: date-time
+        submitted_at:
+          type: [string, "null"]
+          format: date-time
+        answers:
+          type: object
+          description: Question id to the chosen answer (saved so far, or submitted)
+          additionalProperties:
+            type: string
+        paper:
+          type: object
+          required: [id, title, max_score, subject, questions]
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+              format: uuid
+            title:
+              type: string
+            max_score:
+              type: string
+            subject:
+              $ref: "#/components/schemas/FamilyRef"
+            questions:
+              type: array
+              items:
+                $ref: "#/components/schemas/StudentOnlineExamQuestion"
+    StudentOnlineExamSubmission:
+      type: object
+      description: A learner's submission answer; no mark (the learner is not told the score)
+      required: [id, status, submitted_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [submitted]
+        submitted_at:
+          type: string
+          format: date-time
     FamilyRef:
       type: object
       required: [id, name]
@@ -27758,7 +28447,7 @@ components:
           enum: [school_admin, teacher]
         teaches:
           type: array
-          description: For a teacher, which of the caller's children they teach (subject null = class teacher)
+          description: For a teacher, which of the caller's children (or, for a learner, the learner themselves) they teach (subject null = class teacher)
           items:
             type: object
             required: [learner_id, class_name, subject]

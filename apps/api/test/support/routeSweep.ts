@@ -18,6 +18,7 @@ export const BODY_FIXTURES: Record<string, unknown> = {
   "POST /v1/platform/finance/unmatched-callbacks/{caseId}/resolve": { resolution: "other_evidenced", reason: "Fixture reason text", evidence: "Fixture evidence text" },
   "POST /v1/platform/finance/unmatched-callbacks/{caseId}/reopen": { reason: "Fixture reason text" },
   "POST /v1/tenants/{tenantId}/guardians/{guardianId}/account-link/revoke": { reason: "Fixture reason" },
+  "POST /v1/tenants/{tenantId}/learners/{learnerId}/student-account/revoke": { reason: "Fixture reason" },
   "POST /v1/platform/schools": { school_name: "Fixture School", slug: "fixture-school", admin_email: "admin@fixture.example" },
   "POST /v1/tenants/{tenantId}/invitations": { email: "fixture@example.com", role: "staff" },
   "POST /v1/tenants/{tenantId}/finance/reconciliation-findings/{findingId}/assign": { owner_user_id: null },
