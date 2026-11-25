@@ -85,6 +85,16 @@ On `main` or in an open PR, not live in production yet.
   `ledger`, `usage`, `spend-by-month`, `cost-per-meal`, `headcount` and `flags` (`resource.inventory.read`; flags default
   to the last 8 weeks). `GET /inventory/stock-levels` now reads `inventory_stock_levels`. The AI `stock_insights` task is
   not ported: it needs a change to the Bloom contract (`apps/api/docs/INVENTORY-STOCK.md`).
+- **Stock screens on the new API build (slice S1c, web only)**: the Stock & kitchen tab, its nine pages
+  (`admin/inventory/stock/:section`, no menu entry of their own), Receive / Use / Stock-take and an item's movement history now
+  run on `VITE_BACKEND=api`, on the endpoints of slices S1a and S1b (`packages/shared/src/api/stockApi.ts`, branches in
+  `inventoryStock.ts` and `inventoryPaging.ts`; `inventoryCapabilities().stockMovements` is on). Nothing on Supabase changes.
+  Hidden on the API build, with the reason in `docs/web-on-api/inventory.md`: the AI briefing (`stockInsights`: not in the
+  Bloom contract), editing an existing item's unit, consumable flag or reorder level (`editItem`: no item PATCH), and, on
+  the Uniforms page, what was billed to families and uniforms that came back (`chargeToFees`, `issueHistory`). A report
+  period is cut to 366 days (`reportMaxDays`), "This term" is left out when the person may not read the term's dates (`termDatesNeedAcademics`), and
+  the Clinic page says sick-bay medicine is recorded by hand (`sickBayUsesStock`), as the API's sick bay does not take it
+  from stock. A new stock line may start at 0 on the API build.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:

@@ -69,7 +69,7 @@ export function AdminInventory() {
   const toast = useToast();
   const { tenant } = useTenantSession();
   const caps = inventoryCapabilities();
-  // The stock tab needs the API's stock movements (slice S1 of docs/handoffs/WEB-ON-API-ROADMAP.md); History needs closed issues.
+  // The stock tab needs stock movements (on the API: apps/api/docs/INVENTORY-STOCK.md); History needs closed issues.
   const visibleTabs = TABS.filter((t) => (t.key !== "stock" || caps.stockMovements) && (t.key !== "history" || caps.issueHistory));
   const [params, setParams] = useSearchParams();
   const tab = (visibleTabs.find((t) => t.key === params.get("tab"))?.key ?? "register") as Tab;
@@ -436,8 +436,8 @@ function ItemModal({ item, onClose, onSaved }: { item: InventoryItemRow | null; 
 
   const qty = Number(form.quantity);
   const cost = form.unit_cost.trim() === "" ? null : Number(form.unit_cost);
-  // The API cannot change a count later (no edit), so a new item there starts with at least one.
-  const minNewQty = caps.editItem ? 0 : 1;
+  // Without an edit (the API has none), a count can only move by a delivery, use or stock-take, so a new stock line may start empty only where those exist.
+  const minNewQty = caps.editItem || caps.stockMovements ? 0 : 1;
   const qtyBad = form.tracking === "stock" && (!Number.isInteger(qty) || qty < minNewQty);
   const costBad = cost != null && (!Number.isFinite(cost) || cost < 0);
   const reorder = form.reorder_level.trim() === "" ? null : Number(form.reorder_level);
