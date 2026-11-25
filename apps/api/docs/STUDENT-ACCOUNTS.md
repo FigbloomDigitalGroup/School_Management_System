@@ -265,3 +265,6 @@ student-12. **The school-audit PR (#403) pins every audit event type.** Its clas
     `academics.online_exam.published` when the two meet.
 student-13. **The payer refusal still says "as a guardian"** (`PAYER_LINK_MISSING`) for a learner too; the message is
     shared on purpose (one answer for every cause) but reads oddly to a learner.
+student-14. **The notices inbox returns each notice's raw `audience`.** For a `people` notice that is the list of every
+    recipient's user id, so a learner (like a parent or a teacher today) can see who else a notice went to. Not new and not
+    learner-specific; trimming `audience` from the inbox answer would close it.
