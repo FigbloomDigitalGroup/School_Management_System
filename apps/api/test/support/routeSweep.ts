@@ -187,6 +187,8 @@ export const BODY_FIXTURES: Record<string, unknown> = {
     term_id: randomUUID(),
     label: "A",
   },
+  // Migration 107: the instructor is required (a staff id, or null to clear it), so the empty sample would answer 400 first.
+  "PATCH /v1/tenants/{tenantId}/he-sections/{sectionId}": { instructor_staff_id: null },
   "POST /v1/tenants/{tenantId}/he-enrolments": {
     section_id: randomUUID(),
     learner_id: randomUUID(),

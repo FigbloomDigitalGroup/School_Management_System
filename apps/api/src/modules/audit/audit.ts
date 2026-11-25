@@ -74,6 +74,7 @@ export type SecurityEventType =
   | "academics.cbe.assessment.closed"
   | "academics.competency.rated"
   | "academics.he.course.created"
+  | "academics.he.section.instructor_changed"
   | "academics.he.enrolment.created"
   | "academics.online_exam.created"
   | "academics.online_exam.attempt_started"

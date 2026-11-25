@@ -3,7 +3,7 @@ import { conflict, notFound, validationError } from "../../http/errors.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 import { getClassById, getSubjectById, getTermById } from "./structure.js";
 import { pgCode } from "./pgError.js";
-import { ONE_ROW, pageQuery, type PageInput } from "./pagination.js";
+import { ONE_ROW, pageQuery, type Page, type PageInput } from "./pagination.js";
 
 function isoStamp(value: Date | string | null): string | null {
   if (value === null) return null;
@@ -79,28 +79,126 @@ export async function getHeCourseById(tx: Tx, input: { tenantId: string; id: str
   return (await listHeCourses(tx, { ...input, page: ONE_ROW })).items[0] ?? null;
 }
 
+type HeSectionRow = {
+  id: string;
+  tenant_id: string;
+  course_id: string;
+  term_id: string;
+  label: string;
+  instructor_staff_id: string | null;
+  created_at: Date | string;
+};
+
+const HE_SECTION_COLS = `id, tenant_id, course_id, term_id, label, instructor_staff_id, created_at`;
+
+function mapHeSection(row: HeSectionRow) {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    course_id: row.course_id,
+    term_id: row.term_id,
+    label: row.label,
+    instructor_staff_id: row.instructor_staff_id,
+    created_at: isoStamp(row.created_at),
+  };
+}
+
+/**
+ * An instructor is an ACTIVE staff record of this school (migration 107 also makes "of this school" a database rule). A staff id
+ * that is unknown, archived or another school's is the same answer: the other school's record is invisible to this one (RLS).
+ */
+async function assertActiveInstructor(tx: Tx, tenantId: string, staffId: string): Promise<void> {
+  const staff = await tx.query(
+    `SELECT 1 FROM staff_members WHERE tenant_id = $1 AND id = $2 AND active = true AND archived_at IS NULL`,
+    [tenantId, staffId],
+  );
+  if (staff.rowCount === 0) throw validationError("instructor_staff_id must be an active staff member in this school");
+}
+
 export async function createHeSection(
   tx: Tx,
-  input: { tenantId: string; actorUserId: string; course_id: string; term_id: string; label: string },
+  input: {
+    tenantId: string;
+    actorUserId: string;
+    course_id: string;
+    term_id: string;
+    label: string;
+    instructor_staff_id?: string | null;
+    ip?: string | null;
+  },
 ) {
   await assertHigherEd(tx, input.tenantId);
   await getTermById(tx, { tenantId: input.tenantId, termId: input.term_id });
   const course = await tx.query(`SELECT id FROM he_courses WHERE tenant_id = $1 AND id = $2`, [input.tenantId, input.course_id]);
   if (course.rowCount === 0) throw notFound("Course not found");
   const label = trim(input.label, "label", 32);
+  const instructor = input.instructor_staff_id ?? null;
+  if (instructor !== null) await assertActiveInstructor(tx, input.tenantId, instructor);
+  let row: HeSectionRow;
   try {
-    const res = await tx.query<{ id: string; tenant_id: string; course_id: string; term_id: string; label: string; created_at: Date | string }>(
-      `INSERT INTO he_sections (tenant_id, course_id, term_id, label, created_by)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, tenant_id, course_id, term_id, label, created_at`,
-      [input.tenantId, input.course_id, input.term_id, label, input.actorUserId],
+    const res = await tx.query<HeSectionRow>(
+      `INSERT INTO he_sections (tenant_id, course_id, term_id, label, instructor_staff_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING ${HE_SECTION_COLS}`,
+      [input.tenantId, input.course_id, input.term_id, label, instructor, input.actorUserId],
     );
-    const row = res.rows[0]!;
-    return { id: row.id, tenantId: row.tenant_id, course_id: row.course_id, term_id: row.term_id, label: row.label, created_at: isoStamp(row.created_at) };
+    row = res.rows[0]!;
   } catch (err) {
-    if (pgCode(err) === "23505") throw conflict("A section with this label already exists for the course and term");
+    const code = pgCode(err);
+    if (code === "23505") throw conflict("A section with this label already exists for the course and term");
+    // The staff check above already refused a missing or archived record; this is the database rule (same school) answering a race.
+    if (code === "23503") throw validationError("instructor_staff_id must be an active staff member in this school");
     throw err;
   }
+  if (instructor !== null) {
+    await recordSecurityEvent(tx, {
+      eventType: "academics.he.section.instructor_changed",
+      actorUserId: input.actorUserId,
+      tenantId: input.tenantId,
+      detail: { sectionId: row.id, fromStaffMemberId: null, toStaffMemberId: instructor },
+      ip: input.ip,
+    });
+  }
+  return mapHeSection(row);
+}
+
+/**
+ * Name, change or clear (`null`) the instructor of a section. The row is locked first, so two changes at once cannot both believe
+ * they replaced the same instructor. Sending the instructor the section already has changes nothing and is not re-checked (so a
+ * form that sends the whole section back still saves after that person was archived). Audited with the old and the new staff id.
+ */
+export async function updateHeSectionInstructor(
+  tx: Tx,
+  input: { tenantId: string; actorUserId: string; sectionId: string; instructor_staff_id: string | null; ip?: string | null },
+) {
+  await assertHigherEd(tx, input.tenantId);
+  const current = await tx.query<HeSectionRow>(
+    `SELECT ${HE_SECTION_COLS} FROM he_sections WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.sectionId],
+  );
+  const before = current.rows[0];
+  if (!before) throw notFound("Section not found");
+  if (before.instructor_staff_id === input.instructor_staff_id) return mapHeSection(before);
+  if (input.instructor_staff_id !== null) await assertActiveInstructor(tx, input.tenantId, input.instructor_staff_id);
+  let row: HeSectionRow;
+  try {
+    const res = await tx.query<HeSectionRow>(
+      `UPDATE he_sections SET instructor_staff_id = $3 WHERE tenant_id = $1 AND id = $2 RETURNING ${HE_SECTION_COLS}`,
+      [input.tenantId, input.sectionId, input.instructor_staff_id],
+    );
+    row = res.rows[0]!;
+  } catch (err) {
+    if (pgCode(err) === "23503") throw validationError("instructor_staff_id must be an active staff member in this school");
+    throw err;
+  }
+  await recordSecurityEvent(tx, {
+    eventType: "academics.he.section.instructor_changed",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { sectionId: row.id, fromStaffMemberId: before.instructor_staff_id, toStaffMemberId: row.instructor_staff_id },
+    ip: input.ip,
+  });
+  return mapHeSection(row);
 }
 
 export async function listHeSections(tx: Tx, input: { tenantId: string; courseId?: string; page: PageInput; id?: string }) {
@@ -110,21 +208,123 @@ export async function listHeSections(tx: Tx, input: { tenantId: string; courseId
   if (input.courseId) params.push(input.courseId);
   const res = await pageQuery<{ id: string }>(
     tx,
-    `SELECT id, tenant_id, course_id, term_id, label, created_at FROM he_sections WHERE tenant_id = $1${extra}`,
+    `SELECT ${HE_SECTION_COLS} FROM he_sections WHERE tenant_id = $1${extra}`,
     params,
     { name: "he_sections", expr: "q.label", type: "text", dir: "asc" },
     input.page,
     input.id,
   );
-  const items = (res.rows as unknown as Array<{ id: string; tenant_id: string; course_id: string; term_id: string; label: string; created_at: Date | string }>).map((row) => ({
-    id: row.id, tenantId: row.tenant_id, course_id: row.course_id, term_id: row.term_id, label: row.label, created_at: isoStamp(row.created_at),
-  }));
+  const items = (res.rows as unknown as HeSectionRow[]).map(mapHeSection);
   return { items, page: res.page };
 }
 
 /** A9-6: by-id lookup through the same query and scope as the list. */
 export async function getHeSectionById(tx: Tx, input: { tenantId: string; id: string }) {
   return (await listHeSections(tx, { ...input, page: ONE_ROW })).items[0] ?? null;
+}
+
+// ---------------------------------------------------------------- an instructor's own sections (docs/TEACHER-READS.md, Part 3)
+
+/**
+ * "The caller is this section's instructor": the section names a staff record that is ACTIVE and linked to the caller's account.
+ * Stricter than "a staff record exists", like `teachingClassIds`: an archived record, or one linked to someone else, never counts.
+ * `$userParam` is the placeholder of the caller's user id in the query that embeds this.
+ */
+const instructedBy = (userParam: string) =>
+  `JOIN staff_members sm ON sm.tenant_id = s.tenant_id AND sm.id = s.instructor_staff_id
+                        AND sm.user_id = ${userParam} AND sm.active = true AND sm.archived_at IS NULL`;
+
+/** Only an ENROLLED learner who is still ACTIVE counts: a withdrawn enrolment, or an archived learner, is not on a lecturer's roster. */
+const ENROLLED_ACTIVE_LEARNER = `e.status = 'enrolled' AND l.active = true AND l.archived_at IS NULL`;
+
+export interface TeachingHeSection {
+  id: string;
+  course_id: string;
+  course_code: string;
+  course_title: string;
+  term_id: string;
+  term_label: string;
+  label: string;
+  enrolled_count: number;
+}
+
+/**
+ * The sections whose instructor is the caller, with the course, the term and how many learners are enrolled now. Empty for a caller
+ * with no linked, active staff record. By course code, then section label. The caller's user id is a bound parameter, so a cursor
+ * cannot be replayed by another lecturer.
+ */
+export async function listHeSectionsOfInstructor(
+  tx: Tx,
+  input: { tenantId: string; userId: string; page: PageInput },
+): Promise<Page<TeachingHeSection>> {
+  await assertHigherEd(tx, input.tenantId);
+  const res = await pageQuery<TeachingHeSection>(
+    tx,
+    `SELECT s.id, s.course_id, c.code AS course_code, c.title AS course_title, s.term_id, t.label AS term_label, s.label,
+            (SELECT count(*)::int
+               FROM he_enrolments e
+               JOIN learners l ON l.tenant_id = e.tenant_id AND l.id = e.learner_id
+              WHERE e.tenant_id = s.tenant_id AND e.section_id = s.id AND ${ENROLLED_ACTIVE_LEARNER}) AS enrolled_count
+       FROM he_sections s
+       ${instructedBy("$2")}
+       JOIN he_courses c ON c.tenant_id = s.tenant_id AND c.id = s.course_id
+       JOIN academic_terms t ON t.tenant_id = s.tenant_id AND t.id = s.term_id
+      WHERE s.tenant_id = $1`,
+    [input.tenantId, input.userId],
+    { name: "teaching_he_sections", expr: "lower(q.course_code) || ' ' || lower(q.label)", type: "text", dir: "asc" },
+    input.page,
+  );
+  return {
+    items: res.rows.map((r) => ({
+      id: r.id,
+      course_id: r.course_id,
+      course_code: r.course_code,
+      course_title: r.course_title,
+      term_id: r.term_id,
+      term_label: r.term_label,
+      label: r.label,
+      enrolled_count: r.enrolled_count,
+    })),
+    page: res.page,
+  };
+}
+
+export interface TeachingHeEnrolment {
+  id: string;
+  learner_id: string;
+  full_name: string;
+  admission_no: string;
+}
+
+/**
+ * The learners enrolled in one section the caller instructs: name and admission number only (no date of birth, gender, boarding
+ * or contacts). A section that does not exist here, belongs to another school, or has another instructor is `not found`: the answer
+ * never says which. By name.
+ */
+export async function listHeSectionRosterOfInstructor(
+  tx: Tx,
+  input: { tenantId: string; userId: string; sectionId: string; page: PageInput },
+): Promise<Page<TeachingHeEnrolment>> {
+  await assertHigherEd(tx, input.tenantId);
+  const mine = await tx.query(
+    `SELECT 1 FROM he_sections s ${instructedBy("$3")} WHERE s.tenant_id = $1 AND s.id = $2`,
+    [input.tenantId, input.sectionId, input.userId],
+  );
+  if (mine.rowCount === 0) throw notFound("Section not found");
+  const res = await pageQuery<TeachingHeEnrolment>(
+    tx,
+    `SELECT e.id, e.learner_id, l.full_name, l.admission_no
+       FROM he_enrolments e
+       JOIN learners l ON l.tenant_id = e.tenant_id AND l.id = e.learner_id
+      WHERE e.tenant_id = $1 AND e.section_id = $2 AND ${ENROLLED_ACTIVE_LEARNER}`,
+    [input.tenantId, input.sectionId],
+    { name: "teaching_he_roster", expr: "lower(q.full_name)", type: "text", dir: "asc" },
+    input.page,
+  );
+  return {
+    items: res.rows.map((r) => ({ id: r.id, learner_id: r.learner_id, full_name: r.full_name, admission_no: r.admission_no })),
+    page: res.page,
+  };
 }
 
 export async function createHeEnrolment(

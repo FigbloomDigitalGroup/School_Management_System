@@ -17,6 +17,12 @@ export async function registerTenancyRoutes(app: FastifyInstance, pool: AppPool)
       });
       try {
         const tenant = await getTenant(tx, tenantId);
+        // The kind of school ("k12" or "higher_ed") is not private: it decides which menu a member sees. Every member who may read the
+        // school may read it here, though only an administrator may read the whole school profile (`GET .../school-profile`).
+        const profile = await tx.query<{ institution_type: string | null }>(
+          `SELECT institution_type FROM school_profiles WHERE tenant_id = $1`,
+          [tenantId],
+        );
         return {
           id: tenant.id,
           name: tenant.name,
@@ -24,6 +30,7 @@ export async function registerTenancyRoutes(app: FastifyInstance, pool: AppPool)
           status: tenant.status,
           timezone: tenant.timezone,
           organizationId: tenant.organization_id,
+          institutionType: profile.rows[0]?.institution_type ?? null,
         };
       } catch (err) {
         // Only a genuine not-found/forbidden is a 404. A database failure (timeout, outage,

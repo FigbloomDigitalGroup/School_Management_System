@@ -260,9 +260,13 @@ student-10. **Reads a learner page needs that no API read covers:** a hand-in / 
     counts, "how to pay" (parent-3), the current term (parent-4).
 student-11. **Teachers have no list of their learners to chat with.** `/chat/contacts` lists staff only (unchanged), so a
     teacher can start a chat with a learner only by user id, or answer one the learner started.
-student-12. **The school-audit PR (#403) pins every audit event type.** Its classification fixture will need
-    `student.account.created`, `student.account.password_reset`, `student.account.revoked`, `student.learner.denied` and
-    `academics.online_exam.published` when the two meet.
+student-12. **A school does not see its learner-login events in its audit log yet.** `school_audit_events` (migration 106)
+    hides every event kind it does not name, so `student.account.created`, `.password_reset` and `.revoked` are
+    `hidden` in `test/fixtures/schoolAuditClassification.json` (`student.learner.denied` is hidden as a refusal, and
+    `academics.online_exam.published` shows as academic). Supabase's `provision-student` wrote "Login created for
+    learner ..." to the school's log, so they probably belong under `access` with the guardian and staff account events:
+    adding `student` to the `^(account|guardian)\.` rule is a one-line change in the audit session's function (left to
+    that session, which holds migration 109, so this PR does not replace its function).
 student-13. **The payer refusal still says "as a guardian"** (`PAYER_LINK_MISSING`) for a learner too; the message is
     shared on purpose (one answer for every cause) but reads oddly to a learner.
 student-14. **The notices inbox returns each notice's raw `audience`.** For a `people` notice that is the list of every

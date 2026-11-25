@@ -74,6 +74,14 @@ describe("mapping", () => {
     expect(tenantFromApi(tenant(), { ...profile().schoolProfile, level: "combined", institution_type: "higher_ed" } as never)).toMatchObject({ level: "combined", institution_type: "higher_ed" });
   });
 
+  it("takes the kind of school from the school record when the person may not read the profile (a lecturer)", () => {
+    expect(tenantFromApi(tenant({ institutionType: "higher_ed" }), null)).toMatchObject({ institution_type: "higher_ed" });
+    expect(tenantFromApi(tenant({ institutionType: "k12" }), null)).toMatchObject({ institution_type: "k12" });
+    for (const v of [null, undefined, "college"]) expect(tenantFromApi(tenant({ institutionType: v }), null)).toMatchObject({ institution_type: "k12" });
+    // the profile, when it can be read, wins
+    expect(tenantFromApi(tenant({ institutionType: "k12" }), { ...profile().schoolProfile, institution_type: "higher_ed" } as never)).toMatchObject({ institution_type: "higher_ed" });
+  });
+
   it("builds the profile from who is signed in", () => {
     const v = viewOfMe(me({ memberships: [membership({ loginId: "TC-0001", role: "teacher" })] }) as never);
     expect(profileFromApi(v, v.memberships[0]!, "teacher")).toMatchObject({ id: USER, tenant_id: SCHOOL, role: "teacher", full_name: "Wanjiru Kamau", login_id: "TC-0001", must_change_password: false });
@@ -290,6 +298,14 @@ describe("the rest of session.ts on the API", () => {
     boot({ [`GET /v1/tenants/${SCHOOL}`]: { body: tenant() }, [`GET /v1/tenants/${SCHOOL}/school-profile`]: { body: profile({ institution_type: "higher_ed" }) } });
     expect(await fetchHomeDestination(USER, { role: "teacher", tenant_id: SCHOOL })).toEqual({ slug: "alliance", institutionType: "higher_ed", pickOrganization: false });
     expect(await fetchHomeDestination(USER, { role: "org_admin", tenant_id: null })).toEqual({ slug: null, pickOrganization: false });
+  });
+
+  it("finds a higher-education school for a lecturer, who may read the school record but not its profile", async () => {
+    boot({
+      [`GET /v1/tenants/${SCHOOL}`]: { body: tenant({ institutionType: "higher_ed" }) },
+      [`GET /v1/tenants/${SCHOOL}/school-profile`]: { status: 403, body: { error: { code: "forbidden", message: "Access denied" } } },
+    });
+    expect(await fetchHomeDestination(USER, { role: "teacher", tenant_id: SCHOOL })).toEqual({ slug: "alliance", institutionType: "higher_ed", pickOrganization: false });
   });
 });
 

@@ -52,6 +52,8 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "learner_accounts_on_membership_archive()": { secdef: true, grantees: [], why: "trigger; archiving a membership revokes the person's learner login link" },
   // Migration 105: org console (docs/ORG-CONSOLE.md)
   "org_my_audit_events(uuid,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "security_audit_events has no SELECT grant: the CALLER's own events (actor from app.user_id, no actor argument) about one organisation they administer (re-checked in the database: org_admin of an active organisation); no ip column; at most 201 rows" },
+  // Migration 106: the school's audit log (docs/SCHOOL-AUDIT.md)
+  "school_audit_events(text,timestamp with time zone,text,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "security_audit_events has no SELECT grant: the business events of the school of the request (tenant from app.tenant_id, no tenant argument; refused without a school and an account); sign-in, session, two-step, refusal, read and unlisted events are never returned, nor the detail and ip columns; at most 201 rows" },
   "transport_fanout_notifications(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "tenant-bound fan-out of a trip event to linked guardian accounts (deduplicated); guardian_accounts is owner-only" },
   "worker_prune_vehicle_locations(integer)": { secdef: true, grantees: ["figbloom_worker"], why: "worker-only bounded privacy retention cleanup for expired GPS locations" },
   "auth_mfa_state(uuid,uuid,text[])": { secdef: true, grantees: ["figbloom_app"], why: "identity-level MFA decision (required / assured / enrolled) for one session; the one enforcement query" },
@@ -520,6 +522,7 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "student_account_revoke(uuid,uuid,text)",
   "student_account_status(uuid,uuid)",
   "org_my_audit_events(uuid,timestamp with time zone,uuid,integer)",
+  "school_audit_events(text,timestamp with time zone,text,timestamp with time zone,uuid,integer)",
   "auth_credential_by_email(text)",
   "auth_credential_by_login_id(uuid,text)",
   "auth_password_credential(uuid)",

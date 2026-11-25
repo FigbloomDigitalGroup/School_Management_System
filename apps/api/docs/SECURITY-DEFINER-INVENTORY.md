@@ -102,7 +102,13 @@ Grants (catalog-verified by `grants.matrix`): `jobs` has no table-level grant fo
 
 | Function | Owner / mode | Execute | Notes |
 |---|---|---|---|
-| `org_my_audit_events(uuid, timestamptz, uuid, integer)` | DEFINER (105), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | the only read of `security_audit_events` (still no `SELECT` grant). No actor argument: the actor is `app_current_user_id()`, set by `withIdentityUserScope` from the verified session. Raises 42501 unless the actor is an `org_admin` of the given organisation and it is `active`. Returns only the actor's own events in that organisation's schools or naming it in `detail.organizationId`; never the `ip` column; newest first, keyset `(occurred_at, id)`, at most 201 rows |
+| `org_my_audit_events(uuid, timestamptz, uuid, integer)` | DEFINER (105), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | a read of `security_audit_events` (still no `SELECT` grant; the other is `school_audit_events`, 106, below). No actor argument: the actor is `app_current_user_id()`, set by `withIdentityUserScope` from the verified session. Raises 42501 unless the actor is an `org_admin` of the given organisation and it is `active`. Returns only the actor's own events in that organisation's schools or naming it in `detail.organizationId`; never the `ip` column; newest first, keyset `(occurred_at, id)`, at most 201 rows |
+
+## Addendum 2026-11-25 — migration 106 (the school's audit log, `docs/SCHOOL-AUDIT.md`)
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `school_audit_events(text, timestamptz, text, timestamptz, uuid, integer)` | DEFINER (106), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | a read of `security_audit_events` (still no `SELECT` grant). No tenant argument: the school is `app_current_tenant_id()`, the caller `app_current_user_id()`, both set by the API after it authorised the request; 42501 without them (the permission, `resource.audit.read`, is checked by the route). Returns only business events of that school (people and setup, access, academic, financial, health, transport, communication, operations); sign-in, session, two-step, refusal, read and unlisted event kinds are never returned, nor the `detail` and `ip` columns; category, since and a plain-text search narrow it; newest first, keyset `(occurred_at, id)`, at most 201 rows. The classification is pinned by `test/fixtures/schoolAuditClassification.json` |
 
 ## Addendum 2026-11-25 — migration 110 (student accounts, `docs/STUDENT-ACCOUNTS.md`)
 
