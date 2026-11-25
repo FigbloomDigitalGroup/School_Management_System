@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
+import { setLogSink } from "../src/log.js";
 import { HandoffGateway, handoffSetup, realEmail, TARGET_REFUSALS } from "../src/modules/hr/handoff.js";
 
 /**
@@ -32,6 +33,12 @@ function stub(answer: { status: number; body: string } | (() => never)) {
   return { calls, fetchFn };
 }
 const who = { school: "11111111-1111-4111-8111-111111111111", person: { external_id: "u", name: "N", email: null, role: "teacher" } };
+
+let restoreLog: () => void = () => undefined;
+beforeAll(() => {
+  restoreLog = setLogSink(() => undefined);
+});
+afterAll(() => restoreLog());
 
 describe("hand-off settings", () => {
   it("unset is off; the switch needs the four platform settings; the names of missing ones are given, never values", () => {

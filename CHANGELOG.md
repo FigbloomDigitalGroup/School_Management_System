@@ -59,6 +59,17 @@ On `main` or in an open PR, not live in production yet.
   in the browser); the stock overview, the behaviour log and the HR & Payroll screens stay Supabase-only and are hidden on the
   API build until their slices land (`inventoryCapabilities().stockMovements`, `peopleCapabilities().learnerBehaviour`,
   `docs/handoffs/WEB-ON-API-ROADMAP.md`). `HrLaunch.tsx` asks `hasSession()` instead of calling `supabase()` (same answer).
+- **HR & Payroll hand-off on the new API (slice H1, API only)**: the `open-hr` actions on `apps/api`, off by default
+  (`PLATFORM_HANDOFF_ENABLED` plus the four `PLATFORM_*` settings). Supabase and the web are unchanged.
+  - `GET /v1/tenants/{t}/me/hr/handoff-status` (`{enabled, connection, requested_at, can_request_hr}`),
+    `POST .../me/hr/handoff-request` (`{requested_at}`, 409 `already_connected`) and `POST .../me/hr/handoff` (`{url, expires_at}`,
+    https only, the one-time link never logged or audited). Audit kinds `hr.handoff.opened` and `hr.handoff.requested`.
+  - `GET /v1/platform/schools` and `/{schoolId}` gain `hrRequestedAt` and `hrRequestedBy` (the account's id).
+  - Migration `117_hr_handoff.sql`: permission `resource.hr.handoff` (school admins and the Fees area; never Figbloom staff;
+    org admins only with an `area.fees` delegation), `platform_school_links.platform_tenant_id` and a column-level `UPDATE` of
+    its three HR-answer columns, `tenants.hr_requested_at` / `hr_requested_by` with the definer `hr_record_request()`, and
+    `school_audit_events` filing `hr.handoff.*` under access.
+  - Design and differences from the live rules: `apps/api/docs/HR-HANDOFF.md` section 9.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:
@@ -212,8 +223,8 @@ screens:
 | Inventory stock | `items` and `issues` routes | Stock movements (in, used, wasted, adjusted), `unit` / `consumable` / `reorder_level`, the ledger, usage, spend, cost per meal, stock levels, headcount and flags reports |
 | AI stock insights | `ai/query` | The `stock_insights` task |
 | M-Pesa | STK push and query in `finance.ts`, callback in `mpesa.ts` | The `DARAJA_TENANTS` allowlist, and retrying the STK query when Daraja answers 429 |
-| HR and Payroll | Nothing | `status`, `request` and `open` (the `open-hr` function) |
-| Console: HR requests | `GET /v1/platform/schools` | `hr_requested_at` / `hr_requested_by` |
+| HR and Payroll | `GET .../me/hr/handoff-status`, `POST .../me/hr/handoff-request`, `POST .../me/hr/handoff` (slice H1, off by default) | The web screens on the API build (slice H2) |
+| Console: HR requests | `GET /v1/platform/schools` with `hrRequestedAt` / `hrRequestedBy` (slice H1) | Showing it on the API build's `platform/tenants` page |
 | RLS performance | Its own RLS (`apps/api/migrations`) | Make sure the new policies don't check rights per row either |
 
 ## Catching up with main

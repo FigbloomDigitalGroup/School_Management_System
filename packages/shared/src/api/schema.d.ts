@@ -5973,6 +5973,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/me/hr/handoff-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether Figbloom HR is there for the school (HR & Payroll)
+         * @description The Supabase function `open-hr` with `{"action": "status"}` (docs/HR-HANDOFF.md, slice H1). For the school's administrators and anyone holding the Fees area (`resource.hr.handoff`, checked in code); never for Figbloom staff (a platform super administrator gets 403, as HR has no account for them); an organisation administrator only with a delegation of the Fees area. Anyone else gets the standard audited 403 `forbidden`, so the answer says nothing about another school. While the hand-off is off for this API (`PLATFORM_HANDOFF_ENABLED` is not `true`, or a platform setting is missing) the answer is `{"enabled": false, "connection": null, "requested_at": null, "can_request_hr": false}` and nothing is asked. Otherwise `connection` is `not_connected` (the platform does not know the school, or HR is not switched on for it), `setting_up` (HR is on but its company is not linked yet), `connected` (the hand-off will work) or `unknown` (the platform could not be asked, or the platform's own id for the school is not recorded: offer HR as if connected, and let the launch tab say what is wrong). Each school's answer is kept a minute (15 seconds when unknown). `requested_at` is when the school asked Figbloom for HR, or null.
+         */
+        get: operations["hrHandoffStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/handoff-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Figbloom for HR & Payroll
+         * @description The Supabase function `open-hr` with `{"action": "request"}` (docs/HR-HANDOFF.md, slice H1). The same people as `handoff-status`. Records when the school asked and who asked (`tenants.hr_requested_at`, `hr_requested_by`; Figbloom staff see it on `GET /v1/platform/schools`). The first request is kept: asking again changes nothing and answers the first one's time. Audited once, as `hr.handoff.requested`. 403 `handoff_off` while the hand-off is off; 409 `already_connected` when HR is connected or being set up for the school. No body is read.
+         */
+        post: operations["hrHandoffRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/handoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A one-time sign-in link into Figbloom HR (HR & Payroll)
+         * @description The Supabase function `open-hr` with `{"action": "open"}` (docs/HR-HANDOFF.md, slice H1): asks the platform (`POST /handoffs`) for a one-time sign-in link into HR for the caller, as themselves (the API's user id, name, real e-mail or null, and school role, or `org_admin` for a delegated organisation administrator). The same people as `handoff-status`. The link works once and for about a minute, and is always `https`: open it at once. It holds a code: it is never logged or audited. Audited as `hr.handoff.opened` (no link, no code); the platform's answer is remembered for the school. 403 `handoff_off` while the hand-off is off; 409 `school_not_linked` when the platform does not know the school (no `platform_school_links` row, or the platform answers 404); 409 `target_not_enabled`, `target_not_linked` or `target_no_handoff_url` as the platform refuses, each with a sentence for the person; 429 `rate_limited` (the platform's, or the API's own per person and school); 503 `hr_unavailable` when the platform is down, slow, unreachable or its token cannot be had; 502 `hr_bad_answer` when its answer is not an `https` link. Never retried by the API. No body is read.
+         */
+        post: operations["hrHandoffOpen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/me/chat-contacts": {
         parameters: {
             query?: never;
@@ -6086,6 +6146,16 @@ export interface components {
                 /** @enum {string} */
                 status: "pending" | "active" | "suspended" | "rejected";
             };
+            /**
+             * Format: date-time
+             * @description When the school asked Figbloom for HR & Payroll ("Request Figbloom HR"), or null (migration 117)
+             */
+            hrRequestedAt: string | null;
+            /**
+             * Format: uuid
+             * @description The id of the account that asked (no name or e-mail), or null
+             */
+            hrRequestedBy: string | null;
         };
         PlatformSchoolList: {
             items: components["schemas"]["PlatformSchool"][];
@@ -6632,7 +6702,7 @@ export interface components {
         Error: {
             error: {
                 /** @enum {string} */
-                code: "unauthorized" | "forbidden" | "reauth_required" | "mfa_required" | "not_found" | "validation_error" | "rate_limited" | "conflict" | "idempotency_key_reused" | "service_unavailable" | "internal_error" | "my_hr_off" | "school_not_linked" | "not_linked" | "pending_hr" | "hr_off" | "hr_forbidden" | "hr_not_connected" | "hr_unavailable" | "hr_bad_answer";
+                code: "unauthorized" | "forbidden" | "reauth_required" | "mfa_required" | "not_found" | "validation_error" | "rate_limited" | "conflict" | "idempotency_key_reused" | "service_unavailable" | "internal_error" | "my_hr_off" | "school_not_linked" | "not_linked" | "pending_hr" | "hr_off" | "hr_forbidden" | "hr_not_connected" | "hr_unavailable" | "hr_bad_answer" | "handoff_off" | "already_connected" | "target_not_enabled" | "target_not_linked" | "target_no_handoff_url";
                 message: string;
                 /** @description Correlation id of the request (additive, OI-4). Also returned in the X-Request-Id response header. An inbound X-Request-Id is honoured only if it matches [A-Za-z0-9._-]{8,64}; otherwise one is generated. */
                 request_id?: string;
@@ -8594,6 +8664,35 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description The Supabase function `open-hr`'s status answer, field for field. `enabled` false hides everything (the hand-off is off for this API); then the other fields are null and false. */
+        HrHandoffStatus: {
+            enabled: boolean;
+            /** @enum {string|null} */
+            connection: "connected" | "setting_up" | "not_connected" | "unknown" | null;
+            /**
+             * Format: date-time
+             * @description When the school asked Figbloom for HR, or null
+             */
+            requested_at: string | null;
+            can_request_hr: boolean;
+        };
+        HrHandoffRequested: {
+            /**
+             * Format: date-time
+             * @description When the school first asked Figbloom for HR
+             */
+            requested_at: string;
+        };
+        /** @description A one-time sign-in link into Figbloom HR. Open it at once (it works once, for about a minute); never store, show or log it. */
+        HrHandoffLink: {
+            /**
+             * Format: uri
+             * @description Always https
+             */
+            url: string;
+            /** @description When the link stops working, as the platform said it (null if it did not) */
+            expires_at: string | null;
+        };
         /** @description One open issue held by the caller, with the item's name. No stock counts, location, cost or notes. */
         MyInventoryIssue: {
             /** Format: uuid */
@@ -9541,6 +9640,24 @@ export interface components {
             headers: {
                 /** @description Whole seconds to wait before trying again */
                 "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Not someone who may have HR & Payroll at this school (`forbidden`: not the school's administrator, no Fees area, an organisation administrator without that delegation, or Figbloom staff), or the hand-off is off for this API (`handoff_off`). Also the usual 403 of an authenticated route (password change required, no membership, suspended school). */
+        HrHandoffForbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description HR is already there for the school (`already_connected`), the platform does not know the school (`school_not_linked`), or the platform refused the sign-in (`target_not_enabled`, `target_not_linked`, `target_no_handoff_url`). */
+        HrHandoffConflict: {
+            headers: {
                 [name: string]: unknown;
             };
             content: {
@@ -25224,6 +25341,97 @@ export interface operations {
             403: components["responses"]["MyHrForbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["MyHrBadGateway"];
+            503: components["responses"]["MyHrUnavailable"];
+        };
+    };
+    hrHandoffStatus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether HR is there for the school */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HrHandoffStatus"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["HrHandoffForbidden"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    hrHandoffRequest: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description When the school asked (the first request's time) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HrHandoffRequested"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["HrHandoffForbidden"];
+            409: components["responses"]["HrHandoffConflict"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    hrHandoffOpen: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The one-time sign-in link */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HrHandoffLink"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["HrHandoffForbidden"];
+            409: components["responses"]["HrHandoffConflict"];
             429: components["responses"]["RateLimited"];
             502: components["responses"]["MyHrBadGateway"];
             503: components["responses"]["MyHrUnavailable"];
