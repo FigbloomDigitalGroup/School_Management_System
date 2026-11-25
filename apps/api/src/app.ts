@@ -9,6 +9,7 @@ import { toClientError } from "./http/errors.js";
 import { registerHealthRoutes, type Lifecycle } from "./http/routes/health.js";
 import { RequestAbortedError } from "./db/cancel.js";
 import { registerAuthRoutes } from "./http/routes/auth.js";
+import { registerPublicSchoolRoutes } from "./http/routes/publicSchools.js";
 import { registerTenancyRoutes } from "./http/routes/tenancy.js";
 import { registerRbacRoutes } from "./http/routes/rbac.js";
 import { registerOrgRoutes } from "./http/routes/org.js";
@@ -208,6 +209,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
 
   await registerHealthRoutes(app, pool, lifecycle);
   await registerAuthRoutes(app, pool, config);
+  await registerPublicSchoolRoutes(app, pool);
   await registerTenancyRoutes(app, pool);
   await registerOrgRoutes(app, pool);
   await registerRbacRoutes(app, pool);

@@ -1544,6 +1544,54 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /v1/public/schools/{slug}:
+    get:
+      tags:
+        - auth
+      summary: Find a school by its exact address (for login-id sign-in)
+      description: >
+        Public, rate limited per caller address with the login limiter's numbers (AUTH_RATE_*: 5 at once, then 2 every
+        5 s; an IPv6 caller is counted per /64). Turns the school's web address (`/s/<slug>`) into the school id that
+        POST /v1/auth/login/login-id takes. Exact match only: there is no list, search, prefix or wildcard. A school that
+        is not open for sign-in (onboarding, stalled in setup or suspended) answers exactly like an address nobody has:
+        the same 404 with the standard not-found body. Only the school id and name are returned. A malformed address is
+        a 400 before the database is touched. See apps/api/docs/PUBLIC-SCHOOL-LOOKUP.md.
+      operationId: publicSchoolBySlug
+      x-figbloom-authz: public
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: The school's address, as in /s/<slug>. Lower-case letters, digits and hyphens, 3 to 40.
+          schema:
+            type: string
+            pattern: ^[a-z0-9-]{3,40}$
+            minLength: 3
+            maxLength: 40
+      responses:
+        "200":
+          description: The school (its id and name, nothing else)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - tenant_id
+                  - name
+                properties:
+                  tenant_id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /v1/auth/logout:
     post:
       tags:

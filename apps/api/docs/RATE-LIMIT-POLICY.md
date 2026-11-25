@@ -17,6 +17,7 @@
 |---|---|---|
 | Login | `login:ip:<ip\|unknown>` then account key | IP first (R2-03) |
 | Password change | `password_change:ip:<ip\|unknown>` then `password_change:user:<id>` | Authenticated |
+| School lookup by address | `school_lookup:ip:<ip\|unknown>` (IPv6 per /64) | Public; hits and misses cost 1; malformed slugs cost nothing (`PUBLIC-SCHOOL-LOOKUP.md`) |
 | Future: recovery / bulk / export | Documented placeholders | Add when endpoints exist |
 
 ## Audit flooding (D-6)

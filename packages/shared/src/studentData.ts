@@ -1,3 +1,7 @@
+import { apiMarkNoticeRead } from "./api/noticesApi";
+import { apiLoadStudentData } from "./api/studentApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
 import { formatShortDate, formatWhen, type Receipt } from "./parentData";
 import { fetchExamSubjects, fetchPublishedExams, type PublishedExam } from "./examResults";
@@ -41,6 +45,11 @@ export interface ResultSubject {
   name: string;
   score: number;
   classMean: number | null;
+  /** API only: the grade the school's own scheme gave this mark (the screen would otherwise work it out from the percentage). */
+  grade?: string | null;
+  /** API only: the mark as the teacher wrote it ("40 out of 50"); `score` is then the percentage. */
+  rawScore?: number;
+  maxScore?: number;
 }
 
 export interface NoticeInfo {
@@ -160,6 +169,8 @@ export async function loadStudentFeeData(profileId: string): Promise<StudentFeeD
 }
 
 export async function loadStudentData(profileId: string): Promise<StudentData | null> {
+  // The API knows who is asking from the session: the learner's own record, class, work, notices and marks are one read each (api/studentApi.ts).
+  if (onApi()) return apiLoadStudentData();
   const { data: studentRow } = await supabase()
     .from("students")
     .select("id, class_id, classes(name, level, form_level)")
@@ -251,6 +262,7 @@ export async function loadStudentData(profileId: string): Promise<StudentData | 
 
 /** Records that this student has opened a notice, so it drops off the unread badge for good. */
 export async function markStudentNoticeRead(profileId: string, announcementId: string): Promise<void> {
+  if (onApi()) return apiMarkNoticeRead(announcementId);
   const { error } = await supabase()
     .from("announcement_reads")
     .upsert({ announcement_id: announcementId, profile_id: profileId }, { onConflict: "announcement_id,profile_id" });
@@ -264,6 +276,8 @@ export async function markStudentNoticeRead(profileId: string, announcementId: s
  * just without file_path/file_name.
  */
 export async function markAssignmentHandedIn(assignmentId: string, studentId: string): Promise<void> {
+  // The API records no hand-in (studentCapabilities().homeworkDone): the button is hidden, and a stray call fails loudly.
+  if (onApi()) throw new NotOnApiError("Marking work as handed in");
   const { error } = await supabase()
     .from("assignment_submissions")
     // Already ticked (e.g. by a parent) stays as it is, so marked_by keeps saying who ticked it.
