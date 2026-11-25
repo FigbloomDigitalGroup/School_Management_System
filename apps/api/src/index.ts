@@ -7,6 +7,7 @@ import { describeError, logError, logInfo, logWarn } from "./log.js";
 import { setAccountNotifier } from "./modules/account/notifier.js";
 import { resendNotifierFromEnv } from "./modules/account/resendNotifier.js";
 import { myHrSetup } from "./modules/hr/myHr.js";
+import { handoffSetup } from "./modules/hr/handoff.js";
 
 async function main(): Promise<void> {
   loadDotEnvForLocal();
@@ -20,6 +21,10 @@ async function main(): Promise<void> {
   const myHr = myHrSetup(config);
   if (myHr.state === "incomplete") logWarn("my_hr", { outcome: "incomplete", reason: `missing ${myHr.missing.join(", ")}` });
   else logInfo("my_hr", { outcome: myHr.state });
+  // HR & Payroll hand-off (docs/HR-HANDOFF.md, H1): off unless PLATFORM_HANDOFF_ENABLED=true and the platform settings are set.
+  const handoff = handoffSetup(config);
+  if (handoff.state === "incomplete") logWarn("hr_handoff", { outcome: "incomplete", reason: `missing ${handoff.missing.join(", ")}` });
+  else logInfo("hr_handoff", { outcome: handoff.state });
   const pool = createPool(runtimePoolOptions(config));
   try {
     const client = await acquireClient(pool, config.poolAcquireTimeoutMs);
