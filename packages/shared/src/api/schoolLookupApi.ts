@@ -8,10 +8,9 @@ import { isApiError } from "./errors";
  * `POST /v1/auth/login/login-id` takes the school's UUID, which nobody knows by heart. The school's address is its slug (the `alliance`
  * of `/s/alliance/...`), and an unauthenticated exact-slug lookup turns it into the UUID: `GET /v1/public/schools/{slug}` answers
  * `{ tenant_id, name }`, or a 404 with a generic body for an unknown or unusable school (no list, no search; rate limited: 429 with Retry-After;
- * the slug must be lower case, so it is lower-cased here before it is sent). That
- * endpoint is its own API change (branch feature/api-public-school-lookup); until it is in the OpenAPI file this is the one call in
- * the client that does not go through the generated types, so the answer is checked by hand. A school's UUID typed in place of the
- * address needs no lookup and works the same.
+ * the slug must be lower case, so it is lower-cased here before it is sent). Its contract is
+ * `apps/api/docs/PUBLIC-SCHOOL-LOOKUP.md`; the answer is still checked by hand (`parseSchoolLookup`), as a sign-in is no place to trust a
+ * shape. A school's UUID typed in place of the address needs no lookup and works the same.
  */
 
 export interface SchoolLookup {
@@ -42,8 +41,6 @@ export function schoolFromInput(input: string): { slug: string } | { tenantId: s
   const slug = (fromPath ?? raw).trim().toLowerCase();
   return SLUG_RE.test(slug) ? { slug } : null;
 }
-
-type LooseClient = { get(path: string, opts: { path: Record<string, string>; auth: false; tenantId: null }): Promise<unknown> };
 
 /** Reads the lookup's answer: the school's UUID and, when it says, its name. Anything else is a failure, never a guess. */
 export function parseSchoolLookup(v: unknown): SchoolLookup {
@@ -116,7 +113,7 @@ export async function apiLookupSchool(input: string): Promise<SchoolLookup> {
   const kept = keptSchool(school.slug);
   if (kept) return kept;
   try {
-    const res = await (apiClient() as unknown as LooseClient).get("/v1/public/schools/{slug}", { path: { slug: school.slug }, auth: false, tenantId: null });
+    const res = await apiClient().get("/v1/public/schools/{slug}", { path: { slug: school.slug }, auth: false, tenantId: null });
     const found = parseSchoolLookup(res);
     keepSchool(school.slug, found);
     return found;

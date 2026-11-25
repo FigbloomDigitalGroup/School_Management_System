@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  askTutor, draftHomework, draftMessage, draftQuestions, draftReportComments, fetchAiStatus, importPaperWithAi, saveAiSettings, translateMessage,
+  draftHomework, draftMessage, draftQuestions, draftReportComments, fetchAiStatus, importPaperWithAi, saveAiSettings, translateMessage,
 } from "../ai";
 import {
   askBloomChat, createAiChat, deleteAiChat, deleteAiChatMessage, fetchAiChatMessages, fetchAiChats, renameAiChat, saveAiChatTurns, setAiChatWebSearch,
@@ -626,7 +626,6 @@ describe("NotOnApiError guards for unsupported AI/edge functions", () => {
     })).rejects.toBeInstanceOf(NotOnApiError);
     await expect(draftMessage({ notes: "Half term", audience: "parents", tone: "warm", language: "en" })).rejects.toBeInstanceOf(NotOnApiError);
     await expect(translateMessage("Sub", "Body", "sw")).rejects.toBeInstanceOf(NotOnApiError);
-    await expect(askTutor([{ role: "user", content: "Help" }])).rejects.toBeInstanceOf(NotOnApiError);
     await expect(fetchAiChats()).rejects.toBeInstanceOf(NotOnApiError);
     await expect(fetchAiChatMessages("c1")).rejects.toBeInstanceOf(NotOnApiError);
     await expect(createAiChat(T, "Chat")).rejects.toBeInstanceOf(NotOnApiError);

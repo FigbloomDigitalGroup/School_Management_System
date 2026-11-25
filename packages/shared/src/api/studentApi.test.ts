@@ -55,7 +55,7 @@ function boot(routes: Record<string, FakeRoute>, role: string | null = "student"
   return api;
 }
 const ok = (body: unknown): FakeReply => ({ body });
-const refused = (status: number, code: string): FakeReply => ({ status, body: { error: { code, message: "no" } } });
+const refused = (status: number, code: string, message = "no"): FakeReply => ({ status, body: { error: { code, message } } });
 const per = (tail: string) => `GET ${P}/me/children/${L}/${tail}`;
 
 afterEach(() => {
