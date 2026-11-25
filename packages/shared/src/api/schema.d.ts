@@ -5578,6 +5578,8 @@ export interface components {
             timezone?: string;
             /** Format: uuid */
             organizationId?: string;
+            /** @description The kind of school: k12 or higher_ed (null when the school has no profile yet). Any member who may read the school may read this, so a lecturer's menu can tell a higher-education school; the rest of the profile is for administrators. */
+            institutionType?: ("k12" | "higher_ed") | null;
         };
         /** @enum {string} */
         PlatformSchoolStatus: "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
