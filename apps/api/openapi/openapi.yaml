@@ -19246,6 +19246,14 @@ components:
         organizationId:
           type: string
           format: uuid
+        institutionType:
+          description: "The kind of school: k12 or higher_ed (null when the school has no profile yet). Any member who may read the school may read this, so a lecturer's menu can tell a higher-education school; the rest of the profile is for administrators."
+          anyOf:
+            - type: string
+              enum:
+                - k12
+                - higher_ed
+            - type: "null"
     PlatformSchoolStatus:
       type: string
       enum:

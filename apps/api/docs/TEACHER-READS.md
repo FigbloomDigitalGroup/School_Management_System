@@ -176,6 +176,11 @@ too, but reads these routes only for a section they instruct themselves; the sch
 Every change of instructor writes `academics.he.section.instructor_changed` (the section, the old and the new staff id: ids
 only). A section created with an instructor writes it too (old id null).
 
+**The kind of school, for every member.** Only an administrator may read the school profile (`resource.school_profile.read`), so a
+lecturer's web menu could not tell a higher-education school from a K-12 one, and hid "My sections". `GET /v1/tenants/{tenantId}`
+(every member holds `tenant.read`) now also returns `institutionType`: `k12`, `higher_ed`, or `null` for a school with no profile
+yet. It reads the one column of `school_profiles` under the tenant policy; nothing else of the profile is shown.
+
 Not done, and why:
 
 - **Room, capacity and weekly schedule of a section.** Not asked for here; the web keeps those controls hidden.

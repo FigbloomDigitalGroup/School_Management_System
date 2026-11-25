@@ -394,6 +394,50 @@ describe("higher-education section instructor, and a lecturer's own sections and
     });
   });
 
+  // ------------------------------------------------------------------------------------------------ the kind of school
+
+  describe("GET /v1/tenants/{tenantId}: the kind of school, readable by every member", () => {
+    // Only an administrator may read the school profile, so without this a lecturer's menu cannot tell a higher-education school.
+    const tenantRecord = (who: string | null, opts: { tenant?: string; header?: string } = {}) => get(who, "", opts);
+
+    it("a lecturer, a parent, a student, a driver and an administrator all read institutionType, in the documented shape", async () => {
+      for (const who of ["lec1", "nolink", "parent", "student", "driver", "admin"]) {
+        const res = await tenantRecord(who);
+        expect(res.statusCode, `${who} ${res.body}`).toBe(200);
+        conforms("GET", "/v1/tenants/{tenantId}", res.json());
+        expect(res.json(), who).toMatchObject({ id: ids.tenantA, slug: "school-a", institutionType: "higher_ed" });
+      }
+      // ...although only an administrator may read the profile itself
+      expect((await get("lec1", "/school-profile")).statusCode).toBe(403);
+      expect((await get("admin", "/school-profile")).statusCode).toBe(200);
+    });
+
+    it("follows the profile: k12, and null for a school with no profile yet", async () => {
+      await whileChanged(
+        `UPDATE school_profiles SET institution_type = 'k12' WHERE tenant_id = $1`,
+        `UPDATE school_profiles SET institution_type = 'higher_ed' WHERE tenant_id = $1`,
+        [ids.tenantA],
+        async () => expect((await tenantRecord("lec1")).json().institutionType).toBe("k12"),
+      );
+      await q(`DELETE FROM school_profiles WHERE tenant_id = $1`, [ids.tenantB]);
+      try {
+        const res = await tenantRecord("teacherB", { tenant: ids.tenantB });
+        expect(res.statusCode, res.body).toBe(200);
+        expect(res.json().institutionType).toBeNull();
+        conforms("GET", "/v1/tenants/{tenantId}", res.json());
+      } finally {
+        await q(`INSERT INTO school_profiles (tenant_id, institution_type) VALUES ($1, 'higher_ed')`, [ids.tenantB]);
+      }
+      expect((await tenantRecord("teacherB", { tenant: ids.tenantB })).json().institutionType).toBe("higher_ed");
+    });
+
+    it("another school's kind is not readable: path and header are refused, and an anonymous caller is 401", async () => {
+      expect((await tenantRecord("lec1", { tenant: ids.tenantB })).statusCode).toBe(403);
+      expect((await tenantRecord("lec1", { header: ids.tenantB })).statusCode).toBe(403);
+      expect((await tenantRecord(null)).statusCode).toBe(401);
+    });
+  });
+
   // ------------------------------------------------------------------------------------------------ GET /me/teaching/he-sections
 
   describe("GET /me/teaching/he-sections", () => {
