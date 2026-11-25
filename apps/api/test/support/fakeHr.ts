@@ -43,6 +43,10 @@ export class FakeHr {
   people = new Map<string, FakeEmployee>();
   /** employee number -> published payslips */
   payslips = new Map<string, FakePayslip[]>();
+  /** what HR's attendance answer lists (empty by default) */
+  attendanceDays: Record<string, unknown>[] = [];
+  /** what HR's kpis answer lists (empty by default) */
+  kpiItems: Record<string, unknown>[] = [];
   /** HR's own switch (MY_HR_API_ENABLED): off answers 503 my_hr_off */
   enabled = true;
   /** answer every HR call with this status; 0 drops the connection */
@@ -74,9 +78,10 @@ export class FakeHr {
     this.server = createServer((req, res) => void this.handle(req, res));
   }
 
-  static async start(): Promise<FakeHr> {
+  /** `port` 0 picks a free one (the tests); a fixed one is for running it by hand next to a local API. */
+  static async start(port = 0): Promise<FakeHr> {
     const fake = new FakeHr();
-    await new Promise<void>((resolve) => fake.server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => fake.server.listen(port, "127.0.0.1", resolve));
     fake.port = (fake.server.address() as AddressInfo).port;
     return fake;
   }
@@ -213,10 +218,10 @@ export class FakeHr {
         });
       case "attendance": {
         const from = url.searchParams.get("from"), to = url.searchParams.get("to");
-        return send(res, 200, { status: "active", from, to, days: [], possible_absence_notices: [], missed_scan_requests: [], absences_recorded: [] });
+        return send(res, 200, { status: "active", from, to, days: this.attendanceDays, possible_absence_notices: [], missed_scan_requests: [], absences_recorded: [] });
       }
       case "kpis":
-        return send(res, 200, { status: "active", period: { id: "p1", name: "Term 3 2026", starts_on: "2026-09-01", ends_on: "2026-11-30", status: "open" }, items: [], overall: { score: null, scored: 0, total: 0 }, attendance: null });
+        return send(res, 200, { status: "active", period: { id: "p1", name: "Term 3 2026", starts_on: "2026-09-01", ends_on: "2026-11-30", status: "open" }, items: this.kpiItems, overall: { score: this.kpiItems.length ? 82 : null, scored: this.kpiItems.length, total: this.kpiItems.length }, attendance: null });
       default:
         return send(res, 404, { error: { code: "not_found", message: "Not found." } });
     }
