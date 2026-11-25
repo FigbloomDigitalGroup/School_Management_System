@@ -46,3 +46,4 @@ export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper, apiFetchMyTeachingPai
 export { apiCreateLearningMaterial } from "./materialsApi";
 export { visitFromApi, apiSubscribeVisits } from "./visitorsApi";
 export { apiFetchMyHomework, apiCreateHomework, apiFetchHomeworkSubjectsForClass } from "./homeworkApi";
+export { auditEventFromApi, API_AUDIT_SEARCH_MAX, AUDIT_SYSTEM_ACTOR } from "./auditApi";

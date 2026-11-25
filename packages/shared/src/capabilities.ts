@@ -873,3 +873,24 @@ export function homeworkCapabilities(): HomeworkCapabilities {
 export function canManageHomework(adminAreas: readonly string[], role?: string): boolean {
   return !onApi() || role === "school_admin" || adminAreas.includes("academics");
 }
+
+/** The audit log screen (admin/audit). */
+export interface AuditCapabilities {
+  /**
+   * Opening an event to see which fields of which record changed, with the values. The API's audit rows carry no detail, by design
+   * (it can hold names, amounts and health information, and its shape differs by event): a row says what happened, who and when.
+   */
+  fieldChanges: boolean;
+  /**
+   * "Every change made in the school". On the API the log is the school's business events only: sign-in, session and two-step events,
+   * refusals, read events, personal settings and any kind of event nobody classified on purpose are never shown to a school.
+   */
+  everyChange: boolean;
+}
+
+const AUDIT_ON_SUPABASE: AuditCapabilities = { fieldChanges: true, everyChange: true };
+const AUDIT_ON_API: AuditCapabilities = { fieldChanges: false, everyChange: false };
+
+export function auditCapabilities(): AuditCapabilities {
+  return onApi() ? AUDIT_ON_API : AUDIT_ON_SUPABASE;
+}
