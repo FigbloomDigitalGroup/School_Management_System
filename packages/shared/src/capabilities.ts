@@ -332,6 +332,12 @@ export interface InventoryCapabilities {
    * screens' periods fit; a term longer than this is cut to its last days.
    */
   reportMaxDays: number | null;
+  /**
+   * The current term's dates (for the "This term" period) are read from `GET /academic-terms`, which needs the Academics area (or
+   * teaching a class): a person with only Inventory is refused, so "This term" is left out when the dates are not known. On Supabase
+   * a member of staff reads them, and the period is always offered.
+   */
+  termDatesNeedAcademics: boolean;
 }
 
 const INVENTORY_ON_SUPABASE: InventoryCapabilities = {
@@ -345,6 +351,7 @@ const INVENTORY_ON_SUPABASE: InventoryCapabilities = {
   stockInsights: true,
   sickBayUsesStock: true,
   reportMaxDays: null,
+  termDatesNeedAcademics: false,
 };
 
 const INVENTORY_ON_API: InventoryCapabilities = {
@@ -358,6 +365,7 @@ const INVENTORY_ON_API: InventoryCapabilities = {
   stockInsights: false,
   sickBayUsesStock: false,
   reportMaxDays: 366,
+  termDatesNeedAcademics: true,
 };
 
 export function inventoryCapabilities(): InventoryCapabilities {

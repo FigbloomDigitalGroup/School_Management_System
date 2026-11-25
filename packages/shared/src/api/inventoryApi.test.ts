@@ -100,12 +100,12 @@ describe("capabilities, mappers, and feeCharges guards", () => {
     initBackend({ kind: "supabase" });
     expect(inventoryCapabilities()).toEqual({
       editItem: true, unretireItem: true, itemCostAndNotes: true, issueHistory: true, issueNote: true, chargeToFees: true, stockMovements: true,
-      stockInsights: true, sickBayUsesStock: true, reportMaxDays: null,
+      stockInsights: true, sickBayUsesStock: true, reportMaxDays: null, termDatesNeedAcademics: false,
     });
     initBackend({ kind: "api", apiUrl: BASE });
     expect(inventoryCapabilities()).toEqual({
       editItem: false, unretireItem: false, itemCostAndNotes: false, issueHistory: false, issueNote: false, chargeToFees: false, stockMovements: true,
-      stockInsights: false, sickBayUsesStock: false, reportMaxDays: 366,
+      stockInsights: false, sickBayUsesStock: false, reportMaxDays: 366, termDatesNeedAcademics: true,
     });
   });
 

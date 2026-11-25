@@ -66,13 +66,14 @@ export function useStockRange(tenantId: string, period: ReportPeriod) {
   // "This term" waits for the term's dates rather than fetching the year and then the term
   const ready = period !== "term" || !term.loading;
   // the API answers a report for a limited period (reportMaxDays), so a term that runs longer is cut to its last days
-  const { reportMaxDays } = inventoryCapabilities();
+  const { reportMaxDays, termDatesNeedAcademics } = inventoryCapabilities();
   const asked = periodRange(period, new Date(), term.data);
   const range = reportMaxDays ? capRange(asked, reportMaxDays) : asked;
   // the flags look at a window long enough for a baseline and a 4-week trend, even for "this week"
   const flagFrom = period === "week" ? todayIso(new Date(Date.now() - 27 * 86_400_000)) : range.from;
-  // "This term" is offered only when the term's dates are known: on the API a person who holds only the Inventory area may not read them
-  const termAvailable = term.loading || !!term.data;
+  // On the API a person who holds only the Inventory area may not read the term's dates, so "This term" is offered only when they are known
+  // (the Supabase build always offers it, as before).
+  const termAvailable = !termDatesNeedAcademics || term.loading || !!term.data;
   return { ready, range, flagFrom, termAvailable };
 }
 

@@ -74,9 +74,9 @@ const input = (o: Partial<MovementInput> = {}): MovementInput => ({ tenantId: T,
 describe("capabilities on the API build", () => {
   it("turns stock movements on and keeps the AI briefing, item edit and the 366-day report limit visible as flags", () => {
     initBackend({ kind: "api", apiUrl: BASE });
-    expect(inventoryCapabilities()).toMatchObject({ stockMovements: true, stockInsights: false, sickBayUsesStock: false, editItem: false, reportMaxDays: 366 });
+    expect(inventoryCapabilities()).toMatchObject({ stockMovements: true, stockInsights: false, sickBayUsesStock: false, editItem: false, reportMaxDays: 366, termDatesNeedAcademics: true });
     initBackend({ kind: "supabase" });
-    expect(inventoryCapabilities()).toMatchObject({ stockMovements: true, stockInsights: true, sickBayUsesStock: true, editItem: true, reportMaxDays: null });
+    expect(inventoryCapabilities()).toMatchObject({ stockMovements: true, stockInsights: true, sickBayUsesStock: true, editItem: true, reportMaxDays: null, termDatesNeedAcademics: false });
   });
 });
 
