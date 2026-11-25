@@ -3719,6 +3719,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/inventory/movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List stock movements
+         * @description Stock in and out (docs/INVENTORY-STOCK.md): deliveries, use, waste and stock-take corrections, newest day first (then the latest recorded), optionally for one item and between two days (both inclusive). Keyset-paged; the cursor is bound to the school and every filter.
+         */
+        get: operations["inventoryListMovements"];
+        put?: never;
+        /**
+         * Record a stock movement
+         * @description One delivery (`received`), a day's use (`used`), waste (`wasted`) or a stock-take correction (`adjusted`, signed) of a stock line (docs/INVENTORY-STOCK.md). The item is locked while its count moves, so two people taking the last stock at once cannot both succeed. 409 when the stock is not there (it may not fall below 0, nor below what is out, lost or damaged on issues) or the item is written off; 400 for an asset item, a broken sign rule, a field that belongs to another kind, or a day in the future. `occurred_on` defaults to the school's today. A movement is never changed or deleted: correct a mistake with an `adjusted` movement. Audited (`inventory.movement.recorded`).
+         */
+        post: operations["inventoryRecordMovement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/inventory/stock-levels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stock levels
+         * @description Every live stock line of the school (docs/INVENTORY-STOCK.md; Supabase inventory_stock_levels): on hand and its value, use and waste over the 28 days to `as_of`, average daily use, days of cover, whether it is at or below its reorder level, the last delivery and when the next usually comes (the last plus the median gap between delivery days in the 120 days before). `quantity` is the register's count now. Not paged: one row per stock line, by store then name.
+         */
+        get: operations["inventoryStockLevels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/inventory/reports/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stock ledger
+         * @description Every movement of the school's stock lines in a period, oldest day first (Supabase inventory_ledger; docs/INVENTORY-STOCK.md). Movements only: the API's sick bay does not take medicine from stock. At most 400 days.
+         */
+        get: operations["inventoryReportLedger"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/inventory/reports/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stock usage
+         * @description Use, waste, deliveries, shrinkage (stock-take shortfalls), spend and the cost of what was used, per item per day, week (from Monday), month or year (Supabase inventory_usage). Used stock is priced at the latest priced delivery on or before its day, else the register's price. At most 400 days.
+         */
+        get: operations["inventoryReportUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/inventory/reports/spend-by-month": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Delivery spend by month
+         * @description What deliveries cost, month by month and store by store (inventory_items.category; Supabase inventory_spend_by_month). At most 400 days.
+         */
+        get: operations["inventoryReportSpendByMonth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/inventory/reports/cost-per-meal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cost per meal
+         * @description Kitchen food used, priced at the day's delivery price, over meals served, per period and purpose (Supabase inventory_cost_per_meal). Meals count once per day and purpose (the largest meals_served of that day's lines); only days that recorded meals count towards the cost of a meal. At most 400 days.
+         */
+        get: operations["inventoryReportCostPerMeal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/inventory/reports/headcount": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Headcount per day
+         * @description Learners on the roll, staff and gate visitors on each day, in the school's time zone (Supabase inventory_headcount): counts only, never a person. Learners and staff count until the day they were archived. At most 400 days.
+         */
+        get: operations["inventoryReportHeadcount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/inventory/reports/flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Consumption flags
+         * @description The deterministic anomaly flags (Supabase inventory_consumption_flags, same thresholds and wording): usage_up, usage_down, usage_trend, non_school_day, shrinkage, price_jump, run_out. Item names and numbers, never a person. Without from and to: the last 8 weeks to the school's today; with to only: the 8 weeks to it. At most 366 days.
+         */
+        get: operations["inventoryReportFlags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/leave-requests": {
         parameters: {
             query?: never;
@@ -8640,6 +8804,12 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description What a stock line is counted in (kg, litres, bags). Null for an asset. */
+            unit: string | null;
+            /** @description Used up rather than handed out and returned (kitchen food, chalk). Always false for an asset. */
+            consumable: boolean;
+            /** @description Warn when stock falls to this. Null for an asset. */
+            reorder_level: number | null;
         };
         InventoryItemCreateRequest: {
             name: string;
@@ -8647,11 +8817,175 @@ export interface components {
             category: "textbooks" | "furniture" | "lab_equipment" | "sports" | "ict" | "uniforms" | "music" | "kitchen" | "stationery" | "tools" | "medical" | "other";
             /** @enum {string} */
             tracking: "asset" | "stock";
+            /** @description Copies or stock on hand. A stock line may start at 0; an asset is always 1. */
             quantity?: number;
             asset_tag?: string | null;
             /** @enum {string} */
             condition?: "new" | "good" | "fair" | "poor" | "broken";
             location?: string | null;
+            /** @description Stock lines only (an asset with a unit is 400). Trimmed. */
+            unit?: string | null;
+            /** @description Stock lines only (an asset that is consumable is 400). Default false. */
+            consumable?: boolean;
+            /** @description Stock lines only (an asset with a reorder level is 400). */
+            reorder_level?: number | null;
+        };
+        InventoryMovementCreateRequest: {
+            /** Format: uuid */
+            item_id: string;
+            /** @enum {string} */
+            kind: "received" | "used" | "wasted" | "adjusted";
+            quantity: number;
+            occurred_on?: string;
+            unit_cost_cents?: number | null;
+            supplier?: string | null;
+            reference?: string | null;
+            purpose?: string | null;
+            meals_served?: number | null;
+            note?: string | null;
+        };
+        /** @description One delivery, use, waste or stock-take correction. received, used and wasted are positive amounts; adjusted is signed. unit_cost_cents and supplier belong to received only, meals_served to used only. */
+        InventoryMovement: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            item_id: string;
+            /** @enum {string} */
+            kind: "received" | "used" | "wasted" | "adjusted";
+            quantity: number;
+            unit_cost_cents: number | null;
+            supplier: string | null;
+            reference: string | null;
+            /** Format: date */
+            occurred_on: string;
+            purpose: string | null;
+            meals_served: number | null;
+            note: string | null;
+            /** Format: uuid */
+            recorded_by: string | null;
+            /** @description The recorder's name, for the item's history. */
+            recorded_by_name: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description One movement in the ledger (Supabase inventory_ledger). source is always movement on the API. */
+        InventoryLedgerEntry: {
+            /** Format: uuid */
+            item_id: string;
+            /** @enum {string} */
+            kind: "received" | "used" | "wasted" | "adjusted";
+            quantity: number;
+            /** Format: date */
+            occurred_on: string;
+            purpose: string | null;
+            meals_served: number | null;
+            unit_cost_cents: number | null;
+            supplier: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** @enum {string} */
+            source: "movement";
+        };
+        InventoryUsageRow: {
+            /** Format: uuid */
+            item_id: string;
+            /** Format: date */
+            period_start: string;
+            used: number;
+            wasted: number;
+            received: number;
+            /** @description Stock-take shortfalls (negative adjustments), as a positive amount. */
+            shrinkage: number;
+            /** @description What the period's deliveries cost. */
+            spend_cents: number;
+            /** @description What was used, priced at the day's price. */
+            used_cost_cents: number;
+        };
+        InventorySpendRow: {
+            /**
+             * Format: date
+             * @description The first day of the month.
+             */
+            month: string;
+            category: string;
+            spend_cents: number;
+            deliveries: number;
+        };
+        InventoryCostPerMealRow: {
+            /** Format: date */
+            period_start: string;
+            /** @description The use's purpose, or Other. */
+            purpose: string;
+            used_cost_cents: number;
+            meals_served: number;
+            /** @description To 2 decimals; null when no day of the period recorded meals. */
+            cost_per_meal_cents: number | null;
+        };
+        InventoryHeadcountDay: {
+            /** Format: date */
+            day: string;
+            learners: number;
+            staff: number;
+            visitors: number;
+        };
+        /** @description One finding. expected and actual are in the item's unit (cents for price_jump, days for run_out); headcount and baseline_headcount are the driver (heads, meals, practicals or sick-bay visits). No person is named. */
+        InventoryConsumptionFlag: {
+            /** @enum {string} */
+            kind: "usage_up" | "usage_down" | "usage_trend" | "non_school_day" | "shrinkage" | "price_jump" | "run_out";
+            /** Format: uuid */
+            item_id: string;
+            item_name: string;
+            category: string;
+            unit: string | null;
+            purpose: string | null;
+            /** Format: date */
+            occurred_on: string;
+            /** Format: date */
+            period_from: string | null;
+            expected: number | null;
+            actual: number | null;
+            headcount: number | null;
+            baseline_headcount: number | null;
+            visitors: number | null;
+            /** @enum {string} */
+            severity: "high" | "medium" | "low";
+            /** @description A rise that more people explains (listed as low, not an alarm). */
+            explained: boolean;
+            reason: string;
+        };
+        /** @description One live stock line as of a day (Supabase inventory_stock_levels). Money in cents. */
+        InventoryStockLevel: {
+            /** Format: uuid */
+            item_id: string;
+            name: string;
+            category: string;
+            unit: string | null;
+            consumable: boolean;
+            /** @description The register's count now. */
+            quantity: number;
+            reorder_level: number | null;
+            /** @description The item's price (the latest priced delivery, or the price it was added with). */
+            unit_cost_cents: number | null;
+            /** @description quantity times unit_cost_cents (0 without a price). */
+            value_cents: number;
+            /** @description Used in the 28 days to as_of. */
+            used_28d: number;
+            wasted_28d: number;
+            /** @description used_28d / 28, to 2 decimals. */
+            avg_daily_use: number;
+            /** @description How many days the stock lasts at that use, to 1 decimal. Null with no use. */
+            days_of_cover: number | null;
+            /** @description At or below its reorder level. */
+            low: boolean;
+            /** Format: date */
+            last_received_on: string | null;
+            /**
+             * Format: date
+             * @description The last delivery plus the median gap between delivery days in the 120 days to as_of. Null with fewer than two.
+             */
+            next_delivery_on: string | null;
         };
         MyHrStatusResponse: {
             /** @enum {string} */
@@ -18608,6 +18942,361 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    inventoryListMovements: {
+        parameters: {
+            query?: {
+                item_id?: string;
+                /** @description First day (YYYY-MM-DD), inclusive. */
+                from?: string;
+                /** @description Last day (YYYY-MM-DD), inclusive. Not before `from`. */
+                to?: string;
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Movements */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        movements: components["schemas"]["InventoryMovement"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    inventoryRecordMovement: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryMovementCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded; the item with its new count */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        movement: components["schemas"]["InventoryMovement"];
+                        item: components["schemas"]["InventoryItem"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    inventoryStockLevels: {
+        parameters: {
+            query?: {
+                /** @description The day (YYYY-MM-DD) the use is counted to. Defaults to the school's today. */
+                as_of?: string;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stock levels */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date */
+                        as_of: string;
+                        levels: components["schemas"]["InventoryStockLevel"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    inventoryReportLedger: {
+        parameters: {
+            query: {
+                /** @description First day (YYYY-MM-DD), inclusive. */
+                from: string;
+                /** @description Last day (YYYY-MM-DD), inclusive. At most 400 days after from. */
+                to: string;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stock ledger */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date */
+                        from: string;
+                        /** Format: date */
+                        to: string;
+                        entries: components["schemas"]["InventoryLedgerEntry"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    inventoryReportUsage: {
+        parameters: {
+            query: {
+                /** @description First day (YYYY-MM-DD), inclusive. */
+                from: string;
+                /** @description Last day (YYYY-MM-DD), inclusive. At most 400 days after from. */
+                to: string;
+                /** @description day, week (default), month or year. */
+                bucket?: "day" | "week" | "month" | "year";
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stock usage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date */
+                        from: string;
+                        /** Format: date */
+                        to: string;
+                        /** @enum {string} */
+                        bucket: "day" | "week" | "month" | "year";
+                        usage: components["schemas"]["InventoryUsageRow"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    inventoryReportSpendByMonth: {
+        parameters: {
+            query: {
+                /** @description First day (YYYY-MM-DD), inclusive. */
+                from: string;
+                /** @description Last day (YYYY-MM-DD), inclusive. At most 400 days after from. */
+                to: string;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Delivery spend by month */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date */
+                        from: string;
+                        /** Format: date */
+                        to: string;
+                        spend: components["schemas"]["InventorySpendRow"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    inventoryReportCostPerMeal: {
+        parameters: {
+            query: {
+                /** @description First day (YYYY-MM-DD), inclusive. */
+                from: string;
+                /** @description Last day (YYYY-MM-DD), inclusive. At most 400 days after from. */
+                to: string;
+                /** @description day, week, month (default) or year. */
+                bucket?: "day" | "week" | "month" | "year";
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cost per meal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date */
+                        from: string;
+                        /** Format: date */
+                        to: string;
+                        /** @enum {string} */
+                        bucket: "day" | "week" | "month" | "year";
+                        cost_per_meal: components["schemas"]["InventoryCostPerMealRow"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    inventoryReportHeadcount: {
+        parameters: {
+            query: {
+                /** @description First day (YYYY-MM-DD), inclusive. */
+                from: string;
+                /** @description Last day (YYYY-MM-DD), inclusive. At most 400 days after from. */
+                to: string;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Headcount per day */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date */
+                        from: string;
+                        /** Format: date */
+                        to: string;
+                        days: components["schemas"]["InventoryHeadcountDay"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    inventoryReportFlags: {
+        parameters: {
+            query?: {
+                /** @description First day (YYYY-MM-DD). Default: 8 weeks before to. */
+                from?: string;
+                /** @description Last day (YYYY-MM-DD). Default: the school's today. */
+                to?: string;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Consumption flags */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date */
+                        from: string;
+                        /** Format: date */
+                        to: string;
+                        flags: components["schemas"]["InventoryConsumptionFlag"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     leaveList: {

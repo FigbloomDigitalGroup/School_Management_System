@@ -101,6 +101,7 @@ no mode GUC and no application-settable bypass.
 | `chat_messages` | tenant + user-scoped (`AS RESTRICTIVE` participant `SELECT`, `sender_id = app_current_user_id()` `INSERT`) | tenant + restrictive participant/sender policy | 053, 063 | `stage12.chat`, `stage12.adversarial` |
 | `inventory_items` | tenant | same | 054, 064 | `stage13.inventory`, `stage13.adversarial` |
 | `inventory_issues` | tenant | same | 054, 064 | `stage13.inventory`, `stage13.adversarial` |
+| `inventory_movements` | tenant; `SELECT` and `INSERT` only for the app (a stock movement is never rewritten or removed; the `inventory_movements_apply` trigger refuses any `UPDATE`, the owner's too). Same-school item through the composite key `(item_id, tenant_id)` (`INVENTORY-STOCK.md`) | same | 115 | `inventory.stock` |
 | `leave_requests` | tenant | same | 055, 064 | `stage13.leave`, `stage13.adversarial` |
 | `activities` | tenant | same | 056 | `stage13.activities` |
 | `activity_patrons` | tenant | same | 056 | `stage13.activities` |

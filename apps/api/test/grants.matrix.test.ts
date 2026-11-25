@@ -119,6 +119,8 @@ const EXPECTED: Record<string, string[]> = {
   chat_messages: ["INSERT", "SELECT"],
   inventory_items: ["INSERT", "SELECT"],
   inventory_issues: ["INSERT", "SELECT"],
+  // Migration 115: a stock movement is never rewritten or removed.
+  inventory_movements: ["INSERT", "SELECT"],
   leave_requests: ["INSERT", "SELECT"],
   activities: ["INSERT", "SELECT"],
   activity_patrons: ["INSERT", "SELECT"],
