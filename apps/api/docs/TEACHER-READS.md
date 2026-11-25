@@ -142,6 +142,49 @@ school-wide materials rules, and for "My items" the own-rows-only rule (another 
 another school). Responses are validated against the OpenAPI schemas. A mutation check (eight guards removed one at a time)
 was caught every time.
 
+## Part 3: a lecturer's own sections (higher-education schools)
+
+Written 2026-11-25. Found while putting `teacher/sections` ("My sections") on the web build (findings 42 and 43 in
+`docs/web-on-api/timetable-classes-courses.md`): a section was a course in a term with a label, so nobody could ask "which
+sections do I teach?". Migration 107 adds the instructor; two reads let the lecturer see their own sections and rosters.
+
+**The instructor.** `he_sections.instructor_staff_id` is a nullable staff record of the same school (a lecturer is a staff
+member with a linked sign-in, like a teacher of a class). The foreign key is on `(instructor_staff_id, tenant_id)`, so a staff
+id of another school cannot be stored even by a bug; `ON DELETE RESTRICT`, as teaching assignments. `figbloom_app` may update
+that one column and no other column of the table.
+
+| Path | Who | Does |
+|---|---|---|
+| `POST /he-sections` | `resource.academics.write` | takes an optional `instructor_staff_id` (an active staff member of this school, else 400) |
+| `PATCH /he-sections/{sectionId}` (new) | `resource.academics.write` | `{ instructor_staff_id }`: a staff id names or changes the instructor, `null` clears it. The same instructor again changes nothing. 404 for a section that is not in this school |
+| `GET /he-sections` | `resource.academics.read` | each section now carries `instructor_staff_id` |
+| `/me/teaching/he-sections` (new) | `resource.teaching.read` | the sections the caller instructs: course code and title, term label, section label, learners enrolled now. By course code, then label. Paged |
+| `/me/teaching/he-sections/{sectionId}/enrolments` (new) | `resource.teaching.read` | the roster of one of those sections: enrolment id, learner id, name, admission number. By name. Paged |
+
+"The caller instructs a section" is decided by the query on every request: the section names a staff record that is **active**
+and **linked to the caller's account** in the school of the request. An archived record, an archived membership, a suspended
+school or a disabled account ends it at once. A section that is another lecturer's, has no instructor, belongs to another school
+or does not exist is the same 404 ("Section not found"). A parent, a student or a driver is refused at the permission (audited
+403), even if a staff record was wrongly linked to them. Like every `he-*` route, all of this answers 400 in a school that is not
+a higher-education school.
+
+The roster lists a learner only when the enrolment is `enrolled` and the learner is still active, and the count in the sections
+list uses the same rule. No date of birth, gender, boarding or contacts. A school administrator holds `resource.teaching.read`
+too, but reads these routes only for a section they instruct themselves; the school-wide reads stay `GET /he-sections` and
+`GET /he-enrolments?sectionId=` (the OpenAPI file now declares `courseId` and `sectionId`, which the routes always honoured).
+
+Every change of instructor writes `academics.he.section.instructor_changed` (the section, the old and the new staff id: ids
+only). A section created with an instructor writes it too (old id null).
+
+Not done, and why:
+
+- **Room, capacity and weekly schedule of a section.** Not asked for here; the web keeps those controls hidden.
+- **Ending an enrolment** (a lecturer's "drop"): still no endpoint; `withdrawn` can only be set by the database owner.
+- **Writes by a lecturer.** A lecturer cannot name themselves or anyone else. That stays with the Academics area (decision 6).
+
+Tests: `test/he.sectionInstructor.test.ts`, through the real `figbloom_app` login (write side, both reads, and the database
+rule). `grants.matrix`, the stage 9/10 contract tour, the RBAC and route-parity matrices and the RLS catalogue tests run with it.
+
 ## Open decisions for the owner (not decided here)
 
 1. Should a teacher publish (and close) their own marks? Today `publish` and `close` need `resource.academics.write`; the
@@ -152,3 +195,7 @@ was caught every time.
 4. Should a teacher see the parents of their learners as chat contacts?
 5. Should a teacher set homework, add learning materials and create online exam papers for the classes and subjects they
    are assigned to teach? Today each needs `resource.academics.write`. This change only lets them read.
+6. Who may name a section's instructor? Today `resource.academics.write` (a school administrator or an Academics-area
+   holder), the same as creating a section. A head of department with a narrower right would need its own permission.
+7. May a lecturer's roster show the admission number? It does now (name and admission number, as the Supabase screen did).
+   Say if it should show names only.
