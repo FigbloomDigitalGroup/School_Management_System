@@ -272,6 +272,7 @@ const EXPECTED_DIRECTORY_UPDATE_COLUMNS: Record<string, string[]> = {
  * Migration 079 (CBC engine) column-level UPDATE grants, plus prior Stage 9 grants they extend.
  * Migration 101 adds classes.room and the subject level, year range and core flag (class, subject and
  * teaching-assignment updates); teaching_assignments keeps its 029 columns.
+ * Migration 107 adds the one column a higher-education section may change, its instructor.
  * Identity/provenance columns (id, tenant_id, created_*) must never appear.
  */
 const EXPECTED_ACADEMICS_079_UPDATE_COLUMNS: Record<string, string[]> = {
@@ -329,6 +330,8 @@ const EXPECTED_ACADEMICS_079_UPDATE_COLUMNS: Record<string, string[]> = {
     "teacher_feedback",
   ],
   learner_competency_ratings: ["level_code", "rated_at", "rated_by", "row_version"],
+  // Migration 107: a higher-education section's instructor, and nothing else about the section.
+  he_sections: ["instructor_staff_id"],
 };
 
 const ACADEMICS_079_NEVER_UPDATABLE: Record<string, string[]> = {
@@ -340,6 +343,7 @@ const ACADEMICS_079_NEVER_UPDATABLE: Record<string, string[]> = {
   cbe_assessments: ["id", "tenant_id", "class_id", "learning_area_id", "term_id", "created_at", "created_by"],
   cbe_results: ["id", "tenant_id", "cbe_assessment_id", "learner_id", "strand_id", "learning_outcome_id", "created_at"],
   learner_competency_ratings: ["id", "tenant_id", "term_id", "learner_id", "kind", "item", "created_at"],
+  he_sections: ["id", "tenant_id", "course_id", "term_id", "label", "created_at", "created_by"],
 };
 
 describe("migration 009 grants and policies", () => {

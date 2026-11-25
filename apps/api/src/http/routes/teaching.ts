@@ -1,13 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import type { AppPool } from "../../db/pool.js";
+import { listHeSectionRosterOfInstructor, listHeSectionsOfInstructor } from "../../modules/academics/higherEd.js";
 import {
+  TEACHING_READ,
   listTeachingColleagues,
   listTeachingHomework,
   listTeachingLearners,
   listTeachingMaterials,
   listTeachingPapers,
 } from "../../modules/academics/teaching.js";
-import { inTenant, myTeachingClassIds, optionalUuid, pageFrom } from "../routeKit.js";
+import { requirePermission } from "../../modules/rbac/authorize.js";
+import { assertUuid, inTenant, myTeachingClassIds, optionalUuid, pageFrom } from "../routeKit.js";
 
 /**
  * Teacher reads (docs/TEACHER-READS.md): what a teacher with no admin area may read about the classes they teach. Every
@@ -70,6 +73,31 @@ export async function registerTeachingRoutes(app: FastifyInstance, pool: AppPool
       const classIds = await myTeachingClassIds(tx, auth, ip);
       const out = await listTeachingPapers(tx, { tenantId: params.tenantId, classIds, classId, page });
       return { papers: out.items, page: out.page };
+    });
+  });
+
+  // A lecturer's own sections (docs/TEACHER-READS.md, Part 3). The scope is not a class but "the section's instructor is the
+  // caller's linked, active staff record", decided by the query on every request. Needs `resource.teaching.read` (the audited 403
+  // for a parent, a student or a driver). A higher-education school only, like every `he-*` route.
+  app.get(`${P}/he-sections`, async (request) => {
+    const params = request.params as { tenantId: string };
+    const page = pageFrom(request);
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, TEACHING_READ, { ip, deferAudit: true });
+      const out = await listHeSectionsOfInstructor(tx, { tenantId: params.tenantId, userId: auth.user.id, page });
+      return { sections: out.items, page: out.page };
+    });
+  });
+
+  // The roster of one of those sections. A section that is another lecturer's, another school's or unknown is 404.
+  app.get(`${P}/he-sections/:sectionId/enrolments`, async (request) => {
+    const params = request.params as { tenantId: string; sectionId: string };
+    assertUuid(params.sectionId, "sectionId");
+    const page = pageFrom(request);
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, TEACHING_READ, { ip, deferAudit: true });
+      const out = await listHeSectionRosterOfInstructor(tx, { tenantId: params.tenantId, userId: auth.user.id, sectionId: params.sectionId, page });
+      return { enrolments: out.items, page: out.page };
     });
   });
 }
