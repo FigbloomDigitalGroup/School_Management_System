@@ -11,6 +11,7 @@ import { StatRow } from "../ui/StatCard";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { downloadCsv, ErrorLine } from "./common";
+import { PagedList } from "../ui/PagedList";
 
 const RANGES = [{ days: 7, label: "Last 7 days" }, { days: 30, label: "Last 30 days" }, { days: 90, label: "Last 90 days" }];
 
@@ -80,23 +81,23 @@ export function MedicalReports() {
 
           <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
             <Panel title="Common complaints" onExport={() => downloadCsv(complaintsCsv(data.complaints), "sick-bay-complaints.csv")}>
-              {data.complaints.length === 0 ? <EmptyState title="No visits in this period" body="Complaints are counted from each visit's complaint." /> : data.complaints.map((c) => (
-                <Row key={c.complaint} left={c.complaint} right={String(c.count)} />
-              ))}
+              {data.complaints.length === 0 ? <EmptyState title="No visits in this period" body="Complaints are counted from each visit's complaint." /> : <PagedList items={data.complaints} keyOf={(c) => c.complaint} label="complaints" render={(c) => (
+                <Row left={c.complaint} right={String(c.count)} />
+              )} />}
             </Panel>
             <Panel title="Learners with frequent visits" onExport={() => downloadCsv(frequentVisitorsCsv(data.frequent), "sick-bay-frequent-visitors.csv")}>
-              {data.frequent.length === 0 ? <EmptyState title="Nobody with 3 or more visits" body="A learner who keeps coming back may need a word with their family or a doctor." /> : data.frequent.map((f) => (
-                <Row key={f.student_id} left={`${f.name} · ADM ${f.admission_no}`} right={String(f.count)} />
-              ))}
+              {data.frequent.length === 0 ? <EmptyState title="Nobody with 3 or more visits" body="A learner who keeps coming back may need a word with their family or a doctor." /> : <PagedList items={data.frequent} keyOf={(f) => f.student_id} label="learners" render={(f) => (
+                <Row left={`${f.name} · ADM ${f.admission_no}`} right={String(f.count)} />
+              )} />}
             </Panel>
           </div>
 
           <Panel title="Medication compliance" onExport={() => downloadCsv(complianceCsv(data.compliance), "medication-compliance.csv")}>
-            {data.compliance.length === 0 ? <EmptyState title="No prescribed medicine in this period" body="Doses on the round are counted here once their time has passed." /> : data.compliance.map((r) => (
-              <Row key={r.schedule.id}
+            {data.compliance.length === 0 ? <EmptyState title="No prescribed medicine in this period" body="Doses on the round are counted here once their time has passed." /> : <PagedList items={data.compliance} keyOf={(r) => r.schedule.id} label="schedules" render={(r) => (
+              <Row
                 left={`${r.schedule.students?.full_name ?? ""}: ${r.schedule.drug} ${r.schedule.dose}`}
                 right={`${r.given}/${r.due} given${r.refused ? ` · ${r.refused} refused` : ""}${r.missed ? ` · ${r.missed} missed` : ""}${r.unrecorded ? ` · ${r.unrecorded} not recorded` : ""} · ${r.rate ?? "–"}%`} />
-            ))}
+            )} />}
           </Panel>
         </>
       )}

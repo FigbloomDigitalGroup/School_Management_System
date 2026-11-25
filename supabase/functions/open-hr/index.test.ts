@@ -2,7 +2,7 @@ import { describe, it } from "jsr:@std/testing/bdd";
 import { assert, assertEquals, assertFalse, assertMatch } from "jsr:@std/assert";
 import { FakeSupabaseClient, type Row } from "../_shared/fakeSupabase.ts";
 import { FakePlatform } from "../_shared/fakePlatform.ts";
-import { handle, realEmail } from "./index.ts";
+import { CONNECTION_CACHE_SECONDS, handle, realEmail, UNKNOWN_CACHE_SECONDS, type ConnectionCache } from "./index.ts";
 
 const SCHOOL = "11111111-1111-4111-8111-111111111111";
 const OTHER_SCHOOL = "22222222-2222-4222-8222-222222222222";
@@ -84,6 +84,13 @@ function setup({ caller, switchedOn = true, moduleStatus = [], authEmail, platfo
     if (i >= 0) rows[i] = row; else rows.push(row);
     return null;
   };
+  // 20261124100000: the first request is kept, and its time is the answer
+  admin.rpcAnswers.platform_record_hr_request = (a) => {
+    const t = admin.rowsIn("tenants").find((r) => r.id === a.p_tenant_id);
+    if (!t) return null;
+    if (!t.hr_requested_at) Object.assign(t, { hr_requested_at: new Date().toISOString(), hr_requested_by: a.p_profile_id });
+    return t.hr_requested_at;
+  };
 
   const asUser = new FakeSupabaseClient();
   const me = PEOPLE.find((p) => p.id === caller);
@@ -104,7 +111,7 @@ function setup({ caller, switchedOn = true, moduleStatus = [], authEmail, platfo
     fake.tenants.set(OTHER_SCHOOL, { tenant_id: "pt-2", name: "Other School", local_slug: "other", organization_local_id: "org-2" });
     fake.enableModule("hr", SCHOOL);
   }
-  return { admin, asUser, fake, client: fake ? fake.client() : null };
+  return { admin, asUser, fake, client: fake ? fake.client() : null, connections: new Map() as ConnectionCache };
 }
 
 function request(body: unknown, opts: { method?: string; auth?: string | null } = {}) {
@@ -317,5 +324,230 @@ describe("open-hr: the platform's answers", () => {
     const res = await handle(request({ tenant_id: SCHOOL }), deps);
     assertEquals(res.status, 500);
     assertEquals(deps.fake!.calls.length, 0);
+  });
+});
+
+// ------------------------------------------------------------------ status and request (HR_CONNECT_SPEC.md)
+
+async function act(deps: ReturnType<typeof setup> & { now?: () => number }, action: string, tenantId = SCHOOL) {
+  const res = await handle(request({ tenant_id: tenantId, action }), deps);
+  return { res, out: await res.json() };
+}
+
+const schoolRow = (deps: ReturnType<typeof setup>, id = SCHOOL) => deps.admin.rowsIn("tenants").find((t) => t.id === id)!;
+
+describe("open-hr status: whether HR is there for the school", () => {
+  it("HR on and linked: connected, nothing requested", async () => {
+    const deps = setup({ caller: "principal" });
+    const { res, out } = await act(deps, "status");
+    assertEquals(res.status, 200);
+    assertEquals(out, { enabled: true, connection: "connected", requested_at: null, can_request_hr: true });
+    assertEquals(deps.fake!.calls.map((c) => `${c.method} ${c.path}`), ["GET /tenants/pt-1/modules/hr", "GET /tenants/pt-1/links/hr"]);
+    assertEquals(deps.fake!.handoffs.length, 0);
+  });
+
+  it("HR on but not linked by HR yet: setting_up", async () => {
+    const deps = setup({ caller: "bursar" });
+    deps.fake!.modules.get("hr")!.linked.delete(SCHOOL);
+    assertEquals((await act(deps, "status")).out.connection, "setting_up");
+  });
+
+  it("HR not switched on: not_connected (the link isn't asked)", async () => {
+    const deps = setup({ caller: "org-admin" });
+    deps.fake!.modules.get("hr")!.enabled.delete(SCHOOL);
+    assertEquals((await act(deps, "status")).out.connection, "not_connected");
+    assertEquals(deps.fake!.calls.length, 1);
+  });
+
+  it("a school the platform doesn't know (no platform_links row): not_connected without asking the platform", async () => {
+    const deps = setup({ caller: "org-admin" });
+    const { res, out } = await act(deps, "status", UNKNOWN_SCHOOL);
+    assertEquals(res.status, 200);
+    assertEquals(out.connection, "not_connected");
+    assertEquals(deps.fake!.calls.length, 0);
+  });
+
+  it("a platform_links row without the platform's id: not_connected", async () => {
+    const deps = setup({ caller: "principal" });
+    deps.admin.rowsIn("platform_links").find((l) => l.local_id === SCHOOL)!.platform_id = null;
+    assertEquals((await act(deps, "status")).out.connection, "not_connected");
+    assertEquals(deps.fake!.calls.length, 0);
+  });
+
+  for (const down of [0, 500]) {
+    it(`the platform ${down ? `answering ${down}` : "unreachable"}: unknown`, async () => {
+      const deps = setup({ caller: "principal" });
+      deps.fake!.down = down;
+      const { res, out } = await act(deps, "status");
+      assertEquals(res.status, 200);
+      assertEquals(out.connection, "unknown");
+    });
+  }
+
+  it("without the PLATFORM_* secrets: unknown", async () => {
+    assertEquals((await act(setup({ caller: "principal", platform: null }), "status")).out.connection, "unknown");
+  });
+
+  it("switched off: enabled false, and the platform isn't asked", async () => {
+    const deps = setup({ caller: "principal", switchedOn: false });
+    const { res, out } = await act(deps, "status");
+    assertEquals(res.status, 200);
+    assertEquals(out, { enabled: false, connection: null, requested_at: null, can_request_hr: false });
+    assertEquals(deps.fake!.tokensIssued, 0);
+  });
+
+  for (const caller of ["teacher", "parent", "other-admin", "super"]) {
+    it(`refuses ${caller} (403), without asking the platform`, async () => {
+      const deps = setup({ caller });
+      const { res, out } = await act(deps, "status");
+      assertEquals(res.status, 403);
+      assertEquals(out.code, "forbidden");
+      assertEquals(deps.fake!.calls.length, 0);
+    });
+  }
+
+  it("is kept a minute per school (the platform's cache_seconds at most), and asked again after", async () => {
+    let t = 1_000_000;
+    const deps = { ...setup({ caller: "principal" }), now: () => t };
+    await act(deps, "status");
+    deps.fake!.modules.get("hr")!.enabled.delete(SCHOOL);
+    assertEquals((await act(deps, "status")).out.connection, "connected");
+    assertEquals(deps.fake!.calls.length, 2);
+    t += CONNECTION_CACHE_SECONDS * 1000 + 1;
+    assertEquals((await act(deps, "status")).out.connection, "not_connected");
+  });
+
+  it("an unknown answer is kept only briefly", async () => {
+    let t = 1_000_000;
+    const deps = { ...setup({ caller: "principal" }), now: () => t };
+    deps.fake!.down = 503;
+    assertEquals((await act(deps, "status")).out.connection, "unknown");
+    deps.fake!.down = null;
+    t += UNKNOWN_CACHE_SECONDS * 1000 + 1;
+    assertEquals((await act(deps, "status")).out.connection, "connected");
+  });
+
+  it("says when the school asked for HR", async () => {
+    const deps = setup({ caller: "principal" });
+    deps.fake!.modules.get("hr")!.enabled.delete(SCHOOL);
+    schoolRow(deps).hr_requested_at = "2026-11-20T08:30:00+00:00";
+    assertEquals((await act(deps, "status")).out.requested_at, "2026-11-20T08:30:00.000Z");
+  });
+
+  it("an unknown action is refused", async () => {
+    const { res, out } = await act(setup({ caller: "principal" }), "delete");
+    assertEquals(res.status, 400);
+    assertEquals(out.code, "unknown_action");
+  });
+
+  it("needs a signed-in caller (the gateway may not check the JWT)", async () => {
+    const deps = setup({ caller: "principal" });
+    assertEquals((await handle(request({ tenant_id: SCHOOL, action: "status" }, { auth: null }), deps)).status, 401);
+    deps.asUser.authUser = null;
+    assertEquals((await act(deps, "status")).res.status, 401);
+  });
+});
+
+describe("open-hr request: asking Figbloom for HR", () => {
+  it("records the first request (who and when), audits it, and answers its time", async () => {
+    const deps = setup({ caller: "bursar" });
+    deps.fake!.modules.get("hr")!.enabled.delete(SCHOOL);
+    const { res, out } = await act(deps, "request");
+    assertEquals(res.status, 200);
+    const school = schoolRow(deps);
+    assertEquals(school.hr_requested_by, "bursar");
+    assertEquals(out.requested_at, new Date(String(school.hr_requested_at)).toISOString());
+    const audit = deps.admin.rowsIn("audit_events");
+    assertEquals(audit.length, 1);
+    assertEquals([audit[0]!.actor_id, audit[0]!.actor_label, audit[0]!.event], ["bursar", "Ben Bursar", "Asked Figbloom for HR & Payroll"]);
+    assertEquals(deps.fake!.handoffs.length, 0);
+  });
+
+  it("is idempotent: asking again keeps and answers the first time, and isn't audited again", async () => {
+    const deps = setup({ caller: "principal" });
+    deps.fake!.modules.get("hr")!.enabled.delete(SCHOOL);
+    Object.assign(schoolRow(deps), { hr_requested_at: "2026-11-20T08:30:00+00:00", hr_requested_by: "bursar" });
+    const { res, out } = await act(deps, "request");
+    assertEquals(res.status, 200);
+    assertEquals(out.requested_at, "2026-11-20T08:30:00.000Z");
+    assertEquals(schoolRow(deps).hr_requested_by, "bursar");
+    assertEquals(deps.admin.rowsIn("audit_events").length, 0);
+  });
+
+  it("then the status shows it", async () => {
+    const deps = setup({ caller: "principal" });
+    deps.fake!.modules.get("hr")!.enabled.delete(SCHOOL);
+    const asked = (await act(deps, "request")).out.requested_at;
+    const { out } = await act(deps, "status");
+    assertEquals([out.connection, out.requested_at], ["not_connected", asked]);
+  });
+
+  it("a school the platform doesn't know yet can ask too", async () => {
+    const deps = setup({ caller: "org-admin" });
+    const { res } = await act(deps, "request", UNKNOWN_SCHOOL);
+    assertEquals(res.status, 200);
+    assertEquals(schoolRow(deps, UNKNOWN_SCHOOL).hr_requested_by, "org-admin");
+  });
+
+  it("the platform unreachable (unknown): the request is still recorded", async () => {
+    const deps = setup({ caller: "principal" });
+    deps.fake!.down = 0;
+    assertEquals((await act(deps, "request")).res.status, 200);
+    assert(schoolRow(deps).hr_requested_at);
+  });
+
+  it("409 already_connected when HR is connected or being set up; nothing recorded", async () => {
+    const connected = setup({ caller: "principal" });
+    const a = await act(connected, "request");
+    assertEquals([a.res.status, a.out.code], [409, "already_connected"]);
+    const settingUp = setup({ caller: "principal" });
+    settingUp.fake!.modules.get("hr")!.linked.delete(SCHOOL);
+    const b = await act(settingUp, "request");
+    assertEquals([b.res.status, b.out.code], [409, "already_connected"]);
+    for (const d of [connected, settingUp]) assertEquals(schoolRow(d).hr_requested_at, undefined);
+  });
+
+  for (const caller of ["teacher", "parent", "other-admin", "super"]) {
+    it(`refuses ${caller} (403); nothing recorded`, async () => {
+      const deps = setup({ caller });
+      const { res, out } = await act(deps, "request");
+      assertEquals([res.status, out.code], [403, "forbidden"]);
+      assertEquals(schoolRow(deps).hr_requested_at, undefined);
+    });
+  }
+
+  it("switched off: refused (handoff_off), nothing recorded, the platform not asked", async () => {
+    const deps = setup({ caller: "principal", switchedOn: false });
+    const { res, out } = await act(deps, "request");
+    assertEquals([res.status, out.code], [403, "handoff_off"]);
+    assertEquals(deps.fake!.calls.length, 0);
+    assertEquals(schoolRow(deps).hr_requested_at, undefined);
+  });
+
+  it("forgets the school's kept connection, so the next status asks again", async () => {
+    const deps = setup({ caller: "principal" });
+    deps.fake!.modules.get("hr")!.enabled.delete(SCHOOL);
+    await act(deps, "status");
+    assert(deps.connections.has(SCHOOL));
+    await act(deps, "request");
+    assertFalse(deps.connections.has(SCHOOL));
+  });
+});
+
+describe("open-hr open: with the other actions", () => {
+  it("a refusal from POST /handoffs forgets the kept connection, so the card asks again", async () => {
+    const deps = setup({ caller: "principal" });
+    await act(deps, "status");
+    assert(deps.connections.has(SCHOOL));
+    deps.fake!.modules.get("hr")!.linked.delete(SCHOOL);
+    const res = await handle(request({ tenant_id: SCHOOL }), deps);
+    assertEquals(res.status, 409);
+    assertFalse(deps.connections.has(SCHOOL));
+  });
+
+  it("action \"open\" is the same as no action", async () => {
+    const { res, out } = await act(setup({ caller: "principal" }), "open");
+    assertEquals(res.status, 200);
+    assertMatch(out.url, /^https:/);
   });
 });

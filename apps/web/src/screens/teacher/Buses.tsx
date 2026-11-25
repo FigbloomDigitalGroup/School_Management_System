@@ -8,7 +8,7 @@ import { useAsync } from "../../lib/useAsync";
 /** Every school bus, live and read-only — handy at dismissal to see who's arriving and when. */
 export function TeacherBuses() {
   const { tenant } = useTenantSession();
-  const { data, loading, error } = useAsync(() => listBusesOnRoutes(tenant.id), [tenant.id]);
+  const { data, loading, error } = useAsync(() => listBusesOnRoutes(tenant.id), [tenant.id], { cache: false });
 
   return (
     <>

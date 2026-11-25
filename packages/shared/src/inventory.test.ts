@@ -11,7 +11,7 @@ function item(over: Partial<InventoryItemRow> = {}): InventoryItemRow {
   return {
     id: "i1", tenant_id: "t", name: "KLB Biology F2", category: "textbooks", tracking: "stock", quantity: 10,
     asset_tag: null, condition: "good", location: null, purchased_on: null, unit_cost_cents: 85000, notes: null,
-    retired_at: null, created_at: "2026-01-01T00:00:00Z", out: 0, available: 10, ...over,
+    retired_at: null, created_at: "2026-01-01T00:00:00Z", unit: null, consumable: false, reorder_level: null, out: 0, available: 10, ...over,
   };
 }
 
@@ -69,11 +69,12 @@ describe("sortIssues", () => {
 describe("summariseInventory", () => {
   it("counts live items, copies out, overdue issues and lost copies", () => {
     const s = summariseInventory(
-      [item({ quantity: 10 }), item({ id: "i2", tracking: "asset", quantity: 1 }), item({ id: "gone", retired_at: "2026-01-01T00:00:00Z" })],
+      [item({ quantity: 10 }), item({ id: "i2", tracking: "asset", quantity: 1 }), item({ id: "gone", retired_at: "2026-01-01T00:00:00Z" }),
+        item({ id: "rice", name: "Rice", category: "kitchen", consumable: true, unit: "kg", quantity: 800 })],
       [issue({ quantity: 2 }), issue({ due_on: "2026-10-01" }), issue({ status: "lost", quantity: 3, closed_at: "x" })],
       NOW,
     );
-    expect(s).toEqual({ items: 2, copiesOwned: 11, out: 3, overdue: 1, lost: 3 });
+    expect(s).toEqual({ items: 3, copiesOwned: 11, out: 3, overdue: 1, lost: 3 });
   });
 });
 

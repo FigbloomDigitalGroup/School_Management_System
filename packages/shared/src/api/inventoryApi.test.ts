@@ -99,11 +99,11 @@ describe("capabilities, mappers, and feeCharges guards", () => {
   it("disables unsupported inventory controls on API and enables all on Supabase", () => {
     initBackend({ kind: "supabase" });
     expect(inventoryCapabilities()).toEqual({
-      editItem: true, unretireItem: true, itemCostAndNotes: true, issueHistory: true, issueNote: true, chargeToFees: true,
+      editItem: true, unretireItem: true, itemCostAndNotes: true, issueHistory: true, issueNote: true, chargeToFees: true, stockMovements: true,
     });
     initBackend({ kind: "api", apiUrl: BASE });
     expect(inventoryCapabilities()).toEqual({
-      editItem: false, unretireItem: false, itemCostAndNotes: false, issueHistory: false, issueNote: false, chargeToFees: false,
+      editItem: false, unretireItem: false, itemCostAndNotes: false, issueHistory: false, issueNote: false, chargeToFees: false, stockMovements: false,
     });
   });
 

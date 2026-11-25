@@ -1,4 +1,8 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Pagination } from "./Pagination";
+
+/** Lists longer than this page by themselves. */
+export const DEFAULT_PAGE_SIZE = 15;
 
 export interface Column<T> {
   key: string;
@@ -19,6 +23,14 @@ interface Props<T> {
   empty: { title: string; body: string; action?: ReactNode };
   filters?: ReactNode;
   minWidth?: string;
+  /**
+   * Rows per page once the list is longer than that (15 by default). 0 turns
+   * paging off: a list the caller pages on the server, or one that must be
+   * seen whole (a mark-entry sheet).
+   */
+  pageSize?: number;
+  /** What the rows are, for the pager's screen-reader label: "learners". */
+  rowsLabel?: string;
 }
 
 /**
@@ -26,8 +38,17 @@ interface Props<T> {
  * compressing columns, and every column is minmax(0,…) so a long school name
  * cannot stretch the grid.
  */
-export function DataTable<T>({ title, columns, rows, rowKey, onRowClick, empty, filters, minWidth = "760px" }: Props<T>) {
+export function DataTable<T>({ title, columns, rows, rowKey, onRowClick, empty, filters, minWidth = "760px", pageSize = DEFAULT_PAGE_SIZE, rowsLabel }: Props<T>) {
   const grid = columns.map((c) => `minmax(0, ${c.width ?? "1fr"})`).join(" ");
+  const [size, setSize] = useState(pageSize);
+  const [page, setPage] = useState(1);
+  const paged = pageSize > 0 && rows.length > Math.min(pageSize, size);
+  // Back to page 1 when the list itself changes (a filter, a search), not on every re-render with a new array.
+  const signature = `${rows.length}|${rows.length ? rowKey(rows[0]!) : ""}|${rows.length ? rowKey(rows[rows.length - 1]!) : ""}`;
+  useEffect(() => { setPage(1); }, [signature, size]);
+  const lastPage = Math.max(1, Math.ceil(rows.length / size));
+  const current = Math.min(page, lastPage);
+  const shown = paged ? rows.slice((current - 1) * size, current * size) : rows;
 
   return (
     <section className="overflow-hidden rounded-lg border border-line bg-white">
@@ -60,7 +81,7 @@ export function DataTable<T>({ title, columns, rows, rowKey, onRowClick, empty, 
               ))}
             </div>
 
-            {rows.map((row) => (
+            {shown.map((row) => (
               <div
                 key={rowKey(row)}
                 role="row"
@@ -78,6 +99,12 @@ export function DataTable<T>({ title, columns, rows, rowKey, onRowClick, empty, 
               </div>
             ))}
           </div>
+        </div>
+      )}
+      {paged && (
+        <div className="px-4 pb-3">
+          <Pagination page={current} pageSize={size} total={rows.length} label={rowsLabel ?? title?.toLowerCase() ?? "rows"}
+            pageSizeOptions={[pageSize, 30, 50, 100].filter((n, i, a) => a.indexOf(n) === i)} onPageChange={setPage} onPageSizeChange={setSize} />
         </div>
       )}
     </section>

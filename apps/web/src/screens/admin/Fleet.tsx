@@ -82,7 +82,7 @@ export function Fleet() {
   const { profile, tenant } = useTenantSession();
   const [refreshKey, setRefreshKey] = useState(0);
   // first load only: a refresh (alerts, saved stops) must not blank the page and remount the live map
-  const { data, error } = useAsync(() => fetchFleet(tenant.id), [tenant.id, refreshKey]);
+  const { data, error } = useAsync(() => fetchFleet(tenant.id), [tenant.id, refreshKey], { cache: false });
   const refresh = () => setRefreshKey((k) => k + 1);
 
   const [addVehicleOpen, setAddVehicleOpen] = useState(false);

@@ -33,8 +33,18 @@ rename it or change how it behaves without a PR that Mike approves.
 
 On `main` or in an open PR, not live in production yet.
 
+- **Guards for stock movements and the behaviour log**: migration `20261125000000_behaviour_inventory_guards.sql`
+  fixes the three RLS-check failures on `main` since 2026-11-24.
+  - `inventory_movements`, `behaviour_settings`, `behaviour_categories`, `behaviour_entries` and
+    `behaviour_staff_notes` get all three audit triggers (insert, update, delete) and a `zz_<table>_same_school`
+    trigger over every reference to another school table.
+  - `behaviour_period` is no longer callable by signed-in users (it returned any school's term dates). It's now
+    internal to `behaviour_points`, which is unchanged. Don't call `behaviour_period` from the apps; use
+    `packages/shared/src/behaviour.ts`.
 - **Pre-PR check and agent instructions**: `scripts/pre-pr-check.sh`, plus a "Before opening a PR into dev-staging
   or main" section in `CLAUDE.md` and `AGENTS.md`. Docs and tooling only.
+- **CI runs the pre-PR check** on every PR into `dev-staging` or `main` (job "Pre-PR check (CHANGELOG rules)" in
+  `.github/workflows/ci.yml`). A PR that fails it shows a red check.
 - **Platform console on the new API (slices P2–P5)**: `super_admin` sign-in, platform shell (`ApiPlatform.tsx`),
   `platform/tenants` (directory, active school admins via `GET /v1/platform/schools/:schoolId/admins`, onboarding via
   `POST /v1/platform/schools`), `platform/organizations` (read-only directory + org admins via `GET /v1/platform/organizations*`,
@@ -44,6 +54,11 @@ On `main` or in an open PR, not live in production yet.
   `114_platform_school_admins_read.sql` fixes the school administrators list, which always came back empty (row-level
   security hid the rows from a request with no school).
   Owner-decision-blocked pages (Q1–Q7) remain gated behind `platformCapabilities()`.
+- **`main` brought into `dev-joe`** (PR `sync/main-into-dev-joe`). Nothing live changes. On the API build the paged Fees and
+  Inventory screens from #375 now work too (`feesPaging.ts`, `inventoryPaging.ts` answer from the API's own lists and page them
+  in the browser); the stock overview, the behaviour log and the HR & Payroll screens stay Supabase-only and are hidden on the
+  API build until their slices land (`inventoryCapabilities().stockMovements`, `peopleCapabilities().learnerBehaviour`,
+  `docs/handoffs/WEB-ON-API-ROADMAP.md`). `HrLaunch.tsx` asks `hasSession()` instead of calling `supabase()` (same answer).
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:

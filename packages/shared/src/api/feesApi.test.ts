@@ -5,7 +5,7 @@ import { feesCapabilities } from "../capabilities";
 import { billTerm, createFeeItem, deleteFeeItem, fetchBillingInputs, fetchSchoolYearGroups, fetchTermFeeItems, updateFeeItem } from "../feeStructure";
 import { BASE, createFakeApi, type FakeApi, type FakeReply, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
-import { feeItemFromApi } from "./feesApi";
+import { feeItemFromApi, forgetTermData } from "./feesApi";
 import { createMemoryTokenStore } from "./tokenStore";
 
 const T = "11111111-1111-4111-8111-111111111111";
@@ -53,6 +53,8 @@ function boot(routes: Record<string, FakeRoute>) {
   resetApiClient();
   setApiTokenStore(createMemoryTokenStore({ token: "tok", expiresAt: "2099-01-01T00:00:00Z", userId: "u1" }));
   setApiActiveTenant(T);
+  // The term's invoices are read once and kept for a few seconds (feesApi.ts): a test must not see the previous test's.
+  forgetTermData();
   return api;
 }
 

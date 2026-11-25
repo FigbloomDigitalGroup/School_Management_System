@@ -45,6 +45,7 @@ export function ParentFees() {
   const { data: sbInvoiceId, loading: sbInvoiceLoading } = useAsync(
     () => (child && !api ? fetchCurrentInvoiceId(child.id) : Promise.resolve(null)),
     [child?.id, api],
+    { cache: false },
   );
   const invoiceId = api ? (child?.invoiceId ?? null) : sbInvoiceId;
   const invoiceLoading = api ? false : sbInvoiceLoading;
@@ -53,6 +54,7 @@ export function ParentFees() {
   const { data: proofsFor, loading: proofsLoading } = useAsync(
     async () => ({ invoiceId, proofs: invoiceId && !api ? await listPaymentProofs(invoiceId) : ([] as PaymentProof[]) }),
     [invoiceId, proofReload, api],
+    { cache: false },
   );
   const proofs = api ? (child?.proofs ?? []) : !invoiceLoading && proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
   const proofsPending = !proofs && (invoiceLoading || proofsLoading);

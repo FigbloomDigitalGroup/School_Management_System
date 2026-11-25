@@ -39,7 +39,7 @@ export const INVENTORY_CATEGORY_LABEL: Record<InventoryCategory, string> = {
   uniforms: "Uniforms",
   music: "Music",
   kitchen: "Kitchen & dining",
-  stationery: "Stationery",
+  stationery: "Stationery & art",
   tools: "Tools & workshop",
   // the sick bay's medicines and supplies: a medicine given can come off a stock line (20261101300001)
   medical: "Medical supplies",
@@ -69,6 +69,12 @@ export interface InventoryItem {
   notes: string | null;
   retired_at: string | null;
   created_at: string;
+  /** What a stock line is counted in: kg, litres, bags (20261124200000). */
+  unit: string | null;
+  /** Used up rather than handed out and returned: kitchen food, chalk, printer paper. */
+  consumable: boolean;
+  /** Warn when stock falls to this. */
+  reorder_level: number | null;
 }
 
 /** An item with how many copies are out with people right now. */
@@ -167,7 +173,8 @@ export function summariseInventory(items: InventoryItemRow[], issues: InventoryI
   const live = items.filter((i) => !i.retired_at);
   return {
     items: live.length,
-    copiesOwned: live.reduce((a, i) => a + i.quantity, 0),
+    // kilos of rice are not copies: consumables are counted on the Stock & kitchen view
+    copiesOwned: live.filter((i) => !i.consumable).reduce((a, i) => a + i.quantity, 0),
     out: issues.filter((i) => i.status === "out").reduce((a, i) => a + i.quantity, 0),
     overdue: issues.filter((i) => isOverdue(i, now)).length,
     lost: issues.filter((i) => i.status === "lost").reduce((a, i) => a + i.quantity, 0),
@@ -306,13 +313,19 @@ export async function fetchOwnLearnerInventory(profileId: string): Promise<Inven
 export type InventoryItemInput = Pick<
   InventoryItem,
   "name" | "category" | "tracking" | "quantity" | "asset_tag" | "condition" | "location" | "purchased_on" | "unit_cost_cents" | "notes"
->;
+> & Partial<Pick<InventoryItem, "unit" | "consumable" | "reorder_level">>;
 
 export async function saveInventoryItem(tenantId: string, input: InventoryItemInput, id?: string): Promise<void> {
   if (onApi()) return apiSaveInventoryItem(tenantId, input, id);
   const row = { ...input, quantity: input.tracking === "asset" ? 1 : input.quantity };
+  // An asset is one thing: it has no unit, is never used up and has no reorder level.
+  if (input.tracking === "asset") Object.assign(row, { unit: null, consumable: false, reorder_level: null });
+  // A consumable's count moves only with deliveries, use and stock-takes (recordStockMovement), so an
+  // edit never writes back a count that was read before someone recorded today's use.
+  const patch: Partial<typeof row> = { ...row };
+  if (id && input.consumable) delete patch.quantity;
   const { error } = id
-    ? await supabase().from("inventory_items").update(row).eq("id", id)
+    ? await supabase().from("inventory_items").update(patch).eq("id", id)
     : await supabase().from("inventory_items").insert({ ...row, tenant_id: tenantId });
   if (error) throw new Error(friendlyInventoryError(error.message));
 }

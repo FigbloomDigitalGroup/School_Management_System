@@ -19,7 +19,7 @@ const fmtDay = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString("
  */
 export function MedicalRecordModal({ studentId, name, onClose }: { studentId: string; name: string; onClose: () => void }) {
   const caps = medicalCapabilities();
-  const { data, loading, error } = useAsync(() => openMedicalRecord(studentId), [studentId]);
+  const { data, loading, error } = useAsync(() => openMedicalRecord(studentId), [studentId], { cache: false });
   const { data: access } = useAsync(() => fetchMedicalAccess(), []);
   const h = data?.health ?? null;
   const healthHidden = !!access && !access.healthRecords;

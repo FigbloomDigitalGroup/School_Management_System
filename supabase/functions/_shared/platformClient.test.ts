@@ -90,6 +90,21 @@ describe("PlatformClient calls", () => {
     assertEquals(platform.tenants.get("22222222-2222-4222-8222-222222222222")?.local_slug, "hillside-primary");
   });
 
+  it("asks whether a product is on for a customer, and its link, by the platform's own tenant id", async () => {
+    const platform = new FakePlatform();
+    platform.tenants.set("local-1", { tenant_id: "pt 1", name: "Hillside", local_slug: "hillside", organization_local_id: ORG });
+    const client = platform.client();
+    assertEquals((await client.getTenantModule("pt 1", "hr")).module_status, null);
+    platform.enableModule("hr", "local-1");
+    const answer = await client.getTenantModule("pt 1", "hr");
+    assertEquals([answer.module_status, answer.cache_seconds], ["active", 60]);
+    await client.getTenantLink("pt 1", "hr");
+    assertEquals(platform.calls.map((c) => `${c.method} ${c.path}`).slice(-2), ["GET /tenants/pt%201/modules/hr", "GET /tenants/pt%201/links/hr"]);
+    platform.modules.get("hr")!.linked.delete("local-1");
+    const err = await assertRejects(() => client.getTenantLink("pt 1", "hr"), PlatformError);
+    assertEquals([err.status, err.code], [404, "not_linked"]);
+  });
+
   it("turns the platform's error into a PlatformError with its code", async () => {
     const platform = new FakePlatform();
     const err = await assertRejects(

@@ -266,7 +266,7 @@ describe("mpesa-callback: replay, order and retries", () => {
 
     assertEquals(res.status, 200);
     assertEquals(admin.rowsIn("payments")[0].status, "cancelled");
-    assertEquals(admin.rowsIn("payments")[0].mpesa_receipt, undefined);
+    assertEquals(admin.rowsIn("payments")[0].mpesa_receipt ?? null, null);
     assertEquals(admin.rowsIn("audit_events").length, 0);
     assertEquals(late.asked, []);
   });
@@ -368,4 +368,45 @@ describe("mpesa-callback: replay, order and retries", () => {
     assertEquals(admin.rowsIn("payments")[0].status, "success");
   });
 
+});
+
+describe("DARAJA_TENANTS: only listed schools are credited", () => {
+  it("credits a payment of a listed school, as before", async () => {
+    const admin = makeAdmin();
+    const d = { ...deps(admin), allowedTenants: new Set(["tenant-demo", "tenant-1"]) };
+    const res = await handle(request(successCallback()), d);
+    assertEquals(res.status, 200);
+    assertEquals(d.asked, [CHECKOUT_ID]);
+    const payment = admin.rowsIn("payments")[0];
+    assertEquals(payment.status, "success");
+    assertEquals(payment.mpesa_receipt, "SFC1234ABC");
+    assertEquals(payment.amount_cents, 50000);
+    assertEquals(admin.rowsIn("audit_events").length, 1);
+  });
+
+  it("never credits an unlisted school's payment, nor asks Daraja about it", async () => {
+    const admin = makeAdmin();
+    const d = { ...deps(admin), allowedTenants: new Set(["tenant-demo"]) };
+    const res = await handle(request(successCallback()), d);
+    assertEquals(res.status, 200);   // a 200, so Safaricom stops redelivering
+    assertEquals(d.asked, []);
+    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+    assertEquals(admin.rowsIn("payments")[0].mpesa_receipt, undefined);
+    assertEquals(admin.rowsIn("audit_events").length, 0);
+  });
+
+  it("set but empty credits nobody", async () => {
+    const admin = makeAdmin();
+    const d = { ...deps(admin), allowedTenants: new Set<string>() };
+    await handle(request(successCallback()), d);
+    assertEquals(d.asked, []);
+    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+  });
+
+  it("unset (null) credits every school, as before", async () => {
+    const admin = makeAdmin();
+    const d = { ...deps(admin), allowedTenants: null };
+    await handle(request(successCallback()), d);
+    assertEquals(admin.rowsIn("payments")[0].status, "success");
+  });
 });

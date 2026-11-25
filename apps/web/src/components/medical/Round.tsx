@@ -39,7 +39,7 @@ export function MedicationRound({ onOpenLearner }: { onOpenLearner: (id: string,
   const { data, loading, error } = useAsync(async () => {
     const [schedules, doses] = await Promise.all([fetchSchedules(tenant.id, today, today), fetchDoses(tenant.id, today, today)]);
     return { schedules, doses };
-  }, [tenant.id, today, reloadKey]);
+  }, [tenant.id, today, reloadKey], { cache: false });
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
