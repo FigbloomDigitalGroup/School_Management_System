@@ -136,6 +136,7 @@ no mode GUC and no application-settable bypass.
 | `finance_bank_statements` | tenant (`SELECT, INSERT` + column-level `UPDATE (matched_count, unmatched_count, status)`) | same | 097 | `bankReconciliation.unit` |
 | `finance_bank_statement_lines` | tenant (`SELECT, INSERT` + column-level `UPDATE (match_status, matched_payment_id, matched_invoice_id, matched_by, matched_at, match_note)`) | same | 097 | `bankReconciliation.unit` |
 | `teacher_reports` | tenant (`SELECT, INSERT` + column-level `UPDATE` on editable/review fields) | same | 098 | `teacherReports.unit` |
+| `platform_school_links` | tenant; `SELECT` only for the app (an operator writes it as the migrator; nothing in the API does): the school is known to the platform, and the platform's last answer about HR (My HR, `MY-HR.md`) | same | 108 | `myHr` |
 
 Not in this table on purpose: `security_audit_events` carries `tenant_id` for attribution but is an
 append-only log; the runtime role holds `INSERT` only (asserted in `phase3.runtimeIsolation`). Identity-plane
@@ -151,6 +152,8 @@ granted `users` columns (`full_name`, `status`). The per-class filter is applica
 Teacher reads part 2 (`TEACHER-READS.md`, no migration) read `homework_items`, `learning_materials` and `online_exam_papers`
 for the classes the caller teaches, and `inventory_issues` joined to `inventory_items` for the caller's own open issues
 (`GET /me/inventory/issues`), under the same policies; nothing is added or widened.
+
+My HR (`MY-HR.md`, migration 108) adds the one table above and no function or definer. `/me/hr/*` read it under the tenant policy; every call to Figbloom HR happens after that transaction has committed.
 
 ## Updating this file
 
