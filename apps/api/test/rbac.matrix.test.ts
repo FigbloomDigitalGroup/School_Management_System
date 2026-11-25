@@ -9,6 +9,7 @@ import {
   ACTIVITIES_AREA_IMPLIED,
   ATTENDANCE_AREA_IMPLIED,
   AUDIT_AREA_IMPLIED,
+  DISCIPLINE_AREA_IMPLIED,
   COMMUNICATION_AREA_IMPLIED,
   FEES_AREA_IMPLIED,
   INVENTORY_AREA_IMPLIED,
@@ -49,11 +50,19 @@ const ANY_OF: Record<string, { reason: string; sets: string[][] }> = {
       { reason: "a parent's child (family) OR a learner's own learner (student)", sets: [["resource.family.read"], ["resource.student.self.read"]] },
     ]),
   ),
+  // Behaviour log (docs/BEHAVIOUR.md): the office (the Discipline area) OR a teacher who records. Teachers' reach is the learners they teach (test/behaviour.test.ts).
+  ...Object.fromEntries(
+    [["GET", "/settings"], ["GET", "/categories"], ["GET", "/entries"], ["GET", "/points"], ["GET", "/classes"]].map(([method, leaf]) => [
+      `${method} /v1/tenants/{tenantId}/behaviour${leaf}`,
+      { reason: "the office (Discipline area) OR a teacher who records", sets: [["resource.discipline.read"], ["resource.behaviour.record"]] },
+    ]),
+  ),
+  "POST /v1/tenants/{tenantId}/behaviour/entries/{entryId}/void": { reason: "the office OR the recorder (a teacher who records)", sets: [["resource.discipline.write"], ["resource.behaviour.record"]] },
   "GET /v1/tenants/{tenantId}/me/chat-contacts": { reason: "a parent (family) OR a learner (student)", sets: [["resource.family.read"], ["resource.student.self.read"]] },
   "POST /v1/tenants/{tenantId}/online-exam-papers/{paperId}/attempts": { reason: "staff (academics write) OR a learner for their own learner", sets: [["resource.academics.write"], ["resource.student.self.read"]] },
   "POST /v1/tenants/{tenantId}/online-exam-attempts/{attemptId}/submit": { reason: "staff (academics write) OR a learner for their own attempt", sets: [["resource.academics.write"], ["resource.student.self.read"]] },
 };
-const SCOPED = new Set(["POST /v1/tenants/{tenantId}/early-sign-outs", "POST /v1/tenants/{tenantId}/early-sign-outs/{signOutId}/void", "GET /v1/tenants/{tenantId}/leave-requests"]);
+const SCOPED = new Set(["POST /v1/tenants/{tenantId}/behaviour/entries", "POST /v1/tenants/{tenantId}/early-sign-outs", "POST /v1/tenants/{tenantId}/early-sign-outs/{signOutId}/void", "GET /v1/tenants/{tenantId}/leave-requests"]);
 type Row = { role: string; operation: string; permissions: string[]; tenantContext: string; expected: string; actual: number; pass: boolean };
 
 describe("RBAC and cross-tenant matrices over the full OpenAPI surface", () => {
@@ -145,7 +154,7 @@ describe("RBAC and cross-tenant matrices over the full OpenAPI surface", () => {
     const r = await ctx.pool.query<{ permission_code: string }>(`SELECT permission_code FROM role_permissions WHERE role = $1`, [role]);
     const set = new Set(r.rows.map((x) => x.permission_code));
     if (role === "school_admin") {
-      for (const l of [PEOPLE_AREA_IMPLIED, ACADEMICS_AREA_IMPLIED, FEES_AREA_IMPLIED, COMMUNICATION_AREA_IMPLIED, VISITORS_AREA_IMPLIED, MEDICAL_AREA_IMPLIED, INVENTORY_AREA_IMPLIED, LEAVE_AREA_IMPLIED, ACTIVITIES_AREA_IMPLIED, TRANSPORT_AREA_IMPLIED, ATTENDANCE_AREA_IMPLIED, AUDIT_AREA_IMPLIED]) {
+      for (const l of [PEOPLE_AREA_IMPLIED, ACADEMICS_AREA_IMPLIED, FEES_AREA_IMPLIED, COMMUNICATION_AREA_IMPLIED, VISITORS_AREA_IMPLIED, MEDICAL_AREA_IMPLIED, INVENTORY_AREA_IMPLIED, LEAVE_AREA_IMPLIED, ACTIVITIES_AREA_IMPLIED, TRANSPORT_AREA_IMPLIED, ATTENDANCE_AREA_IMPLIED, AUDIT_AREA_IMPLIED, DISCIPLINE_AREA_IMPLIED]) {
         for (const c of l) set.add(c);
       }
     }

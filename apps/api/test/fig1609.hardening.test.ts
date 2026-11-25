@@ -367,10 +367,12 @@ describe("FIG-1609 hardening", () => {
       "rbac.school_roles.manage",
       "resource.learner.read",
       // area.people is NOT grantable (owner decision 2026-11-17): it carries learner, staff and document writes.
-      ...ADMIN_AREAS.filter((a) => a !== "people").map((a) => `area.${a}`),
+      // area.discipline (the behaviour log, docs/BEHAVIOUR.md) holds staff-only notes about children: not grantable until the owner says so.
+      ...ADMIN_AREAS.filter((a) => a !== "people" && a !== "discipline").map((a) => `area.${a}`),
     ];
     const UNAPPROVED = [
       "area.people",
+      "area.discipline",
       "resource.learner.write",
       "resource.guardian.read",
       "resource.guardian.write",

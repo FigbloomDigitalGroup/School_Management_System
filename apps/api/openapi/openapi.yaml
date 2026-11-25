@@ -32,6 +32,7 @@ tags:
   - name: health_services
   - name: chat
   - name: inventory
+  - name: behaviour
   - name: leave
   - name: activities
   - name: transport
@@ -19325,6 +19326,690 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  # behaviour-log paths (S2a) begin
+  /v1/tenants/{tenantId}/behaviour/settings:
+    get:
+      tags:
+        - behaviour
+      summary: The school's behaviour settings (defaults when the office has set none)
+      description: Points on or off, the mode (merits only, demerits only, both), the starting balance of demerits-only, when
+        points start again (term, year, never), the most points one entry may carry, the thresholds shown as badges, and
+        what families may see (docs/BEHAVIOUR.md). Read by the office (the Discipline area) and by a teacher who records.
+      operationId: behaviourGetSettings
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.read
+      x-figbloom-alternative-permissions:
+        - resource.behaviour.record
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - settings
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/BehaviourSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags:
+        - behaviour
+      summary: Replace the school's behaviour settings
+      description: Office only (`resource.discipline.write`). The whole settings object is replaced. At most 10 thresholds,
+        each a non-zero whole number of points (negative for demerits) with a label of 1 to 60 characters. Audited
+        (`academics.behaviour.settings_updated`).
+      operationId: behaviourPutSettings
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BehaviourSettings"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - settings
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/BehaviourSettings"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/behaviour/categories:
+    get:
+      tags:
+        - behaviour
+      summary: The school's behaviour categories
+      description: By kind, then order, then name (at most 500). A teacher who records sees the categories in use; only the
+        office may ask for the archived ones too (`include_archived`).
+      operationId: behaviourListCategories
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.read
+      x-figbloom-alternative-permissions:
+        - resource.behaviour.record
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: include_archived
+          in: query
+          required: false
+          description: Include archived categories (the office only; ignored for a teacher).
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - categories
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BehaviourCategory"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - behaviour
+      summary: Create a behaviour category
+      description: Office only. A merit has no severity; a demerit takes one (default minor). 409 when the school already has
+        a category of that kind with that name (any case). Audited.
+      operationId: behaviourCreateCategory
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BehaviourCategoryCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - category
+                properties:
+                  category:
+                    $ref: "#/components/schemas/BehaviourCategory"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/behaviour/categories/defaults:
+    post:
+      tags:
+        - behaviour
+      summary: Add the suggested categories the school does not have
+      description: The 14 suggested categories for a Kenyan school (5 merits, 9 demerits). One the school already has (same
+        kind and name) is left alone. Returns how many were added. Office only. Audited.
+      operationId: behaviourAddDefaultCategories
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Added
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - added
+                properties:
+                  added:
+                    type: integer
+                    minimum: 0
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/behaviour/categories/{categoryId}:
+    patch:
+      tags:
+        - behaviour
+      summary: Edit, archive or restore a behaviour category
+      description: "Office only. A category is never deleted: archiving it keeps it on the entries that used it and stops it
+        being chosen. Its kind cannot change. Audited."
+      operationId: behaviourUpdateCategory
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BehaviourCategoryUpdateRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - category
+                properties:
+                  category:
+                    $ref: "#/components/schemas/BehaviourCategory"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/behaviour/entries:
+    get:
+      tags:
+        - behaviour
+      summary: The behaviour log, newest first
+      description: "The office reads every entry of the school; a teacher reads what they recorded and what is recorded for
+        the learners they teach. Each entry carries the staff-only note. Voided entries are left out unless
+        `include_voided`. Filters: `class_id` (the learner's class when it was recorded), `kind`, `category_id`,
+        `recorded_by`, `learner_id`, `from` and `to` (days, inclusive), `open_only` (incidents still open),
+        `serious_only`. Paged (FIG-1621): newest day first, then the latest recorded; the cursor is bound to the school,
+        the caller's scope and every filter."
+      operationId: behaviourListEntries
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.read
+      x-figbloom-alternative-permissions:
+        - resource.behaviour.record
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: class_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - merit
+              - demerit
+              - incident
+        - name: category_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: recorded_by
+          in: query
+          required: false
+          description: A user id (see /behaviour/recorders).
+          schema:
+            type: string
+            format: uuid
+        - name: learner_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          description: First day, inclusive.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: Last day, inclusive. Not before `from`.
+          schema:
+            type: string
+            format: date
+        - name: open_only
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: serious_only
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: include_voided
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Entries
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - entries
+                  - page
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BehaviourEntry"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - behaviour
+      summary: Record a merit, demerit or incident for one or more learners
+      description: "One entry for each of 1 to 80 learners, with the same note and staff-only note, all or none. The office
+        records for any active learner of the school; a teacher only for the learners they teach (403 for any other,
+        whatever the reason). `points` is the size, positive; the kind signs it; left out, the category's default is used.
+        A merit and a demerit need a category of their kind; an incident takes a demerit category or, without one, a note.
+        409 for an archived category; 400 for points above the school's maximum, a date in the future or over a year old,
+        or a category of the wrong kind. `occurred_on` defaults to the school's today. Audited
+        (`academics.behaviour.recorded`: ids and the count, never the note)."
+      operationId: behaviourRecord
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.write
+      x-figbloom-alternative-permissions:
+        - resource.behaviour.record
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BehaviourRecordRequest"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - count
+                  - entry_ids
+                properties:
+                  count:
+                    type: integer
+                    minimum: 1
+                  entry_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/behaviour/entries/{entryId}/void:
+    post:
+      tags:
+        - behaviour
+      summary: Void a behaviour entry (a mistake)
+      description: The entry stays in the log, struck through for staff, and stops counting and showing to families. Whoever
+        recorded it, or the office (`resource.discipline.write`). An entry the caller may not read is 404; one they may
+        read but did not record is 403; one already voided is 409. The reason is 3 to 300 characters. Audited.
+      operationId: behaviourVoidEntry
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.write
+      x-figbloom-alternative-permissions:
+        - resource.behaviour.record
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: entryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BehaviourVoidRequest"
+      responses:
+        "200":
+          description: Voided
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - entry
+                properties:
+                  entry:
+                    $ref: "#/components/schemas/BehaviourEntry"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/behaviour/points:
+    get:
+      tags:
+        - behaviour
+      summary: Learners with their behaviour points
+      description: "The active learners in the caller's scope (the office: the whole school; a teacher: the classes they
+        teach), by name, with the points of the period holding `on` (the school's today by default): the merits' sum, the
+        demerits' sum (0 or less) and the balance as the school's mode counts it (null when points are off). Voided
+        entries never count; every other entry does, whatever families may see. `class_id` narrows to one class (a class a
+        teacher does not teach gives an empty page); `learner_ids` is a comma-separated list of at most 100. Paged."
+      operationId: behaviourListPoints
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.read
+      x-figbloom-alternative-permissions:
+        - resource.behaviour.record
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: class_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: learner_ids
+          in: query
+          required: false
+          description: Comma-separated learner ids, at most 100.
+          schema:
+            type: string
+        - name: on
+          in: query
+          required: false
+          description: "The day the period is taken from. Default: the school's today."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Learners with points
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - learners
+                  - page
+                properties:
+                  learners:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BehaviourLearnerPoints"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/behaviour/classes:
+    get:
+      tags:
+        - behaviour
+      summary: The classes the caller works with in the behaviour log
+      description: "The office: every active class of the current academic year. A teacher: the classes they teach. By name;
+        at most 500; not paged."
+      operationId: behaviourListClasses
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.read
+      x-figbloom-alternative-permissions:
+        - resource.behaviour.record
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Classes
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - classes
+                properties:
+                  classes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BehaviourClass"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/behaviour/recorders:
+    get:
+      tags:
+        - behaviour
+      summary: The people who have recorded a behaviour entry
+      description: "The log's teacher filter: users who have recorded at least one entry in this school, by name (at most
+        500). Office only."
+      operationId: behaviourListRecorders
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Recorders
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - recorders
+                properties:
+                  recorders:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BehaviourRecorder"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  # behaviour-log paths (S2a) end
   /v1/tenants/{tenantId}/audit-events:
     get:
       tags:
@@ -27677,6 +28362,464 @@ components:
           type: string
           minLength: 1
           maxLength: 4000
+    # behaviour-log schemas (S2a) begin
+    BehaviourThreshold:
+      type: object
+      additionalProperties: false
+      required:
+        - points
+        - label
+      properties:
+        points:
+          type: integer
+          minimum: -10000
+          maximum: 10000
+          description: "A whole number other than 0: negative counts demerits, positive counts merits."
+        label:
+          type: string
+          minLength: 1
+          maxLength: 60
+    BehaviourSettings:
+      type: object
+      additionalProperties: false
+      required:
+        - points_enabled
+        - mode
+        - starting_points
+        - reset
+        - max_points_per_entry
+        - thresholds
+        - parents_see_demerits
+        - parents_see_incidents
+      properties:
+        points_enabled:
+          type: boolean
+        mode:
+          type: string
+          enum:
+            - merits_only
+            - demerits_only
+            - both
+        starting_points:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: Where a learner starts each period in demerits_only mode.
+        reset:
+          type: string
+          enum:
+            - term
+            - year
+            - never
+        max_points_per_entry:
+          type: integer
+          minimum: 1
+          maximum: 100
+        thresholds:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/BehaviourThreshold"
+        parents_see_demerits:
+          type: boolean
+        parents_see_incidents:
+          type: boolean
+    BehaviourCategory:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - name
+        - points
+        - severity
+        - sort_order
+        - archived_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - merit
+            - demerit
+        name:
+          type: string
+        points:
+          type: integer
+          description: The default size of an entry (positive; a demerit's entry is stored negative).
+        severity:
+          type:
+            - string
+            - "null"
+          enum:
+            - minor
+            - major
+            - serious
+            - null
+          description: Null for a merit.
+        sort_order:
+          type: integer
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    BehaviourCategoryCreateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - name
+        - points
+      properties:
+        kind:
+          type: string
+          enum:
+            - merit
+            - demerit
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        points:
+          type: integer
+          minimum: 1
+          maximum: 100
+        severity:
+          type: string
+          enum:
+            - minor
+            - major
+            - serious
+    BehaviourCategoryUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        points:
+          type: integer
+          minimum: 1
+          maximum: 100
+        severity:
+          type: string
+          enum:
+            - minor
+            - major
+            - serious
+        archived:
+          type: boolean
+    BehaviourRecordRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - learner_ids
+        - kind
+      properties:
+        learner_ids:
+          type: array
+          minItems: 1
+          maxItems: 80
+          items:
+            type: string
+            format: uuid
+        kind:
+          type: string
+          enum:
+            - merit
+            - demerit
+            - incident
+        category_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        points:
+          type:
+            - integer
+            - "null"
+          minimum: 1
+          maximum: 100
+          description: "The size, positive. Null or left out: the category's default."
+        note:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        staff_note:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+          description: "Staff only: never shown to a family or a learner."
+        occurred_on:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "Default: the school's today."
+        subject_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        severity:
+          type:
+            - string
+            - "null"
+          enum:
+            - minor
+            - major
+            - serious
+            - null
+          description: Incidents only; default serious.
+    BehaviourVoidRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 300
+    BehaviourEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - learner_id
+        - learner_name
+        - admission_no
+        - category_id
+        - category_name
+        - kind
+        - points
+        - severity
+        - note
+        - occurred_on
+        - class_id
+        - class_name
+        - subject_id
+        - recorded_by
+        - recorder_name
+        - created_at
+        - voided_at
+        - void_reason
+        - action_taken
+        - follow_up_status
+        - resolved_at
+        - parent_notified_at
+        - staff_note
+      properties:
+        id:
+          type: string
+          format: uuid
+        learner_id:
+          type: string
+          format: uuid
+        learner_name:
+          type: string
+        admission_no:
+          type: string
+        category_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        category_name:
+          type:
+            - string
+            - "null"
+        kind:
+          type: string
+          enum:
+            - merit
+            - demerit
+            - incident
+        points:
+          type: integer
+          description: "Signed: positive for a merit, negative for a demerit, 0 or negative for an incident."
+        severity:
+          type:
+            - string
+            - "null"
+          enum:
+            - minor
+            - major
+            - serious
+            - null
+        note:
+          type:
+            - string
+            - "null"
+        occurred_on:
+          type: string
+          format: date
+        class_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: The learner's class when it was recorded.
+        class_name:
+          type:
+            - string
+            - "null"
+        subject_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        recorded_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        recorder_name:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: string
+          format: date-time
+        voided_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        void_reason:
+          type:
+            - string
+            - "null"
+        action_taken:
+          type:
+            - string
+            - "null"
+          enum:
+            - warning
+            - detention
+            - parent_called
+            - parent_meeting
+            - suspension
+            - counsellor
+            - other
+            - null
+        follow_up_status:
+          type:
+            - string
+            - "null"
+          enum:
+            - open
+            - resolved
+            - null
+        resolved_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        parent_notified_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        staff_note:
+          type:
+            - string
+            - "null"
+          description: Staff only.
+    BehaviourLearnerPoints:
+      type: object
+      additionalProperties: false
+      required:
+        - learner_id
+        - full_name
+        - admission_no
+        - class_id
+        - class_name
+        - period_start
+        - period_end
+        - merit_points
+        - demerit_points
+        - balance
+      properties:
+        learner_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        admission_no:
+          type: string
+        class_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        class_name:
+          type:
+            - string
+            - "null"
+        period_start:
+          type:
+            - string
+            - "null"
+          format: date
+        period_end:
+          type:
+            - string
+            - "null"
+          format: date
+        merit_points:
+          type: integer
+          minimum: 0
+        demerit_points:
+          type: integer
+          maximum: 0
+        balance:
+          type:
+            - integer
+            - "null"
+          description: As the school's mode counts it; null when points are off.
+    BehaviourClass:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - form_level
+        - stream
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        form_level:
+          type:
+            - integer
+            - "null"
+        stream:
+          type:
+            - string
+            - "null"
+    BehaviourRecorder:
+      type: object
+      additionalProperties: false
+      required:
+        - user_id
+        - full_name
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+    # behaviour-log schemas (S2a) end
     InventoryItem:
       type: object
       additionalProperties: false

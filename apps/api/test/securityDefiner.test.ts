@@ -468,6 +468,17 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: [],
     why: "trigger; availability under FOR UPDATE; closed issues final",
   },
+  // Migration 118 (behaviour log, docs/BEHAVIOUR.md).
+  "behaviour_thresholds_valid(jsonb)": {
+    secdef: false,
+    grantees: ["figbloom_app"],
+    why: "IMMUTABLE validator used by the settings CHECK (at most 10 thresholds, each a non-zero whole number of points and a label); reads nothing",
+  },
+  "behaviour_entries_guard()": {
+    secdef: false,
+    grantees: [],
+    why: "INVOKER trigger; checks the learner, the category's kind, the sign and size of the points, the date and the class, stamps the recorder from app.user_id, and refuses every change to an entry except voiding it or following it up",
+  },
   // Migration 055 (leave).
   "leave_requests_guard()": {
     secdef: false,

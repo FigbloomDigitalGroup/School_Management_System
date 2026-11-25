@@ -101,6 +101,10 @@ no mode GUC and no application-settable bypass.
 | `chat_messages` | tenant + user-scoped (`AS RESTRICTIVE` participant `SELECT`, `sender_id = app_current_user_id()` `INSERT`) | tenant + restrictive participant/sender policy | 053, 063 | `stage12.chat`, `stage12.adversarial` |
 | `inventory_items` | tenant | same | 054, 064 | `stage13.inventory`, `stage13.adversarial` |
 | `inventory_issues` | tenant | same | 054, 064 | `stage13.inventory`, `stage13.adversarial` |
+| `behaviour_settings` | tenant; the app may `SELECT`, `INSERT` and `UPDATE` the setting columns, never `DELETE` (`BEHAVIOUR.md`) | same | 118 | `behaviour` |
+| `behaviour_categories` | tenant; `UPDATE` only of name, points, severity, order and `archived_at`: a category is archived, never deleted. Same-school entries through the composite key `(category_id, tenant_id)` | same | 118 | `behaviour` |
+| `behaviour_entries` | tenant; `SELECT`, `INSERT`, and `UPDATE` of the void and incident columns only. `behaviour_entries_guard` (invoker trigger) refuses every other change, so an entry is only ever voided or followed up; no `DELETE`. Same-school learner, category, class and subject through composite keys | same | 118 | `behaviour` |
+| `behaviour_staff_notes` | tenant; `SELECT` and `INSERT` only (a staff-only note never changes). Same-school entry through `(entry_id, tenant_id)` | same | 118 | `behaviour` |
 | `leave_requests` | tenant | same | 055, 064 | `stage13.leave`, `stage13.adversarial` |
 | `activities` | tenant | same | 056 | `stage13.activities` |
 | `activity_patrons` | tenant | same | 056 | `stage13.activities` |

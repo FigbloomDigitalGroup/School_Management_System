@@ -110,6 +110,9 @@ export const ATTENDANCE_AREA_IMPLIED: readonly string[] = [
 /** The Audit area reads the school's audit log (docs/SCHOOL-AUDIT.md), and nothing else. */
 export const AUDIT_AREA_IMPLIED: readonly string[] = ["resource.audit.read"];
 
+/** The Discipline area runs the behaviour log (docs/BEHAVIOUR.md): settings, categories, recording for any learner, voiding, incidents. */
+export const DISCIPLINE_AREA_IMPLIED: readonly string[] = ["resource.discipline.read", "resource.discipline.write"];
+
 /** Active explicit guardian grants of one person in one school (FIG-1614). Empty for a null tenant. */
 async function loadExplicitGuardianGrants(
   db: TxOrIdentity,
@@ -225,6 +228,8 @@ export async function loadEffectivePermissions(
     perms.add("resource.inventory.read");
     perms.add("resource.inventory.write");
     perms.add("resource.audit.read");
+    perms.add("resource.discipline.read");
+    perms.add("resource.discipline.write");
     perms.add("resource.leave.read");
     perms.add("resource.leave.write");
     perms.add("resource.activity.read");
@@ -284,6 +289,9 @@ export async function loadEffectivePermissions(
     }
     if (areas.has("audit")) {
       for (const code of AUDIT_AREA_IMPLIED) perms.add(code);
+    }
+    if (areas.has("discipline")) {
+      for (const code of DISCIPLINE_AREA_IMPLIED) perms.add(code);
     }
     // FIG-1614 Option D: guardian read/write only through an explicit, revocable per-person grant
     // (staff_resource_grants). Only teacher/staff members can hold one; the database enforces it.

@@ -119,6 +119,11 @@ const EXPECTED: Record<string, string[]> = {
   chat_messages: ["INSERT", "SELECT"],
   inventory_items: ["INSERT", "SELECT"],
   inventory_issues: ["INSERT", "SELECT"],
+  // Migration 118 (docs/BEHAVIOUR.md): an entry is only ever voided or followed up (column grants), a staff note never changes.
+  behaviour_settings: ["INSERT", "SELECT"],
+  behaviour_categories: ["INSERT", "SELECT"],
+  behaviour_entries: ["INSERT", "SELECT"],
+  behaviour_staff_notes: ["INSERT", "SELECT"],
   leave_requests: ["INSERT", "SELECT"],
   activities: ["INSERT", "SELECT"],
   activity_patrons: ["INSERT", "SELECT"],
