@@ -65,6 +65,15 @@ No table, grant or policy changes. The function is `SECURITY DEFINER`, `STABLE`,
 `REVOKE ALL FROM PUBLIC`, `EXECUTE` for `figbloom_app` only. It reads `security_audit_events` and the `full_name` of `users`.
 It is listed in `test/securityDefiner.test.ts` and `SECURITY-DEFINER-INVENTORY.md`.
 
+### How fast it is
+
+Measured on 2026-11-25 on a throwaway Postgres 16 with 400,000 events for one school, 85% of them sign-in events that are never
+shown (so the hidden ones dominate, the worst realistic mix): the first page with no filter 6 ms; a category that is 1 in 100
+rows (`transport`) 27 ms; a search that matches 30 ms. The index `(tenant_id, occurred_at DESC)` serves the order, and the
+database stops at the page size. **The slow case is a filter that matches almost nothing**: a search for words no event has
+walks the school's whole log (2.7 s at 400,000 events, growing with the log; the API cuts a request at 30 s). Nothing prunes the
+log yet (open decision 4). If that bites, require `since` with `search`, or add a partial index on the shown kinds.
+
 ## What the web page shows, and does not
 
 The web page `admin/audit` can list, filter by category, search, filter by day and load more. It cannot show **what changed
