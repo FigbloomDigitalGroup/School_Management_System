@@ -1,5 +1,9 @@
 # Handover: put every web page on the new API
 
+> **The status tables below are out of date** (they say "8 of 97 pages"; 95 of 104 are on the API build on 2026-11-25).
+> What is left, in what order, and what needs the owner's decision is in `WEB-ON-API-ROADMAP.md`. The recipes, rules and
+> traps below are still right.
+
 Written 2026-11-24 against `dev-joe` at `19c0852`. For the next engineer or AI model on this work.
 
 ## The goal
