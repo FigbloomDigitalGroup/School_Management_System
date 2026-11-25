@@ -65,6 +65,16 @@ export const ACADEMICS_AREA_IMPLIED: readonly string[] = [
  */
 export const FEES_AREA_IMPLIED: readonly string[] = ["resource.finance.read", "resource.finance.write"];
 
+/**
+ * The "HR & Payroll" hand-off (docs/HR-HANDOFF.md, H1; migration 117): the bursar opens Figbloom HR as on Supabase
+ * (hr_handoff_status: the school's admin or a holder of the Fees area). Kept apart from FEES_AREA_IMPLIED, which is pinned
+ * on its own. Implied by the Fees area however it is held: a direct grant, a school role, or an organisation administrator's
+ * delegation of `area.fees` (an organisation administrator WITHOUT that delegation does not get it: the API's stricter rule,
+ * HR-HANDOFF.md risk R5). School administrators hold it through the role catalogue. The routes still refuse a platform super
+ * administrator in code, since HR has no account for them.
+ */
+export const HR_HANDOFF_IMPLIED: readonly string[] = ["resource.hr.handoff"];
+
 /** Resource permissions implied by the Communication admin area (legacy announcements composer). */
 export const COMMUNICATION_AREA_IMPLIED: readonly string[] = [
   "resource.announcement.read",
@@ -257,6 +267,7 @@ export async function loadEffectivePermissions(
     }
     if (areas.has("fees")) {
       for (const code of FEES_AREA_IMPLIED) perms.add(code);
+      for (const code of HR_HANDOFF_IMPLIED) perms.add(code);
     }
     if (areas.has("communication")) {
       for (const code of COMMUNICATION_AREA_IMPLIED) perms.add(code);

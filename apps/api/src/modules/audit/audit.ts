@@ -160,6 +160,9 @@ export type SecurityEventType =
   | "hr.leave.submitted"
   | "hr.leave.reviewed"
   | "hr.leave.cancelled"
+  // The "HR & Payroll" hand-off (docs/HR-HANDOFF.md, H1). Never the one-time link or its code.
+  | "hr.handoff.opened"
+  | "hr.handoff.requested"
   | "activities.activity.created"
   | "activities.patron.added"
   | "activities.member.added"
