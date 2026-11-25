@@ -13,7 +13,9 @@ import {
 } from "../../modules/family/academics.js";
 import { childFees } from "../../modules/family/fees.js";
 import { childActivities, childHealth, childItems } from "../../modules/family/life.js";
-import { myChatContacts } from "../../modules/family/contacts.js";
+import { myChatContacts, studentChatContacts } from "../../modules/family/contacts.js";
+import { assertMyOwnLearner } from "../../modules/student/self.js";
+import type { AuthzContext } from "../../modules/rbac/authorize.js";
 import { validationError } from "../errors.js";
 import type { RequestAuth } from "../middleware/authContext.js";
 import { assertUuid, inTenant, optionalUuid } from "../routeKit.js";
@@ -23,10 +25,37 @@ import { isRealCalendarDate } from "../schemas.js";
  * Family reads (A1, docs/FAMILY-READS.md): a parent reads the records of their own linked children. Every route needs
  * `resource.family.read` (an audited 403 for staff), and every per-child route then proves the learner is the caller's
  * child in this school (404 for every other case, audited).
+ *
+ * Student accounts (docs/STUDENT-ACCOUNTS.md): a `student` member reads THEIR OWN learner through the same per-learner
+ * paths (one learner id for both roles, so the web modules are shared). The student branch needs
+ * `resource.student.self.read` and proves the learner is the caller's own by `student_my_learner()`; a student never
+ * reaches `/me/children` (the list) or `/health`, and a parent never takes the student branch.
  */
 const FAMILY_READ = "resource.family.read" as const;
+export const STUDENT_SELF_READ = "resource.student.self.read" as const;
 const P = "/v1/tenants/:tenantId/me";
 const C = `${P}/children/:learnerId`;
+
+export type LearnerReader = "family" | "student";
+
+/**
+ * Which rule decides "my learner" for this caller: the student branch for a `student` member (when the path allows it),
+ * the family branch for everyone else. The permission is checked here, so a teacher or administrator gets the usual
+ * audited 403 for `resource.family.read`, and a student on a parent-only path the same 403.
+ */
+export async function requireLearnerReader(
+  tx: Tx,
+  authz: AuthzContext,
+  ip: string | null,
+  opts: { studentAllowed: boolean },
+): Promise<LearnerReader> {
+  if (opts.studentAllowed && authz.membership?.role === "student") {
+    await requirePermission(tx, authz, STUDENT_SELF_READ, { ip, deferAudit: true });
+    return "student";
+  }
+  await requirePermission(tx, authz, FAMILY_READ, { ip, deferAudit: true });
+  return "family";
+}
 
 function optionalDate(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
@@ -40,14 +69,18 @@ export async function inChild<T>(
   app: FastifyInstance,
   pool: AppPool,
   request: FastifyRequest,
-  fn: (ctx: { tx: Tx; auth: RequestAuth; ip: string | null; tenantId: string; learnerId: string; link: ChildLink }) => Promise<T>,
+  fn: (ctx: { tx: Tx; auth: RequestAuth; ip: string | null; tenantId: string; learnerId: string; link: ChildLink | null; reader: LearnerReader }) => Promise<T>,
+  opts: { studentAllowed: boolean } = { studentAllowed: true },
 ): Promise<T> {
   const params = request.params as { tenantId: string; learnerId: string };
   assertUuid(params.learnerId, "learnerId");
   return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-    await requirePermission(tx, auth.authz, FAMILY_READ, { ip, deferAudit: true });
-    const link = await assertMyChild(tx, { learnerId: params.learnerId, actorUserId: auth.user.id, tenantId: params.tenantId, ip });
-    return fn({ tx, auth, ip, tenantId: params.tenantId, learnerId: params.learnerId, link });
+    const reader = await requireLearnerReader(tx, auth.authz, ip, opts);
+    const gate = { learnerId: params.learnerId, actorUserId: auth.user.id, tenantId: params.tenantId, ip };
+    let link: ChildLink | null = null;
+    if (reader === "student") await assertMyOwnLearner(tx, gate);
+    else link = await assertMyChild(tx, gate);
+    return fn({ tx, auth, ip, tenantId: params.tenantId, learnerId: params.learnerId, link, reader });
   });
 }
 
@@ -115,17 +148,25 @@ export async function registerFamilyRoutes(app: FastifyInstance, pool: AppPool):
     })),
   );
 
+  // Parents only: no student page shows health (docs/STUDENT-ACCOUNTS.md), so a student gets the audited 403.
   app.get(`${C}/health`, async (request) =>
-    inChild(app, pool, request, async ({ tx, tenantId, learnerId }) => ({
-      health: await childHealth(tx, { tenantId, learnerId }),
-    })),
+    inChild(
+      app,
+      pool,
+      request,
+      async ({ tx, tenantId, learnerId }) => ({
+        health: await childHealth(tx, { tenantId, learnerId }),
+      }),
+      { studentAllowed: false },
+    ),
   );
 
+  // A parent: administrators and their children's teachers. A student: administrators and their own class's teachers.
   app.get(`${P}/chat-contacts`, async (request) => {
     const params = request.params as { tenantId: string };
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
-      await requirePermission(tx, auth.authz, FAMILY_READ, { ip, deferAudit: true });
-      return { contacts: await myChatContacts(tx, params.tenantId) };
+      const reader = await requireLearnerReader(tx, auth.authz, ip, { studentAllowed: true });
+      return { contacts: reader === "student" ? await studentChatContacts(tx, params.tenantId) : await myChatContacts(tx, params.tenantId) };
     });
   });
 }

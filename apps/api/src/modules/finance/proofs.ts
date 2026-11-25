@@ -13,12 +13,15 @@ import { CURRENCY, toMinor } from "./money.js";
  * Lifecycle: pending -> confirmed (only by recording the payment, recordPayment with proof_id) or
  * -> rejected (with a reason). A proof is never deleted or edited.
  */
+export type ProofVia = "office" | "guardian" | "learner";
+
 export interface PublicProof {
   id: string;
   tenantId: string;
   invoice_id: string;
   submitted_by: string;
-  submitted_via: "office" | "guardian";
+  /** `learner`: a learner paying their own fees through their own login (docs/STUDENT-ACCOUNTS.md, migration 110). */
+  submitted_via: ProofVia;
   note: string | null;
   file: { file_name: string; content_type: string; byte_size: number; storage_status: "metadata_only"; object_available: false } | null;
   sms_text: string | null;
@@ -43,7 +46,7 @@ type Row = {
   tenant_id: string;
   invoice_id: string;
   submitted_by: string;
-  submitted_via: "office" | "guardian";
+  submitted_via: ProofVia;
   note: string | null;
   file_name: string | null;
   content_type: string | null;
@@ -113,7 +116,7 @@ export interface ProofInput {
 
 export async function submitProof(
   tx: Tx,
-  input: ProofInput & { tenantId: string; actorUserId: string; via: "office" | "guardian"; ip?: string | null },
+  input: ProofInput & { tenantId: string; actorUserId: string; via: ProofVia; ip?: string | null },
 ): Promise<PublicProof> {
   const invoice = await getInvoice(tx, { tenantId: input.tenantId, invoiceId: input.invoice_id });
   if (invoice.voided_at) throw conflict("The invoice is voided");

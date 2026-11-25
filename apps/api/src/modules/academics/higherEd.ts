@@ -527,6 +527,7 @@ export async function createOnlinePaper(
     max_score: row.max_score,
     questions: row.questions,
     created_at: isoStamp(row.created_at),
+    published_at: null as string | null, // a new paper is unpublished until POST .../publish (migration 110)
   };
 }
 
@@ -543,15 +544,17 @@ export async function listOnlinePapers(tx: Tx, input: { tenantId: string; page: 
   }
   const res = await pageQuery<{ id: string }>(
     tx,
-    `SELECT id, tenant_id, class_id, subject_id, title, max_score::text AS max_score, created_at
+    `SELECT id, tenant_id, class_id, subject_id, title, max_score::text AS max_score, created_at, published_at
        FROM online_exam_papers WHERE tenant_id = $1${classClause}`,
     params,
     { name: "online_exam_papers", expr: "q.created_at", type: "timestamptz", dir: "desc" },
     input.page,
     input.id,
   );
-  const items = (res.rows as unknown as Array<{ id: string; tenant_id: string; class_id: string; subject_id: string; title: string; max_score: string; created_at: Date | string }>).map((row) => ({
+  const items = (res.rows as unknown as Array<{ id: string; tenant_id: string; class_id: string; subject_id: string; title: string; max_score: string; created_at: Date | string; published_at: Date | string | null }>).map((row) => ({
     id: row.id, tenantId: row.tenant_id, class_id: row.class_id, subject_id: row.subject_id, title: row.title, max_score: row.max_score, created_at: isoStamp(row.created_at),
+    // migration 110: learners see a paper only once it is published (docs/STUDENT-ACCOUNTS.md)
+    published_at: isoStamp(row.published_at),
   }));
   return { items, page: res.page };
 }
@@ -559,6 +562,31 @@ export async function listOnlinePapers(tx: Tx, input: { tenantId: string; page: 
 /** A9-6: by-id lookup through the same query and scope as the list. */
 export async function getOnlinePaperById(tx: Tx, input: { tenantId: string; id: string }) {
   return (await listOnlinePapers(tx, { ...input, page: ONE_ROW })).items[0] ?? null;
+}
+
+/**
+ * Publish a paper to the learners of its class (migration 110, docs/STUDENT-ACCOUNTS.md). Until then no learner sees it.
+ * Publishing again changes nothing (the first time stands). There is no unpublish: a paper learners may have started stays
+ * visible to them.
+ */
+export async function publishOnlinePaper(tx: Tx, input: { tenantId: string; actorUserId: string; paperId: string; ip?: string | null }) {
+  const res = await tx.query<{ published_now: boolean }>(
+    `UPDATE online_exam_papers SET published_at = coalesce(published_at, now())
+      WHERE tenant_id = $1 AND id = $2
+      RETURNING (published_at = now()) AS published_now`,
+    [input.tenantId, input.paperId],
+  );
+  if (res.rowCount === 0) throw notFound("Exam paper not found");
+  if (res.rows[0]!.published_now) {
+    await recordSecurityEvent(tx, {
+      eventType: "academics.online_exam.published",
+      actorUserId: input.actorUserId,
+      tenantId: input.tenantId,
+      detail: { paperId: input.paperId },
+      ip: input.ip,
+    });
+  }
+  return (await getOnlinePaperById(tx, { tenantId: input.tenantId, id: input.paperId }))!;
 }
 
 export async function startOnlineAttempt(
@@ -638,6 +666,8 @@ export async function submitOnlineAttempt(
     score?: number;
     answers?: Record<string, string>;
     ip?: string | null;
+    /** Who the mark row names (default: the actor). A learner's own submission is auto-marked by nobody: null. */
+    markedBy?: string | null;
   },
 ) {
   const attempt = await tx.query<{
@@ -692,7 +722,7 @@ export async function submitOnlineAttempt(
     `INSERT INTO attempt_marks (tenant_id, attempt_id, score, marked_by)
      VALUES ($1, $2, $3, $4)
      RETURNING id, score::text AS score`,
-    [input.tenantId, input.attemptId, finalScore, input.actorUserId],
+    [input.tenantId, input.attemptId, finalScore, input.markedBy === undefined ? input.actorUserId : input.markedBy],
   );
   await recordSecurityEvent(tx, {
     eventType: "academics.online_exam.attempt_submitted",

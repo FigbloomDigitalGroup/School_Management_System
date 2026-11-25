@@ -237,8 +237,11 @@ const ConfigSchema = z.object({
   bloomAiSigningSecret: z.string().min(32).max(256).optional(),
   /** MFA enforcement (migration 088). `off` is refused in staging/production. */
   mfaEnforcement: z.enum(["enforce", "off"]).default("enforce"),
-  /** Extra school roles for which MFA is mandatory (platform/org/school admins and finance-area holders always are). */
-  mfaRequiredRoles: z.array(z.enum(["teacher", "staff", "driver", "parent", "student"])).default([]),
+  /**
+   * Extra school roles for which MFA is mandatory (platform/org/school admins and finance-area holders always are).
+   * `student` is not accepted: learners never get two-step sign-in (owner decision 2026-11-25, docs/STUDENT-ACCOUNTS.md).
+   */
+  mfaRequiredRoles: z.array(z.enum(["teacher", "staff", "driver", "parent"])).default([]),
   /** Dedicated key for TOTP secrets at rest; must differ from the session HMAC key. Required in staging/production. */
   mfaEncryptionKey: z.string().min(32).max(256).optional(),
 });

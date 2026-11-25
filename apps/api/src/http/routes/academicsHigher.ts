@@ -20,14 +20,34 @@ import {
   listHeSections,
   listOnlinePapers,
   recordHeGrade,
+  publishOnlinePaper,
   startOnlineAttempt,
   submitOnlineAttempt,
 } from "../../modules/academics/higherEd.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import { getLiveKitProvider } from "../../modules/communications/livekitProvider.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
+import { startMyAttempt, submitMyAttempt } from "../../modules/student/exams.js";
+import { assertMyOwnLearner, LEARNER_NOT_FOUND, myOwnLearner } from "../../modules/student/self.js";
+import type { Tx } from "../../db/sql.js";
+import { notFound } from "../errors.js";
+import type { RequestAuth } from "../middleware/authContext.js";
 import { assertUuid, inTenant, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
+import { STUDENT_SELF_READ } from "./family.js";
+
+/**
+ * Student accounts (docs/STUDENT-ACCOUNTS.md, owner decision 4): a `student` member reaches the two attempt endpoints for
+ * their OWN learner only (a published paper of their own class; their own attempt), never with a score. Returns the
+ * caller's own learner id for a student, null for anyone else (who keeps the `resource.academics.write` rule).
+ */
+async function studentSitter(tx: Tx, auth: RequestAuth, ip: string | null): Promise<string | null> {
+  if (auth.authz.membership?.role !== "student") return null;
+  await requirePermission(tx, auth.authz, STUDENT_SELF_READ, { ip, deferAudit: true });
+  const own = await myOwnLearner(tx);
+  if (!own) throw notFound(LEARNER_NOT_FOUND);
+  return own.learner_id;
+}
 
 const CourseBody = z.strictObject({
   code: z.string().min(1).max(32),
@@ -310,11 +330,29 @@ export async function registerAcademicsHigherRoutes(app: FastifyInstance, pool: 
     });
   });
 
+  // Migration 110 (docs/STUDENT-ACCOUNTS.md): learners of the paper's class see it only once it is published. Naturally
+  // idempotent (publishing twice keeps the first time), so no key.
+  app.post("/v1/tenants/:tenantId/online-exam-papers/:paperId/publish", async (request) => {
+    const params = request.params as { tenantId: string; paperId: string };
+    assertUuid(params.paperId, "paperId");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      return { paper: await publishOnlinePaper(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, paperId: params.paperId, ip }) };
+    });
+  });
+
   app.post("/v1/tenants/:tenantId/online-exam-papers/:paperId/attempts", async (request, reply) => {
     const params = request.params as { tenantId: string; paperId: string };
     assertUuid(params.paperId, "paperId");
     const parsed = parseOrThrow(AttemptBody, request.body, "learner_id is required");
     const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      const own = await studentSitter(tx, auth, ip);
+      if (own !== null) {
+        // A learner starts their own attempt only: any other learner id is the audited 404 of every per-learner read.
+        await assertMyOwnLearner(tx, { learnerId: parsed.learner_id, actorUserId: auth.user.id, tenantId: params.tenantId, ip });
+        const attempt = await startMyAttempt(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, learnerId: own, paperId: params.paperId, ip });
+        return { replayed: false, status: 201, value: { attempt } };
+      }
       await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
       return runIdempotent(tx, {
         key: parseIdempotencyKey(request.headers["idempotency-key"]),
@@ -349,6 +387,20 @@ export async function registerAcademicsHigherRoutes(app: FastifyInstance, pool: 
     assertUuid(params.attemptId, "attemptId");
     const parsed = parseOrThrow(SubmitBody, request.body, "score or answers is required");
     const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      const own = await studentSitter(tx, auth, ip);
+      if (own !== null) {
+        // The learner's own attempt only (another learner's attempt is a 404), answers only (a score is a 403), no mark back.
+        const attempt = await submitMyAttempt(tx, {
+          tenantId: params.tenantId,
+          actorUserId: auth.user.id,
+          learnerId: own,
+          attemptId: params.attemptId,
+          answers: parsed.answers,
+          score: parsed.score,
+          ip,
+        });
+        return { replayed: false, status: 200, value: { attempt } };
+      }
       await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
       return runIdempotent(tx, {
         key: parseIdempotencyKey(request.headers["idempotency-key"]),

@@ -1,5 +1,6 @@
 import type { Tx } from "../../db/sql.js";
 import { myChildLinks } from "./children.js";
+import { myOwnLearner } from "../student/self.js";
 
 /**
  * Who a parent may start a chat with (docs/FAMILY-READS.md): the school's administrators, and the teachers of their
@@ -16,6 +17,20 @@ export interface ChatContact {
 }
 
 export async function myChatContacts(tx: Tx, tenantId: string): Promise<ChatContact[]> {
+  return chatContactsForLearners(tx, tenantId, (await myChildLinks(tx)).map((l) => l.learner_id));
+}
+
+/**
+ * Who a learner may start a chat with (docs/STUDENT-ACCOUNTS.md, owner decision 3): the school's administrators (the school
+ * office) and the teachers of their own current-year class, exactly the student rule of `may_talk` (migration 110). No staff
+ * list, no other learner, no parent. An empty list when the caller has no live learner here.
+ */
+export async function studentChatContacts(tx: Tx, tenantId: string): Promise<ChatContact[]> {
+  const own = await myOwnLearner(tx);
+  return own ? chatContactsForLearners(tx, tenantId, [own.learner_id]) : [];
+}
+
+async function chatContactsForLearners(tx: Tx, tenantId: string, kids: string[]): Promise<ChatContact[]> {
   const admins = await tx.query<{ user_id: string; full_name: string }>(
     `SELECT u.id AS user_id, u.full_name
        FROM school_memberships m
@@ -24,7 +39,6 @@ export async function myChatContacts(tx: Tx, tenantId: string): Promise<ChatCont
       ORDER BY u.full_name, u.id`,
     [tenantId],
   );
-  const kids = (await myChildLinks(tx)).map((l) => l.learner_id);
   const teachers = kids.length === 0
     ? { rows: [] as Array<{ user_id: string; full_name: string; learner_id: string; class_name: string; subject: string | null }> }
     : await tx.query<{ user_id: string; full_name: string; learner_id: string; class_name: string; subject: string | null }>(
