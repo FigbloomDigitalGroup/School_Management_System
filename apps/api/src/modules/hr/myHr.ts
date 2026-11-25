@@ -4,10 +4,11 @@ import { AppError, forbidden, rateLimited, validationError } from "../../http/er
 import type { RequestAuth } from "../../http/middleware/authContext.js";
 import { isRealCalendarDate } from "../../http/schemas.js";
 import { logWarn } from "../../log.js";
-import { callHr, HrCallError, hrBaseUrlFrom, hrErrorCode, hrMessage, type HrAnswer } from "../../platform/hrApi.js";
+import { callHr, HrCallError, hrBaseUrlFrom, type HrAnswer } from "../../platform/hrApi.js";
 import { isRecord } from "../../platform/http.js";
 import { platformTokenConfigFrom, PlatformTokenClient } from "../../platform/platformClient.js";
 import type { SchoolMembership } from "../tenancy/context.js";
+import { hrBadAnswer, hrUnavailable, NOT_READY, refusalFromHr } from "./hrRefusal.js";
 
 /**
  * "My HR" (docs/MY-HR.md): a staff member's own payslips, leave, attendance and KPIs from Figbloom HR, read only. This is the
@@ -19,15 +20,9 @@ import type { SchoolMembership } from "../tenancy/context.js";
  * reuse `src/platform/` (the token client and the HR caller) and add their own routes beside these.
  */
 
-export const NOT_READY = "Your HR record isn't ready yet. Ask the school's HR administrator.";
-const UNAVAILABLE = "HR & Payroll can't be reached right now. Try again in a minute.";
 const NOT_STAFF = "My HR is for the school's staff.";
 const OFF = "My HR isn't available yet.";
 const SCHOOL_NOT_LINKED = "This school isn't connected to Figbloom HR yet. Ask Figbloom.";
-const HR_NOT_CONNECTED = "Figbloom HR isn't connected to this school yet. Ask Figbloom.";
-const HR_OFF = "My HR is switched off in Figbloom HR for now. Try again later.";
-const HR_RATE_LIMITED = "You've opened My HR many times in the last few minutes. Wait a few minutes and try again.";
-const GENERIC_REFUSAL = "HR couldn't take that. Check the details and try again.";
 
 /** The roles that are a school's staff: they are the people HR has employees for. */
 export const MY_HR_STAFF_ROLES: ReadonlySet<string> = new Set(["teacher", "driver", "staff", "school_admin"]);
@@ -194,32 +189,6 @@ export async function gateMyHrRead(tx: Tx, input: { on: boolean; auth: RequestAu
 
 // ---------------------------------------------------------------- HR (no database held)
 
-const unavailable = (code: "hr_unavailable" | "hr_bad_answer" = "hr_unavailable") =>
-  new AppError(code === "hr_bad_answer" ? 502 : 503, code, UNAVAILABLE, true, 30);
-
-/**
- * HR's refusal as the API answers it: a sentence a person can read, in the API's error shape. The table is the one in the
- * header of the Supabase function (leave and approval refusals belong to the slices that add those routes).
- */
-export function refusalFor(answer: Pick<HrAnswer, "status" | "json" | "retryAfterSeconds">, route: MyHrRoute): AppError {
-  const code = hrErrorCode(answer.json);
-  const said = hrMessage(answer.json);
-  const { status } = answer;
-  if (code === "not_linked" || code === "pending_hr") return new AppError(404, code, NOT_READY);
-  if (status === 404) {
-    return new AppError(404, "not_found", route === "payslip" ? "That payslip isn't available." : "That isn't available in HR.");
-  }
-  if (status === 400 || status === 422) return validationError(said ?? GENERIC_REFUSAL);
-  if (status === 409) return new AppError(409, "conflict", said ?? "That can't be done any more. Reload and try again.");
-  if (status === 401 || code === "school_not_linked" || code === "invalid_token") {
-    return new AppError(502, "hr_not_connected", HR_NOT_CONNECTED);
-  }
-  if (status === 403) return new AppError(403, "hr_forbidden", said ?? "Figbloom HR didn't allow that.");
-  if (status === 429) return rateLimited(HR_RATE_LIMITED, answer.retryAfterSeconds ?? 60);
-  if (status === 503 && code === "my_hr_off") return new AppError(503, "hr_off", HR_OFF);
-  return unavailable();
-}
-
 export interface MyHrDeps {
   fetch?: typeof fetch;
 }
@@ -262,17 +231,17 @@ export class MyHrGateway {
       if (!(err instanceof HrCallError && err.reason === "aborted")) {
         logWarn("my_hr_call_failed", { tenant_id: who.school, reason: plan.route, outcome: err instanceof HrCallError ? err.reason : "token" });
       }
-      throw unavailable();
+      throw hrUnavailable();
     }
     if (answer.status >= 200 && answer.status < 300) {
       if (answer.tooLarge || !isRecord(answer.json)) {
         logWarn("my_hr_bad_answer", { tenant_id: who.school, reason: plan.route, status: answer.status });
-        throw unavailable("hr_bad_answer");
+        throw hrBadAnswer();
       }
       if (answer.json.status === "pending_hr") return { status: "pending_hr", message: NOT_READY };
       return answer.json;
     }
-    const refusal = refusalFor(answer, plan.route);
+    const refusal = refusalFromHr(answer, { notFound: plan.route === "payslip" ? "That payslip isn't available." : undefined });
     if (refusal.statusCode >= 500) logWarn("my_hr_refused", { tenant_id: who.school, reason: plan.route, status: answer.status });
     throw refusal;
   }

@@ -9,12 +9,13 @@ import { deadline, isRecord, parseJson, readBodyText } from "./http.js";
  * Settings (all optional; with any of the first three missing there is no client and nothing calls out):
  *   PLATFORM_CLIENT_ID, PLATFORM_CLIENT_SECRET  the schools service client
  *   PLATFORM_TOKEN_URL                          the token endpoint (…/oauth2/token)
- *   PLATFORM_API_URL                            the platform's own API: not used here, reserved for registration and hand-off
+ *   PLATFORM_API_URL                            the platform's own API, for `call()` (registration, hand-off); My HR does not use it
  *
  * The token is kept until a minute before it expires. Concurrent callers share one fetch. Redirects are never followed,
  * every call has a timeout, and the secret and the platform's answers never reach a log or an error message.
- * This file knows nothing about My HR: another module may build on `PlatformTokenClient` (and add the platform's own
- * API calls beside it) without touching My HR.
+ * This file knows nothing about My HR. `call(method, path, body)` is the generic call to the platform's own API
+ * (PLATFORM_API_URL) with the same token, the same 401 retry and the same rules, for the hand-off and school registration
+ * slices to build typed calls on; the API does not make any such call yet.
  */
 
 export const PLATFORM_TOKEN_SCOPE = "platform/tenants.read platform/tenants.write";
@@ -29,25 +30,31 @@ export interface PlatformTokenConfig {
   clientId: string;
   clientSecret: string;
   tokenUrl: string;
+  /** PLATFORM_API_URL, without a trailing slash; only `call()` needs it. */
+  apiUrl?: string;
   /** For the one call, including reading the answer. */
   timeoutMs: number;
 }
 
 /** The token client's settings, or null unless the client id, the secret and the token address are all set. */
 export function platformTokenConfigFrom(
-  config: Pick<AppConfig, "platformClientId" | "platformClientSecret" | "platformTokenUrl" | "myHrHttpTimeoutMs">,
+  config: Pick<AppConfig, "platformClientId" | "platformClientSecret" | "platformTokenUrl" | "platformApiUrl" | "myHrHttpTimeoutMs">,
 ): PlatformTokenConfig | null {
   const { platformClientId: clientId, platformClientSecret: clientSecret, platformTokenUrl: tokenUrl } = config;
   if (!clientId || !clientSecret || !tokenUrl) return null;
-  return { clientId, clientSecret, tokenUrl, timeoutMs: config.myHrHttpTimeoutMs };
+  return { clientId, clientSecret, tokenUrl, apiUrl: config.platformApiUrl, timeoutMs: config.myHrHttpTimeoutMs };
 }
 
-/** The platform could not give a token: `status` 0 means it was never reached (network, timeout). */
+/**
+ * A refusal or failure from the platform: `status` 0 means it was never reached (network, timeout). `code` is
+ * `token_failed` (no token could be had), `unreachable`, `not_configured` (no PLATFORM_API_URL), or the platform's own error
+ * code (`http_<status>` when it gave none).
+ */
 export class PlatformError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly code: "token_failed" | "unreachable",
+    readonly code: string,
   ) {
     super(message);
     this.name = "PlatformError";
@@ -86,6 +93,62 @@ export class PlatformTokenClient {
       this.inflight = null;
     });
     return this.inflight;
+  }
+
+  /**
+   * One call to the platform's own API with the platform token: `path` starts with `/` and is appended to PLATFORM_API_URL;
+   * `body` is sent as JSON. A 401 is retried once with a fresh token. Returns the platform's JSON (undefined for an empty
+   * answer). Throws PlatformError: `status` and `code` say what went wrong (the platform's own `error.code`, else
+   * `http_<status>`), `status` 0 when it was not reached, `not_configured` without PLATFORM_API_URL.
+   */
+  async call<T = unknown>(
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const { apiUrl, timeoutMs } = this.config;
+    if (!apiUrl) throw new PlatformError("The platform's API address is not set.", 0, "not_configured");
+    let token = await this.accessToken();
+    let answer = await this.send(method, `${apiUrl}${path}`, token, body, timeoutMs, signal);
+    if (answer.status === 401) {
+      this.forgetToken(token);
+      token = await this.accessToken();
+      answer = await this.send(method, `${apiUrl}${path}`, token, body, timeoutMs, signal);
+    }
+    if (answer.status < 200 || answer.status >= 300) {
+      const error = isRecord(answer.json) && isRecord(answer.json.error) ? answer.json.error : null;
+      const code = error && typeof error.code === "string" && /^[a-z_]{1,64}$/.test(error.code) ? error.code : `http_${answer.status}`;
+      const message = error && typeof error.message === "string" && error.message.length <= 300 ? error.message : `The platform answered ${answer.status}.`;
+      throw new PlatformError(message, answer.status, code);
+    }
+    return answer.json as T;
+  }
+
+  private async send(
+    method: string,
+    url: string,
+    token: string,
+    body: unknown,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<{ status: number; json: unknown }> {
+    const limit = deadline(timeoutMs, signal);
+    try {
+      const res = await this.fetchFn(url, {
+        method,
+        headers: { authorization: `Bearer ${token}`, accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: limit.signal,
+        redirect: "error",
+      });
+      const read = await readBodyText(res, MAX_ANSWER_BYTES);
+      return { status: res.status, json: read.text === null ? undefined : parseJson(read.text) };
+    } catch {
+      throw new PlatformError(limit.timedOut() ? "The platform timed out." : "The platform could not be reached.", 0, "unreachable");
+    } finally {
+      limit.cleanup();
+    }
   }
 
   /**
