@@ -63,12 +63,12 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
         if (attempt === 1) throw new Error("Admin MFA sign-in did not complete after waiting for next TOTP step.");
       }
     }
-    await expect(page.getByTestId("api-home")).toBeVisible();
-    // The school name is in the sidebar and in the page heading; the heading is the one this page owns.
-    await expect(page.getByRole("heading", { name: seed.schoolName })).toBeVisible();
-
-    await page.getByRole("button", { name: "Check the connection" }).click();
-    await expect(page.getByText(/The API answered ready in \d+ ms\./)).toBeVisible();
+    // The admin home is the Dashboard (a greeting, today's attendance by class, the term's fees), not the plain overview
+    // it used to be. The school name is in the sidebar, and the seeded classes come through the API.
+    await expect(page.getByRole("heading", { name: /^Good (morning|afternoon|evening), / })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("navigation", { name: "Main" }).getByText(seed.schoolName).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^Attendance by class/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Form 1 East").first()).toBeVisible();
 
     // Walk every admin page ported to the new API and confirm seeded data renders cleanly. A seeded value can
     // fairly appear more than once on a page (a list and a summary), which would trip Playwright's strict mode,
@@ -121,6 +121,10 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
     await expect(page).toHaveURL(new RegExp(`/s/${seed.slug}`), { timeout: 15_000 });
     await expect(page.getByTestId("api-home")).toBeVisible();
     await expect(page.getByText("Teacher", { exact: true })).toBeVisible();
+
+    // The teacher's home is still the plain overview, which carries the connection check (the admin home no longer does).
+    await page.getByRole("button", { name: "Check the connection" }).click();
+    await expect(page.getByText(/The API answered ready in \d+ ms\./)).toBeVisible();
 
     // Since the teacher console (#348) a teacher lands in the console shell, where Sign out is in the account menu.
     await page.getByRole("navigation", { name: "Main" }).locator('button[aria-haspopup="menu"]').click();
