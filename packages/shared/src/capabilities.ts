@@ -810,7 +810,7 @@ export function canManageMaterials(adminAreas: readonly string[], role?: string)
   return !onApi() || role === "school_admin" || adminAreas.includes("academics");
 }
 
-/** Gate & reception visitor log (admin/visitors, later teacher/visitors and staff/visitors). */
+/** Gate & reception visitor log (admin/visitors, teacher/visitors and staff/visitors). */
 export interface VisitorsCapabilities {
   /** Escalating an existing visit to the principal's office after arrival (API escalates principal visits on creation only). */
   escalateAfterArrival: boolean;
