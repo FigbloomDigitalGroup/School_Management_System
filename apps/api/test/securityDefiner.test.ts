@@ -468,6 +468,18 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: [],
     why: "trigger; availability under FOR UPDATE; closed issues final",
   },
+  // Migration 116 (stock reports, docs/INVENTORY-STOCK.md): a port of the Supabase report functions, all SECURITY INVOKER.
+  "inventory_assert_tenant(uuid)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): refuses (42501) a school other than app.tenant_id; the first line of every stock report" },
+  "inventory_price_on(uuid,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): an item's unit price on a day (latest priced delivery on or before it, else the register's), under RLS" },
+  "inventory_qty_text(numeric,text)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): IMMUTABLE formatting of a quantity and its unit for the flag wording; reads no data" },
+  "inventory_ledger(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: every movement in a period; refuses another school; under RLS" },
+  "inventory_usage(uuid,date,date,text)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: use, waste, deliveries, shrinkage and money per item per bucket; refuses another school; under RLS" },
+  "inventory_spend_by_month(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: delivery spend per month and store; refuses another school; under RLS" },
+  "inventory_cost_per_meal(uuid,date,date,text)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: kitchen cost over meals served; refuses another school; under RLS" },
+  "inventory_stock_levels(uuid,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: live stock lines, value, use, cover, low, next delivery; refuses another school; under RLS" },
+  "inventory_headcount(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: learners, staff and gate visitors per day (counts only), at most 400 days; refuses another school; under RLS" },
+  "inventory_headcount_days(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): the days of inventory_headcount without the 400-day limit, for the flags; refuses another school; under RLS" },
+  "inventory_consumption_flags(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: the deterministic anomaly flags (item names and numbers, never a person); refuses another school; under RLS" },
   // Migration 115 (stock movements, docs/INVENTORY-STOCK.md).
   "inventory_movements_apply()": {
     secdef: false,

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { calendarDateString } from "../schemas.js";
 import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
+import type { Tx } from "../../db/sql.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
 import {
   assertValidCalendarDate,
@@ -15,6 +16,16 @@ import {
   retireInventoryItem,
 } from "../../modules/inventory/inventory.js";
 import { listStockMovements, MOVEMENT_KINDS, recordStockMovement, stockLevels } from "../../modules/inventory/stock.js";
+import {
+  REPORT_BUCKETS,
+  stockCostPerMeal,
+  stockFlags,
+  stockHeadcount,
+  stockLedger,
+  stockSpendByMonth,
+  stockUsage,
+  type ReportBucket,
+} from "../../modules/inventory/stockReports.js";
 import { notFound, validationError } from "../errors.js";
 import { assertUuid, inTenant, optionalUuid, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
@@ -71,6 +82,20 @@ function optionalDate(value: unknown, field: string): string | undefined {
   if (typeof value !== "string") throw validationError(`${field} must be YYYY-MM-DD`);
   assertValidCalendarDate(value, field);
   return value;
+}
+
+/** A required YYYY-MM-DD query value. */
+function requiredDate(value: unknown, field: string): string {
+  const day = optionalDate(value, field);
+  if (!day) throw validationError(`${field} is required (YYYY-MM-DD)`);
+  return day;
+}
+
+/** The report bucket: day, week (from Monday), month or year; `fallback` when absent. */
+function bucketFrom(value: unknown, fallback: ReportBucket): ReportBucket {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "string" && (REPORT_BUCKETS as readonly string[]).includes(value)) return value as ReportBucket;
+  throw validationError("bucket must be day, week, month or year");
 }
 
 const IssueBody = z.strictObject({
@@ -217,6 +242,51 @@ export async function registerInventoryRoutes(app: FastifyInstance, pool: AppPoo
       await requirePermission(tx, auth.authz, "resource.inventory.read", { ip, deferAudit: true });
       return stockLevels(tx, { tenantId: params.tenantId, asOf });
     });
+  });
+
+  // The stock reports (docs/INVENTORY-STOCK.md, slice S1b): read-only, same permission as the register.
+  const report = <T>(path: string, run: (args: { tenantId: string; query: Record<string, unknown> }) => (tx: Tx) => Promise<T>) =>
+    app.get(`${P}/reports/${path}`, async (request) => {
+      const params = request.params as { tenantId: string };
+      const query = (request.query ?? {}) as Record<string, unknown>;
+      return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+        await requirePermission(tx, auth.authz, "resource.inventory.read", { ip, deferAudit: true });
+        // the query is validated after authorisation, as the other reports do: a refused caller learns nothing from a 400
+        return run({ tenantId: params.tenantId, query })(tx);
+      });
+    });
+
+  report("ledger", ({ tenantId, query }) => {
+    const from = requiredDate(query.from, "from");
+    const to = requiredDate(query.to, "to");
+    return async (tx) => ({ from, to, entries: await stockLedger(tx, { tenantId, from, to }) });
+  });
+  report("usage", ({ tenantId, query }) => {
+    const from = requiredDate(query.from, "from");
+    const to = requiredDate(query.to, "to");
+    const bucket = bucketFrom(query.bucket, "week");
+    return async (tx) => ({ from, to, bucket, usage: await stockUsage(tx, { tenantId, from, to, bucket }) });
+  });
+  report("spend-by-month", ({ tenantId, query }) => {
+    const from = requiredDate(query.from, "from");
+    const to = requiredDate(query.to, "to");
+    return async (tx) => ({ from, to, spend: await stockSpendByMonth(tx, { tenantId, from, to }) });
+  });
+  report("cost-per-meal", ({ tenantId, query }) => {
+    const from = requiredDate(query.from, "from");
+    const to = requiredDate(query.to, "to");
+    const bucket = bucketFrom(query.bucket, "month");
+    return async (tx) => ({ from, to, bucket, cost_per_meal: await stockCostPerMeal(tx, { tenantId, from, to, bucket }) });
+  });
+  report("headcount", ({ tenantId, query }) => {
+    const from = requiredDate(query.from, "from");
+    const to = requiredDate(query.to, "to");
+    return async (tx) => ({ from, to, days: await stockHeadcount(tx, { tenantId, from, to }) });
+  });
+  report("flags", ({ tenantId, query }) => {
+    const from = optionalDate(query.from, "from");
+    const to = optionalDate(query.to, "to");
+    return async (tx) => stockFlags(tx, { tenantId, from, to });
   });
 
   app.post(`${P}/issues/:issueId/close`, async (request) => {

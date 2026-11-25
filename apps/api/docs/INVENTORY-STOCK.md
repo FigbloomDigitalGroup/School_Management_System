@@ -5,9 +5,9 @@ Slice S1 of `docs/handoffs/WEB-ON-API-ROADMAP.md`. A **port** of the live Supaba
 `20261125000000_behaviour_inventory_guards.sql`. Same rules; where a rule could not be kept the same, it is listed under
 "What differs from Supabase" with the reason.
 
-- **S1a** (this change): migration 115, recording and listing movements, stock levels, and three new item columns.
-- **S1b** (next PR): the other reports (ledger, usage, spend by month, cost per meal, headcount, consumption flags) and
-  the `stock_insights` question.
+- **S1a** (PR #422): migration 115, recording and listing movements, stock levels, and three new item columns.
+- **S1b**: migration 116, the reports (ledger, usage, spend by month, cost per meal, headcount, consumption flags) as read
+  endpoints. `stock_insights` is **not** built: it needs a change to the Bloom contract (section "stock_insights").
 
 ## Tables (migration 115)
 
@@ -74,9 +74,60 @@ waste over the 28 days to `as_of`, `avg_daily_use` (used / 28, 2 decimals), `day
 delivery plus the median gap between delivery days in the 120 days to `as_of`). Ordered by store, then name. `as_of`
 defaults to the school's today.
 
+## The reports (migration 116, slice S1b)
+
+The Supabase report functions, ported as database functions with the **same text** apart from the table names (so the two
+can be read side by side): `inventory_price_on`, `inventory_qty_text`, `inventory_ledger`, `inventory_usage`,
+`inventory_spend_by_month`, `inventory_cost_per_meal`, `inventory_stock_levels`, `inventory_headcount`,
+`inventory_consumption_flags`, plus two helpers: `inventory_assert_tenant` (refuses a school other than the request's) and
+`inventory_headcount_days` (the headcount days without the 400-day limit, for the flags). All are **SECURITY INVOKER**:
+they run as the caller under row security and refuse another school. `GET /stock-levels` now reads
+`inventory_stock_levels` too, so the page and the flags cannot disagree.
+
+| Method and path (all `resource.inventory.read`) | Supabase function | Notes |
+|---|---|---|
+| `GET /reports/ledger?from&to` | `inventory_ledger` | `{ from, to, entries }`, oldest day first. `source` is always `movement` |
+| `GET /reports/usage?from&to&bucket` | `inventory_usage` | `{ from, to, bucket, usage }`. Bucket `day`, `week` (default, from Monday), `month`, `year` |
+| `GET /reports/spend-by-month?from&to` | `inventory_spend_by_month` | `{ from, to, spend }`, per month and store |
+| `GET /reports/cost-per-meal?from&to&bucket` | `inventory_cost_per_meal` | `{ from, to, bucket, cost_per_meal }`. Bucket default `month` |
+| `GET /reports/headcount?from&to` | `inventory_headcount` | `{ from, to, days }`. At most 400 days (Supabase's limit) |
+| `GET /reports/flags?from&to` | `inventory_consumption_flags` | `{ from, to, flags }`. Default: the last 8 weeks to the school's today (as `main` has it after #390); `to` alone: the 8 weeks to it. At most 366 days (Supabase's limit) |
+
+**Checked against Supabase, row for row.** A scratch database ran the live function text from `main`
+(`20261124200000_inventory_movements.sql`, unchanged, on stand-in tables) next to the API port, on the same generated school
+(11 items, about 1,300 movements over six months, 320 learners, 45 staff, about 900 visits, 250 sick-bay visits, two terms,
+spikes, a slow creep, price jumps, stock-takes, weekend and holiday use). All 17 comparisons were identical: the ledger,
+usage by day, week, month and year, spend by month, cost per meal by day, week and month, stock levels on three days,
+headcount, and the flags over four periods (every flag kind, with the same wording).
+
+**Headcount** counts learners **on the roll** (as Supabase's SQL does; the comment in `inventoryPaging.ts` that says "learners
+present" is not what the function counts), staff, and gate visitors. On the API: `learners` (Supabase `students`),
+`staff_members` (Supabase profiles that are not parents or students), `gate_visits` (Supabase `visits`).
+
+## stock_insights: not built (needs a contract change)
+
+On Supabase the `stock_insights` task of `ai-assist` takes only a period, reads the flags and stock levels with the caller's
+rights, and asks the model for a **structured** briefing (`headline`, `standsOut`, `questions`, `looksFine`, `suggestions`)
+with its own instructions, metered in `ai_usage` against the school's monthly allowance and the person's daily limit.
+
+The API's Bloom contract (`bloom-school/1`, `apps/api/src/modules/ai/contract.ts`) cannot carry that without a change:
+
+- **chat only**: the wire request has `capability: "chat"` and a `prompt`; there is no system instruction and no output
+  schema, and the answer is free text. The screen needs the five lists.
+- **4,000-character prompts**: the figures alone (up to 60 flags with their reasons and 80 stock lines) are far longer.
+  Cutting them to fit would change what the briefing is about.
+- **No metering by task**: the API has rate limits, not Supabase's per-school monthly allowance.
+
+What it needs (for the owner and FigBloom AI): a new capability (for example `stock_insights`, or a general
+`structured_brief`) in a contract version that carries server-built context of up to about 64 KiB, instructions owned by
+FigBloom AI for that capability, and a JSON answer validated against the five-list schema; plus, on the API, a route
+`POST /inventory/insights` with `{ from, to }` that reads `inventory_consumption_flags` and `inventory_stock_levels` with the
+caller's rights (item names and numbers, never a person), applies the Bloom rate limits, audits the call, and a decision on
+metering. Until then the web keeps the insights panel hidden on the API build.
+
 ## Who reads and writes
 
-| Who | Record movements | Read movements and stock levels |
+| Who | Record movements | Read movements, stock levels and the reports |
 |---|---|---|
 | School administrator | yes | yes |
 | Teacher or staff holding the **Inventory** area | yes | yes |
@@ -100,7 +151,7 @@ No new permission: `resource.inventory.read` and `.write` already mean "the regi
 3. **Sick-bay medicine is not counted as use.** Supabase's ledger adds medicine the sick bay gave from a Medical stock line
    (`visit_medications`) as `used` for "Sick bay". The API's sick bay does not take medicine from stock (migration 052
    deferred it), so there is nothing to count: on the API clinic use must be recorded as `used` movements. Stock levels and
-   the S1b reports therefore read movements only.
+   the S1b reports therefore read movements only. (The weekly clinic flags still use sick-bay visits as their driver.)
 4. **The trigger runs as the caller** (SECURITY INVOKER; Supabase: SECURITY DEFINER). Row security then decides which item it
    can lock and move, and the runtime role already holds the column grants it needs (`UPDATE` of `quantity`,
    `unit_cost_cents`). No owner rights are lent.
@@ -115,6 +166,17 @@ No new permission: `resource.inventory.read` and `.write` already mean "the regi
    database refuses them. The API refuses them with 400 too (it is the database's rule).
 9. **A stock line may be created at 0** (Supabase allows it; the API used to require at least 1). An asset stays at 1, and
    an asset with a unit, consumable or reorder level is refused (on Supabase the screen nulls them).
+10. **The report functions run as the caller** (Supabase: definer, each checking `inventory_may_read`). Who may call them
+   is the route's `resource.inventory.read`; the functions themselves refuse a school other than the request's.
+11. **"Today" in the flags** (`run_out`) is the school's today (`finance_school_today`), not the database's `current_date`.
+12. **Staff in the headcount** count until their record is archived. Supabase also stops at `left_on`; `staff_members` has
+   no such date.
+13. **Long flag periods work.** On Supabase the flags call `inventory_headcount` over the period plus 70 days, so a period
+   longer than about 330 days fails there with "Ask for at most 400 days". The API keeps Supabase's own 366-day limit for
+   the flags but does not fail inside it.
+14. **Report periods are capped at 400 days** for the ledger, usage, spend and cost per meal (Supabase has no cap). The
+   screens ask for at most a calendar year, 12 months or a term, so no screen is refused; the cap keeps a request inside
+   the API's 30-second limit.
 
 ## Not in S1a (said so on purpose)
 
@@ -134,5 +196,11 @@ No new permission: `resource.inventory.read` and `.write` already mean "the regi
 - `fetchMovements(itemId)` maps to `GET /movements?item_id=...` (page with `listAllPages`, or stop at 500 as Supabase does).
   `recordedByName` is `recorded_by_name`. Numbers come back as numbers (no `String`/`Number` dance).
 - `fetchStockLevels` maps to `GET /stock-levels` (field names are Supabase's).
+- `fetchUsage`, `fetchSpendByMonth`, `fetchCostPerMeal`, `fetchHeadcount`, `fetchConsumptionFlags` map to
+  `GET /reports/usage`, `/spend-by-month`, `/cost-per-meal`, `/headcount`, `/flags` with the same `from`, `to`, `bucket`;
+  the rows have Supabase's field names and are already numbers (the arrays are `usage`, `spend`, `cost_per_meal`, `days`,
+  `flags`). `fetchHeadcount` adds `total` itself, as it does today. `fetchCurrentTermDates` reads `/academic-terms`
+  (`is_current`), which needs `resource.academics.read`: an Inventory-area holder without it gets no "This term" period.
+- `fetchStockInsights` has no API equivalent yet (see "stock_insights"): keep the insights panel hidden on the API build.
 - Stock-take: `stockTakeDelta(onHand, counted)` uses `item.quantity`. On the API that count still includes lost and damaged
   issued copies (difference 2), which only matters for a stock line that is also issued.

@@ -246,43 +246,19 @@ const numOrNull = (v: string | null): number | null => (v === null ? null : Numb
  * what it is worth, the average daily use over the 28 days to then, how many days that lasts, whether it is at or below its
  * reorder level, and when the next delivery usually comes (the last one plus the median gap between delivery days in the
  * 120 days before). Use is read from the movements only: the API's sick bay does not take medicine from stock (see the
- * design note). `asOf` defaults to the school's today.
+ * design note). `asOf` defaults to the school's today. The maths is the database function inventory_stock_levels
+ * (migration 116), which the consumption flags use too, so the page and the flags can never disagree.
  */
 export async function stockLevels(tx: Tx, input: { tenantId: string; asOf?: string }): Promise<{ as_of: string; levels: StockLevel[] }> {
   const asOf = input.asOf ?? (await schoolToday(tx, input.tenantId));
   const res = await tx.query<StockLevelRow>(
-    `WITH u AS (
-       SELECT m.item_id,
-              coalesce(sum(m.quantity) FILTER (WHERE m.kind = 'used'), 0)::bigint AS used,
-              coalesce(sum(m.quantity) FILTER (WHERE m.kind = 'wasted'), 0)::bigint AS wasted
-         FROM inventory_movements m
-        WHERE m.tenant_id = $1 AND m.occurred_on BETWEEN $2::date - 27 AND $2::date
-        GROUP BY 1
-     )
-     SELECT i.id AS item_id, i.name, i.category, i.unit, i.consumable, i.quantity, i.reorder_level,
-            i.unit_cost_cents::text AS unit_cost_cents,
-            (i.quantity::numeric * coalesce(i.unit_cost_cents, 0))::text AS value_cents,
-            coalesce(u.used, 0)::text AS used_28d,
-            coalesce(u.wasted, 0)::text AS wasted_28d,
-            round(coalesce(u.used, 0) / 28.0, 2)::text AS avg_daily_use,
-            (CASE WHEN u.used > 0 THEN round(i.quantity / (u.used / 28.0), 1) END)::text AS days_of_cover,
-            (i.reorder_level IS NOT NULL AND i.quantity <= i.reorder_level) AS low,
-            d.last_on::text AS last_received_on,
-            (d.last_on + d.gap)::text AS next_delivery_on
-       FROM inventory_items i
-       LEFT JOIN u ON u.item_id = i.id
-       CROSS JOIN LATERAL (
-         SELECT max(r.day) AS last_on,
-                round(percentile_cont(0.5) WITHIN GROUP (ORDER BY r.gap))::int AS gap
-           FROM (
-             SELECT x.day, x.day - lag(x.day) OVER (ORDER BY x.day) AS gap
-               FROM (SELECT DISTINCT m.occurred_on AS day FROM inventory_movements m
-                      WHERE m.tenant_id = $1 AND m.item_id = i.id AND m.kind = 'received'
-                        AND m.occurred_on > $2::date - 120 AND m.occurred_on <= $2::date) x
-           ) r
-       ) d
-      WHERE i.tenant_id = $1 AND i.tracking = 'stock' AND i.retired_at IS NULL
-      ORDER BY i.category, i.name, i.id`,
+    `SELECT l.item_id, l.name, l.category, l.unit, l.consumable, l.quantity, l.reorder_level,
+            l.unit_cost_cents::text AS unit_cost_cents, l.value_cents::text AS value_cents,
+            l.used_28d::text AS used_28d, l.wasted_28d::text AS wasted_28d, l.avg_daily_use::text AS avg_daily_use,
+            l.days_of_cover::text AS days_of_cover, l.low,
+            l.last_received_on::text AS last_received_on, l.next_delivery_on::text AS next_delivery_on
+       FROM public.inventory_stock_levels($1, $2::date) l
+      ORDER BY l.category, l.name, l.item_id`,
     [input.tenantId, asOf],
   );
   return {

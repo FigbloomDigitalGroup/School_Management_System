@@ -66,6 +66,14 @@ On `main` or in an open PR, not live in production yet.
   New endpoints `POST` and `GET /v1/tenants/{t}/inventory/movements` and `GET /v1/tenants/{t}/inventory/stock-levels`
   (existing `resource.inventory.read` / `.write`); `POST /inventory/items` takes the three new columns and a stock line may
   start at 0. New audit event `inventory.movement.recorded`. Nothing on Supabase or the web changes.
+- **Stock reports on the new API (slice S1b, `apps/api` only)**: migration `116_inventory_stock_reports.sql` ports the
+  live report functions (`inventory_ledger`, `inventory_usage`, `inventory_spend_by_month`, `inventory_cost_per_meal`,
+  `inventory_stock_levels`, `inventory_headcount`, `inventory_consumption_flags`, `inventory_price_on`,
+  `inventory_qty_text`) as SECURITY INVOKER functions with the same maths (checked row for row against the live text), plus
+  `inventory_assert_tenant` and `inventory_headcount_days`. New read endpoints `GET /v1/tenants/{t}/inventory/reports/`
+  `ledger`, `usage`, `spend-by-month`, `cost-per-meal`, `headcount` and `flags` (`resource.inventory.read`; flags default
+  to the last 8 weeks). `GET /inventory/stock-levels` now reads `inventory_stock_levels`. The AI `stock_insights` task is
+  not ported: it needs a change to the Bloom contract (`apps/api/docs/INVENTORY-STOCK.md`).
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:
