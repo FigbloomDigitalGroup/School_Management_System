@@ -1,6 +1,6 @@
 import {
-  apiCreateCourse, apiCreateCourseSection, apiCreateSemester, apiEnrollStudents, apiFetchCourseSections, apiFetchCourses,
-  apiFetchEnrollmentsForSection, apiFetchSemesters, apiSetCurrentSemester,
+  apiAssignSectionInstructor, apiCreateCourse, apiCreateCourseSection, apiCreateSemester, apiEnrollStudents, apiFetchCourseSections, apiFetchCourses,
+  apiFetchEnrollmentsForSection, apiFetchInstructorSections, apiFetchSemesters, apiSetCurrentSemester,
 } from "./api/coursesApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
@@ -96,8 +96,8 @@ export interface InstructorSectionRow extends CourseSection {
  * class_teacher_id-style homeroom-owner concept, since higher-ed has none.
  */
 export async function fetchInstructorSections(tenantId: string, instructorId: string): Promise<InstructorSectionRow[]> {
-  // A section has no instructor on the API, so "my sections" cannot be answered there (see coursesCapabilities().mySections).
-  if (onApi()) throw new NotOnApiError("My sections");
+  // On the API "mine" is decided by the server from the signed-in person's own staff record (GET /me/teaching/he-sections).
+  if (onApi()) return apiFetchInstructorSections(tenantId, instructorId);
   const { data, error } = await supabase()
     .from("course_sections")
     .select("*, courses(code, name), semesters(name), enrollments(count)")
@@ -123,7 +123,7 @@ export async function createCourseSection(input: Omit<CourseSection, "id">): Pro
 }
 
 export async function assignSectionInstructor(sectionId: string, instructorId: string | null): Promise<void> {
-  if (onApi()) throw new NotOnApiError("Naming a section's instructor");
+  if (onApi()) return apiAssignSectionInstructor(sectionId, instructorId);
   const { error } = await supabase().from("course_sections").update({ instructor_id: instructorId }).eq("id", sectionId);
   if (error) throw error;
 }

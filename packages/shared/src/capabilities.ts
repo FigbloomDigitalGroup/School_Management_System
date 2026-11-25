@@ -273,7 +273,7 @@ export function timetableCapabilities(): TimetableCapabilities {
 export interface CoursesCapabilities {
   /** A course's department (the API's course is a code, a title and credit hours). */
   courseDepartment: boolean;
-  /** Naming a section's instructor (a section has none in the API). */
+  /** Naming a section's instructor (a staff record; `PATCH /he-sections/{id}`, migration 107). */
   sectionInstructor: boolean;
   /** A section's room and capacity. */
   sectionRoomAndCapacity: boolean;
@@ -281,7 +281,7 @@ export interface CoursesCapabilities {
   sectionSchedule: boolean;
   /** Dropping a student from a section (an enrolment can be made, not ended). */
   dropEnrolment: boolean;
-  /** "My sections" for a lecturer: needs the instructor of a section. */
+  /** "My sections" for a lecturer (`GET /me/teaching/he-sections`, which needs the instructor of a section). */
   mySections: boolean;
 }
 
@@ -289,7 +289,7 @@ const COURSES_ON_SUPABASE: CoursesCapabilities = {
   courseDepartment: true, sectionInstructor: true, sectionRoomAndCapacity: true, sectionSchedule: true, dropEnrolment: true, mySections: true,
 };
 const COURSES_ON_API: CoursesCapabilities = {
-  courseDepartment: false, sectionInstructor: false, sectionRoomAndCapacity: false, sectionSchedule: false, dropEnrolment: false, mySections: false,
+  courseDepartment: false, sectionInstructor: true, sectionRoomAndCapacity: false, sectionSchedule: false, dropEnrolment: false, mySections: true,
 };
 
 export function coursesCapabilities(): CoursesCapabilities {
@@ -810,7 +810,7 @@ export function canManageMaterials(adminAreas: readonly string[], role?: string)
   return !onApi() || role === "school_admin" || adminAreas.includes("academics");
 }
 
-/** Gate & reception visitor log (admin/visitors, later teacher/visitors and staff/visitors). */
+/** Gate & reception visitor log (admin/visitors, teacher/visitors and staff/visitors). */
 export interface VisitorsCapabilities {
   /** Escalating an existing visit to the principal's office after arrival (API escalates principal visits on creation only). */
   escalateAfterArrival: boolean;
@@ -872,4 +872,25 @@ export function homeworkCapabilities(): HomeworkCapabilities {
  */
 export function canManageHomework(adminAreas: readonly string[], role?: string): boolean {
   return !onApi() || role === "school_admin" || adminAreas.includes("academics");
+}
+
+/** The audit log screen (admin/audit). */
+export interface AuditCapabilities {
+  /**
+   * Opening an event to see which fields of which record changed, with the values. The API's audit rows carry no detail, by design
+   * (it can hold names, amounts and health information, and its shape differs by event): a row says what happened, who and when.
+   */
+  fieldChanges: boolean;
+  /**
+   * "Every change made in the school". On the API the log is the school's business events only: sign-in, session and two-step events,
+   * refusals, read events, personal settings and any kind of event nobody classified on purpose are never shown to a school.
+   */
+  everyChange: boolean;
+}
+
+const AUDIT_ON_SUPABASE: AuditCapabilities = { fieldChanges: true, everyChange: true };
+const AUDIT_ON_API: AuditCapabilities = { fieldChanges: false, everyChange: false };
+
+export function auditCapabilities(): AuditCapabilities {
+  return onApi() ? AUDIT_ON_API : AUDIT_ON_SUPABASE;
 }

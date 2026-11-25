@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import {
-  AUDIT_CATEGORIES, AUDIT_PAGE_SIZE, auditChanges, auditValue, fetchAuditEvents,
+  AUDIT_CATEGORIES, AUDIT_PAGE_SIZE, auditCapabilities, auditChanges, auditValue, fetchAuditEvents,
   type AuditEvent, type AuditFilters,
 } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
@@ -25,9 +25,13 @@ function fmtWhen(iso: string): string {
  * database (20261104000000), newest first. Full admins, and anyone given the
  * "Audit log" area on Access & roles. Read only: nothing here can be changed
  * or removed, by anyone.
+ *
+ * On the new API it lists the school's business events only, and an event cannot be opened: the API
+ * returns no detail behind it (`auditCapabilities()`, docs/web-on-api/audit.md).
  */
 export function AdminAuditLog() {
   const toast = useToast();
+  const caps = auditCapabilities();
   const { tenant } = useTenantSession();
   const [filters, setFilters] = useState<AuditFilters>({ category: "", search: "", since: "" });
   const [searchDraft, setSearchDraft] = useState("");
@@ -70,7 +74,9 @@ export function AdminAuditLog() {
       <PageHead
         eyebrow="School"
         title="Audit log"
-        blurb="Every change made in the school: who did it, when, and what changed. Read only: nothing here can be edited or removed. Give it to others from Access & roles."
+        blurb={caps.everyChange
+          ? "Every change made in the school: who did it, when, and what changed. Read only: nothing here can be edited or removed. Give it to others from Access & roles."
+          : "What was done in the school: who did it, when, and what kind of event. Read only: nothing here can be edited or removed. Sign-ins and refused attempts are not listed, and what changed inside a record is not shown on the new system yet. Give it to others from Access & roles."}
       />
 
       <div className="px-7 py-6">
@@ -121,7 +127,7 @@ export function AdminAuditLog() {
                 ]}
                 rows={rows}
                 rowKey={(r) => r.id}
-                onRowClick={setOpen}
+                onRowClick={caps.fieldChanges ? setOpen : undefined}
                 minWidth="760px"
                 empty={{
                   title: filters.category || filters.search || filters.since ? "Nothing matches" : "Nothing logged yet",

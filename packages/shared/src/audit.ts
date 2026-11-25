@@ -1,3 +1,5 @@
+import { apiFetchAuditEvents } from "./api/auditApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 import type { AuditEvent } from "./types";
 
@@ -5,6 +7,9 @@ import type { AuditEvent } from "./types";
  * A school's audit log (audit_events). The database writes every event
  * (20261104000000); nobody can change or remove one. Readable by full admins
  * and by whoever holds the "audit" admin area (20261104200000).
+ *
+ * On the new API (`onApi()`) it is the school's business events only, newest first, with no detail behind each one
+ * (docs/web-on-api/audit.md; `auditCapabilities()` says what the screen cannot offer there).
  */
 
 export const AUDIT_CATEGORIES: { value: AuditEvent["category"]; label: string }[] = [
@@ -30,6 +35,7 @@ export interface AuditFilters {
 
 /** One page of a school's events, newest first. `offset` is how many are already shown. */
 export async function fetchAuditEvents(tenantId: string, filters: AuditFilters = {}, offset = 0): Promise<AuditEvent[]> {
+  if (onApi()) return apiFetchAuditEvents(tenantId, filters, offset, AUDIT_PAGE_SIZE);
   let q = supabase().from("audit_events")
     .select("id, tenant_id, actor_id, actor_label, event, category, metadata, created_at")
     .eq("tenant_id", tenantId);

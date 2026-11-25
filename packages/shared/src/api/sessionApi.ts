@@ -83,6 +83,14 @@ function countryFromApi(v: string | null | undefined): string {
   return typeof v === "string" && /^[A-Za-z]{2}$/.test(v.trim()) ? v.trim().toUpperCase() : "KE";
 }
 
+/**
+ * "higher_ed" or "k12". The profile says it when the person may read the profile (administrators); the school record says it for
+ * every member, so a lecturer's menu can tell a higher-education school. Anything else is a K-12 school, as before.
+ */
+function institutionTypeFromApi(v: string | null | undefined): Tenant["institution_type"] {
+  return v === "higher_ed" ? "higher_ed" : "k12";
+}
+
 /** The school the screens expect, from the API's record and (when the person may read it) its profile. */
 export function tenantFromApi(record: TenantRecord, profile: SchoolProfile | null): Tenant {
   const status = (TENANT_STATUSES as readonly string[]).includes(record.status ?? "") ? (record.status as TenantStatus) : "active";
@@ -93,7 +101,7 @@ export function tenantFromApi(record: TenantRecord, profile: SchoolProfile | nul
     county: profile?.county ?? "",
     country: countryFromApi(profile?.country),
     level: levelFromApi(profile?.level),
-    institution_type: profile?.institution_type === "higher_ed" ? "higher_ed" : "k12",
+    institution_type: institutionTypeFromApi(profile?.institution_type ?? record.institutionType),
     higher_ed_subtype: null,
     delivery_mode: "in_person",
     role_labels: {},
@@ -277,7 +285,7 @@ export async function apiHomeDestination(tenantId: string): Promise<{ slug: stri
   const record = await tenantRecord(tenantId);
   if (!record?.slug) return { slug: null };
   const profile = await schoolProfile(tenantId);
-  return { slug: record.slug, institutionType: profile?.institution_type === "higher_ed" ? "higher_ed" : "k12" };
+  return { slug: record.slug, institutionType: institutionTypeFromApi(profile?.institution_type ?? record.institutionType) };
 }
 
 /** Forgets what was learnt about schools: on sign-out, so the next person on this browser starts clean. */

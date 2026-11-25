@@ -57,7 +57,7 @@ no mode GUC and no application-settable bypass.
 | `mfa_recovery_codes` | user | `user_id = app_current_user_id()` | 085 | `auth.mfa` |
 | `curriculum_reference_entries` | platform + optional school rows (`tenant_id` nullable); `figbloom_app` SELECT-only via `curriculum_reference_entries_read`; migrator/owner writes | `tenant_id IS NULL OR tenant_id = app_current_tenant_id()` | 079 | `stage910.rlsCatalogue` / FIG-1605 |
 | `he_courses` | tenant | same | 032 | `stage9.academics` |
-| `he_sections` | tenant | same | 032 | `stage9.academics` |
+| `he_sections` | tenant (`SELECT, INSERT` + column-level `UPDATE (instructor_staff_id)`; the instructor is a staff record of the same school by a composite foreign key) | same | 032, 107 | `stage9.academics`, `he.sectionInstructor` |
 | `he_enrolments` | tenant | same | 032 | `stage9.academics` |
 | `he_grades` | tenant | same | 032 | `stage9.academics` |
 | `online_exam_papers` | tenant | same | 032 | `stage9.academics` |
@@ -152,6 +152,16 @@ granted `users` columns (`full_name`, `status`). The per-class filter is applica
 Teacher reads part 2 (`TEACHER-READS.md`, no migration) read `homework_items`, `learning_materials` and `online_exam_papers`
 for the classes the caller teaches, and `inventory_issues` joined to `inventory_items` for the caller's own open issues
 (`GET /me/inventory/issues`), under the same policies; nothing is added or widened.
+
+The school audit log (migration 106, `SCHOOL-AUDIT.md`) adds no table, policy or grant. `security_audit_events` keeps no
+`SELECT` grant for the runtime role; the one read is the `SECURITY DEFINER` function `school_audit_events`, which takes the school
+from `app_current_tenant_id()` and returns only business events, never the `detail` or `ip` columns.
+
+Teacher reads part 3 (migration 107, `TEACHER-READS.md`) adds one nullable column, `he_sections.instructor_staff_id`, with the
+foreign key `(instructor_staff_id, tenant_id)` to `staff_members (id, tenant_id)` (`ON DELETE RESTRICT`) and a column-level
+`UPDATE` grant to `figbloom_app` on that column only. No table, policy or definer function is added. `GET /me/teaching/he-sections`
+and its `/enrolments` roster read `he_sections`, `he_courses`, `academic_terms`, `he_enrolments`, `learners` and `staff_members`
+under the policies above; "the caller is the instructor" is the join to the caller's own active, linked staff record.
 
 My HR (`MY-HR.md`, migration 108) adds the one table above and no function or definer. `/me/hr/*` read it under the tenant policy; every call to Figbloom HR happens after that transaction has committed.
 

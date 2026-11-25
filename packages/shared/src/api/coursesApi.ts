@@ -1,21 +1,25 @@
 import { NotOnApiError } from "../capabilities";
 import type { ActiveLearnerOption } from "../learners";
-import type { CourseSectionRow, EnrolledStudentRow } from "../courses";
+import type { CourseSectionRow, EnrolledStudentRow, InstructorSectionRow } from "../courses";
 import type { Course, CourseSection, Semester } from "../types";
 import { apiClient } from "./client";
 import { userMessage } from "./errors";
 import { API_PAGE_LIMIT, listAllPages } from "./paging";
 import { settlePool } from "./pool";
 import type { components } from "./schema";
-import { listAcademicTerms, listAcademicYears, termFromApi, yearNumberOf } from "./setupApi";
+import { permissionCodes } from "./sessionApi";
+import { listAcademicTerms, listAcademicYears, listTeachers, termFromApi, yearNumberOf } from "./setupApi";
+import { apiMyStaffId, apiStaffNames } from "./teachingLookups";
 
 /**
- * Higher-education courses on apps/api (FIG-327 on Supabase): the API side of courses.ts, for the admin Courses screen.
+ * Higher-education courses on apps/api (FIG-327 on Supabase): the API side of courses.ts, for the admin Courses screen and the
+ * lecturer's "My sections".
  *
  * The API's model is smaller than Supabase's, and the differences are handled here, not in the screens:
  *  - A semester IS an academic term (of an academic year). "Add semester" finds or makes the calendar year, then the term.
  *  - A course is a code, a title and credit hours. It has no department.
- *  - A section is a course in a term with a label. It has no instructor, room, capacity or schedule.
+ *  - A section is a course in a term with a label, and an instructor: a STAFF record of the school (so every instructor id on an
+ *    API build is a staff id, as every teacher id is). It has no room, capacity or schedule.
  *  - An enrolment is a learner in a section, "enrolled" or "withdrawn". It can be made; nothing changes it but a grade call.
  *  - Every higher-education call is refused (400) unless the school's profile says it is a higher-education school.
  * What the API cannot do throws NotOnApiError, and the screen does not offer it (capabilities.ts).
@@ -47,13 +51,10 @@ function listSections(tenantId: string): Promise<HeSection[]> {
   });
 }
 
-/**
- * Every enrolment of the school. The route also takes `sectionId`, but the OpenAPI file does not declare it (so the typed client
- * will not send it): one section's roster is picked out here instead.
- */
-function listEnrolments(tenantId: string): Promise<HeEnrolment[]> {
+/** The enrolments of the school, or of one section (`sectionId`), withdrawn ones included. */
+function listEnrolments(tenantId: string, sectionId?: string): Promise<HeEnrolment[]> {
   return listAllPages(async (cursor) => {
-    const r = await apiClient().get("/v1/tenants/{tenantId}/he-enrolments", { path: { tenantId }, query: { limit: API_PAGE_LIMIT, cursor }, tenantId });
+    const r = await apiClient().get("/v1/tenants/{tenantId}/he-enrolments", { path: { tenantId }, query: { sectionId, limit: API_PAGE_LIMIT, cursor }, tenantId });
     return { items: r.enrolments, page: r.page };
   });
 }
@@ -124,12 +125,16 @@ export async function apiCreateCourse(input: Omit<Course, "id">): Promise<Course
 // ---------------------------------------------------------------- sections
 
 function sectionFromApi(s: HeSection, tenantId: string): CourseSection {
-  return { id: s.id, tenant_id: tenantId, course_id: s.course_id, semester_id: s.term_id, section_label: s.label, instructor_id: null, room: null, capacity: null };
+  return { id: s.id, tenant_id: tenantId, course_id: s.course_id, semester_id: s.term_id, section_label: s.label, instructor_id: s.instructor_staff_id, room: null, capacity: null };
 }
 
-/** The sections of one semester, with their course and how many learners are enrolled. */
+/**
+ * The sections of one semester, with their course, instructor and how many learners are enrolled. The instructor's name comes from
+ * the staff list; a person who may not read it (a teacher holding only the Academics area) gets `null` names, and the screen still
+ * shows who the instructor is by id.
+ */
 export async function apiFetchCourseSections(tenantId: string, semesterId: string): Promise<CourseSectionRow[]> {
-  const [sections, courses, enrolments] = await Promise.all([listSections(tenantId), listCourses(tenantId), listEnrolments(tenantId)]);
+  const [sections, courses, enrolments, staffNames] = await Promise.all([listSections(tenantId), listCourses(tenantId), listEnrolments(tenantId), apiStaffNames(tenantId)]);
   const courseById = new Map(courses.map((c) => [c.id, c]));
   const enrolled = new Map<string, number>();
   for (const e of enrolments) if (e.status === "enrolled") enrolled.set(e.section_id, (enrolled.get(e.section_id) ?? 0) + 1);
@@ -139,30 +144,71 @@ export async function apiFetchCourseSections(tenantId: string, semesterId: strin
       ...sectionFromApi(s, tenantId),
       course_code: courseById.get(s.course_id)?.code ?? "",
       course_name: courseById.get(s.course_id)?.title ?? "",
-      instructor_name: null,
+      instructor_name: (s.instructor_staff_id && staffNames.get(s.instructor_staff_id)) || null,
       enrolled_count: enrolled.get(s.id) ?? 0,
     }))
     .sort((a, b) => a.section_label.localeCompare(b.section_label) || a.course_code.localeCompare(b.course_code));
 }
 
+/**
+ * The sections the signed-in person instructs, across semesters, with course, semester and how many learners are enrolled now
+ * (`GET /me/teaching/he-sections`: the API decides "mine" from the person's own staff record). The API answers for the signed-in
+ * person only, so asking for someone else's sections is not on the API. A section's room and capacity do not exist there.
+ */
+export async function apiFetchInstructorSections(tenantId: string, instructorUserId: string): Promise<InstructorSectionRow[]> {
+  const me = apiClient().store.get()?.userId;
+  if (me && instructorUserId !== me) throw new NotOnApiError("Another person's sections");
+  const [rows, staffId] = await Promise.all([
+    listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/me/teaching/he-sections", { path: { tenantId }, query: { limit: API_PAGE_LIMIT, cursor }, tenantId });
+      return { items: r.sections, page: r.page };
+    }),
+    apiMyStaffId(tenantId),
+  ]);
+  return rows.map((s) => ({
+    id: s.id, tenant_id: tenantId, course_id: s.course_id, semester_id: s.term_id, section_label: s.label,
+    instructor_id: staffId, room: null, capacity: null,
+    course_code: s.course_code, course_name: s.course_title, semester_name: s.term_label, enrolled_count: s.enrolled_count,
+  }));
+}
+
 export async function apiCreateCourseSection(input: Omit<CourseSection, "id">): Promise<CourseSection> {
   if (input.room) throw new NotOnApiError("A section's room");
   if (input.capacity != null) throw new NotOnApiError("A section's capacity");
-  if (input.instructor_id) throw new NotOnApiError("A section's instructor");
   const tid = tenantIdOrThrow(input.tenant_id);
   const made = await apiClient().post("/v1/tenants/{tenantId}/he-sections", {
-    path: { tenantId: tid }, tenantId: tid, body: { course_id: input.course_id, term_id: input.semester_id, label: input.section_label },
+    path: { tenantId: tid }, tenantId: tid,
+    body: { course_id: input.course_id, term_id: input.semester_id, label: input.section_label, ...(input.instructor_id ? { instructor_staff_id: input.instructor_id } : {}) },
   });
   return sectionFromApi(made.section, tid);
 }
 
+/** Names the instructor of a section (a staff id), or takes the instructor off (`null`). */
+export async function apiAssignSectionInstructor(sectionId: string, instructorStaffId: string | null, tenantId?: string): Promise<void> {
+  const tid = tenantIdOrThrow(tenantId);
+  await apiClient().patch("/v1/tenants/{tenantId}/he-sections/{sectionId}", {
+    path: { tenantId: tid, sectionId }, tenantId: tid, body: { instructor_staff_id: instructorStaffId },
+  });
+}
+
+/** The school's teachers as instructor choices (id = staff id), by name. Empty for a person who may not read the staff list. */
+export function apiFetchSchoolTeacherOptions(tenantId: string): Promise<{ id: string; full_name: string }[]> {
+  return listTeachers(tenantId);
+}
+
 // ---------------------------------------------------------------- enrolments
 
-/** Everyone ever enrolled in a section, oldest first, named from the learner list ("withdrawn" is the screens' "dropped"). */
+/**
+ * A section's roster, for two kinds of reader. A person who may read the school's enrolments (the Academics area, an administrator)
+ * gets everyone ever enrolled, oldest first, named from the learner list ("withdrawn" is the screens' "dropped"). Anyone else (a
+ * lecturer) gets the learners enrolled now in a section they instruct, by name, from `/me/teaching`: that read says "not found" for
+ * any other section. The choice is made from the person's permissions, so a lecturer's page never makes a request that is refused.
+ */
 export async function apiFetchEnrollmentsForSection(sectionId: string, tenantId?: string): Promise<EnrolledStudentRow[]> {
   const tid = tenantIdOrThrow(tenantId);
+  if (!(await permissionCodes(tid)).includes("resource.academics.read")) return instructorRoster(tid, sectionId);
   const [enrolments, learners] = await Promise.all([
-    listEnrolments(tid).then((all) => all.filter((e) => e.section_id === sectionId)),
+    listEnrolments(tid, sectionId),
     listAllPages(async (cursor) => {
       const r = await apiClient().get("/v1/tenants/{tenantId}/learners", { path: { tenantId: tid }, query: { limit: API_PAGE_LIMIT, cursor }, tenantId: tid });
       return { items: r.learners, page: r.page };
@@ -178,6 +224,15 @@ export async function apiFetchEnrollmentsForSection(sectionId: string, tenantId?
       admission_no: learnerById.get(e.learner_id)?.admission_no ?? "",
       status: e.status === "enrolled" ? "enrolled" : "dropped",
     }));
+}
+
+/** The learners enrolled now in a section the signed-in person instructs (name and admission number only). */
+async function instructorRoster(tenantId: string, sectionId: string): Promise<EnrolledStudentRow[]> {
+  const rows = await listAllPages(async (cursor) => {
+    const r = await apiClient().get("/v1/tenants/{tenantId}/me/teaching/he-sections/{sectionId}/enrolments", { path: { tenantId, sectionId }, query: { limit: API_PAGE_LIMIT, cursor }, tenantId });
+    return { items: r.enrolments, page: r.page };
+  });
+  return rows.map((e) => ({ enrollment_id: e.id, student_id: e.learner_id, full_name: e.full_name, admission_no: e.admission_no, status: "enrolled" as const }));
 }
 
 /**

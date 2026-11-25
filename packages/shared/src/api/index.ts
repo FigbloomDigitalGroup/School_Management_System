@@ -37,7 +37,7 @@ export {
 } from "./parentApi";
 export { apiAnswerMedicationConsent, type FamilyHealthView, type MedicationAuthorizationView } from "./parentHealthApi";
 export { apiFetchFamilyRides, rideStatusText, ridesFromTransport, type FamilyRide, type RideStatus } from "./parentBusApi";
-export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayReadItems, type MyStaffRecord } from "./otherStaffApi";
+export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayKeepVisitors, staffMayReadItems, type MyStaffRecord } from "./otherStaffApi";
 export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type BloomReadiness, type BloomScope } from "./aiApi";
 export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";
 export { OpenRidersError, isOpenRidersError } from "./fleetApi";
@@ -46,3 +46,4 @@ export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper, apiFetchMyTeachingPai
 export { apiCreateLearningMaterial } from "./materialsApi";
 export { visitFromApi, apiSubscribeVisits } from "./visitorsApi";
 export { apiFetchMyHomework, apiCreateHomework, apiFetchHomeworkSubjectsForClass } from "./homeworkApi";
+export { auditEventFromApi, API_AUDIT_SEARCH_MAX, AUDIT_SYSTEM_ACTOR } from "./auditApi";

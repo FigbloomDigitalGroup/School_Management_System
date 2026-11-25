@@ -2024,16 +2024,39 @@ export interface paths {
         };
         /**
          * List higher-education sections
-         * @description By label. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         * @description By label. Each section carries its `instructor_staff_id` (null when it has none). `courseId` narrows the list to one course. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
          */
         get: operations["listHeSections"];
         put?: never;
-        /** Create a higher-education section */
+        /**
+         * Create a higher-education section
+         * @description A section is a course in a term with a label. The optional `instructor_staff_id` names its instructor, an active staff member of this school (400 otherwise; a staff id of another school is the same 400). Leave it out, or send null, for a section with no instructor yet.
+         */
         post: operations["createHeSection"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/he-sections/{sectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Name, change or clear the instructor of a section
+         * @description Sets `instructor_staff_id` to an active staff member of this school (400 otherwise; a staff id of another school is the same 400), or to null to clear it. The section keeps its course, term and label. Sending the instructor the section already has changes nothing. Needs the same permission as creating a section. A section of another school is 404. Audited with the old and the new staff id.
+         */
+        patch: operations["updateHeSection"];
         trace?: never;
     };
     "/v1/tenants/{tenantId}/he-enrolments": {
@@ -2045,7 +2068,7 @@ export interface paths {
         };
         /**
          * List higher-education enrolments
-         * @description Oldest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         * @description Oldest first, withdrawn enrolments included. `sectionId` narrows the list to one section. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
          */
         get: operations["listHeEnrolments"];
         put?: never;
@@ -5406,6 +5429,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/me/teaching/he-sections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The higher-education sections the caller instructs
+         * @description Teacher reads (docs/TEACHER-READS.md, Part 3). The sections whose instructor is the caller's linked, active staff record, each with its course (code and title), its term (label), its own label and how many learners are enrolled now (an enrolled learner who is still active). Empty for a caller who instructs nothing or has no linked staff record. By course code, then label. Needs `resource.teaching.read` (403 for a parent, a student or a driver). A higher-education school only (400 otherwise), like every `he-*` route. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused); a cursor is bound to the caller.
+         */
+        get: operations["teachingMyHeSections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/teaching/he-sections/{sectionId}/enrolments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The learners enrolled in one section the caller instructs (names only)
+         * @description Teacher reads (docs/TEACHER-READS.md, Part 3). The roster of a section whose instructor is the caller's linked, active staff record: each enrolled learner who is still active, with the enrolment id, the learner id, the name and the admission number. No date of birth, gender, boarding or contacts; withdrawn enrolments and archived learners are not listed. By name. A section that is another lecturer's, another school's or unknown is 404, and the answer does not say which. Needs `resource.teaching.read`. A higher-education school only (400 otherwise). Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         */
+        get: operations["teachingMyHeSectionEnrolments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/me/inventory/issues": {
         parameters: {
             query?: never;
@@ -5418,6 +5481,26 @@ export interface paths {
          * @description Teacher reads (docs/TEACHER-READS.md, "My items"). The caller's own OPEN inventory issues (`holder_user_id` is the caller), newest first, each with the item's name, category and asset tag. Any active member of the school may read their own; no inventory permission is needed, so a teacher or staff member who cannot read the register can still see what they hold. Nothing about another holder, a learner's issue, stock counts, location, cost or notes. An empty list when nothing is issued to the caller. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort; a cursor is bound to the caller.
          */
         get: operations["inventoryMyIssues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/audit-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The school's audit log (business events, newest first)
+         * @description The school audit log (docs/SCHOOL-AUDIT.md), for a full administrator and for whoever holds the Audit area. Business events of THIS school only: people and setup, access changes, academic, financial, health, transport, communication and operations. Sign-in, session and two-step events, refusals, read events, personal settings and every kind of event not listed on purpose are never returned, and neither is the event's `detail` or the IP address: a row says what happened, who did it and when. `category` narrows to one of the eight; `since` is a day, yyyy-mm-dd (from 00:00 UTC); `search` matches who did it and the event's words, case-insensitively, as plain text (no wildcards). Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor` (bound to the school and to every filter), fixed sort (`sort` is refused).
+         */
+        get: operations["schoolAuditEvents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5655,6 +5738,8 @@ export interface components {
             timezone?: string;
             /** Format: uuid */
             organizationId?: string;
+            /** @description The kind of school: k12 or higher_ed (null when the school has no profile yet). Any member who may read the school may read this, so a lecturer's menu can tell a higher-education school; the rest of the profile is for administrators. */
+            institutionType?: ("k12" | "higher_ed") | null;
         };
         /** @enum {string} */
         PlatformSchoolStatus: "active" | "trial" | "onboarding" | "overdue" | "suspended" | "setup_stalled";
@@ -6772,6 +6857,11 @@ export interface components {
             /** Format: uuid */
             term_id: string;
             label: string;
+            /**
+             * Format: uuid
+             * @description The staff record of the section's instructor (migration 107). Null when it has none.
+             */
+            instructor_staff_id: string | null;
             /** Format: date-time */
             created_at: string;
         };
@@ -7217,6 +7307,10 @@ export interface components {
             /** Format: uuid */
             term_id: string;
             label: string;
+            instructor_staff_id?: string | null;
+        };
+        PatchHeSectionRequest: {
+            instructor_staff_id: string | null;
         };
         PostHeEnrolmentsRequest: {
             /** Format: uuid */
@@ -7978,10 +8072,58 @@ export interface components {
             /** Format: uuid */
             class_id: string;
         };
+        /** @enum {string} */
+        SchoolAuditCategory: "provisioning" | "access" | "academic" | "financial" | "health" | "transport" | "communication" | "operations";
+        /** @description One business event of the school. No detail and no IP address. */
+        SchoolAuditEvent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @description The event's name, "<domain>.<thing>.<what happened>", for example `finance.payment.recorded`. */
+            event_type: string;
+            /** @description The event in words, for a person to read. */
+            label: string;
+            category: components["schemas"]["SchoolAuditCategory"];
+            /**
+             * Format: uuid
+             * @description Null for an event the system wrote on its own.
+             */
+            actor_user_id: string | null;
+            /** @description The account's name now; null for a system event or an account that no longer exists. */
+            actor_name: string | null;
+        };
         TeachingColleague: {
             /** Format: uuid */
             staff_member_id: string;
             full_name: string;
+        };
+        TeachingHeSection: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            course_id: string;
+            course_code: string;
+            course_title: string;
+            /** Format: uuid */
+            term_id: string;
+            /** @description The academic term's label (a semester's name on the screens). */
+            term_label: string;
+            /** @description The section's own label ("A", "B"). */
+            label: string;
+            /** @description Learners enrolled now. A withdrawn enrolment and an archived learner are not counted. */
+            enrolled_count: number;
+        };
+        TeachingHeEnrolment: {
+            /**
+             * Format: uuid
+             * @description The enrolment id.
+             */
+            id: string;
+            /** Format: uuid */
+            learner_id: string;
+            full_name: string;
+            admission_no: string;
         };
         ChatOpenConversationRequest: {
             /** Format: uuid */
@@ -13842,6 +13984,7 @@ export interface operations {
     listHeSections: {
         parameters: {
             query?: {
+                courseId?: string;
                 /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
                 limit?: components["parameters"]["PageLimit"];
                 /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
@@ -13917,9 +14060,46 @@ export interface operations {
             422: components["responses"]["IdempotencyKeyReused"];
         };
     };
+    updateHeSection: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                sectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchHeSectionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        section: components["schemas"]["HeSection"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listHeEnrolments: {
         parameters: {
             query?: {
+                sectionId?: string;
                 /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
                 limit?: components["parameters"]["PageLimit"];
                 /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
@@ -23587,6 +23767,84 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    teachingMyHeSections: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sections */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        sections: components["schemas"]["TeachingHeSection"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    teachingMyHeSectionEnrolments: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                sectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The enrolled learners */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        enrolments: components["schemas"]["TeachingHeEnrolment"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     inventoryMyIssues: {
         parameters: {
             query?: {
@@ -23616,6 +23874,47 @@ export interface operations {
                 content: {
                     "application/json": {
                         issues: components["schemas"]["MyInventoryIssue"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    schoolAuditEvents: {
+        parameters: {
+            query?: {
+                category?: components["schemas"]["SchoolAuditCategory"];
+                since?: string;
+                search?: string;
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        events: components["schemas"]["SchoolAuditEvent"][];
                         page: components["schemas"]["PageInfo"];
                     };
                 };
