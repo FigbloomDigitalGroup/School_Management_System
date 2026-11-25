@@ -44,7 +44,7 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 
 ## What works on an API build
 
-- Sign in with **email and password**.
+- Sign in with **email and password**, or with the school's address, a **login ID** and a password (a learner's `ST-0001`); see [student-pages.md](web-on-api/student-pages.md).
 - A password an admin handed out is changed first (`must_change_password`).
 - **Two-step verification**: set up (key, recovery codes shown once, first code) and answer (code or recovery code).
   The API requires it for school admins, org admins, super admins and anyone holding the Fees area.
@@ -80,7 +80,7 @@ is added to it (or moved back into `App.tsx`) as it is ported.
 
 | Not there | Why |
 |---|---|
-| Sign in with a school ID | `POST /v1/auth/login/login-id` takes the school's UUID and there is no public school search or login-ID lookup (FIG-1872) |
+| Sign in with a school ID works once the public school lookup is deployed | the form is there (school address, login ID, password). A public, rate-limited lookup now exists (`GET /v1/public/schools/{slug}`, PR #414, `apps/api/docs/PUBLIC-SCHOOL-LOOKUP.md`) and the form uses it; until that API is deployed the form answers "school not found". See [student-pages.md](web-on-api/student-pages.md) |
 | Password reset by email, accept-invitation page | No email provider is set up (FIG-1872); the reset and invitation tokens are only returned in API responses |
 | A QR code for two-step set-up | The key is shown for typing in, with an `otpauth://` link for a phone. A QR needs a small library; left for a decision |
 | Every other screen | Each area moves over on its own, after its shared module is on the API (FIG-1889 onwards) |
@@ -245,8 +245,9 @@ inside the same 30 seconds needs the next code.
 
 1. `POST /v1/platform/schools` says a single-school organization is made "unless `organization_id` is given", but the
    database function refuses without `organization_name` (a 400 "Invalid request" with no details).
-2. `/v1/auth/me` memberships carry no school slug or name, and there is no lookup by slug, so the client asks
-   `GET /v1/tenants/{id}` for each membership to find the school at `/s/<slug>`. Adding `slug` and `name` to each
+2. `/v1/auth/me` memberships carry no school slug or name, and a signed-in person has no way to go from a membership to
+   its slug (the public lookup `GET /v1/public/schools/{slug}`, PR #414, goes the other way, slug to school, for the
+   login-ID sign-in), so the client asks `GET /v1/tenants/{id}` for each membership to find the school at `/s/<slug>`. Adding `slug` and `name` to each
    membership would remove those calls.
 3. Several answers have no `required` list in the OpenAPI file (`Me`, `TenantRecord`), and the MFA answers are
    `{ [key: string]: unknown }`. The client checks what it reads and types the MFA answers by hand from

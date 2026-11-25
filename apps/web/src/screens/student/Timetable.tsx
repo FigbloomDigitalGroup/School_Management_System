@@ -5,7 +5,7 @@ import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
 import { EmptyState } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
-import { currentPeriodIndex, fetchClassTimetable, fetchStudentSchedule, todayWeekday } from "@figbloom/shared";
+import { currentPeriodIndex, fetchClassTimetable, fetchStudentSchedule, studentCapabilities, todayWeekday } from "@figbloom/shared";
 
 /**
  * The weekly timetable is real per-class data (timetable_slots), fetched
@@ -24,15 +24,18 @@ interface PeriodRow {
 export function StudentTimetable() {
   const { tenant } = useTenantSession();
   const higherEd = tenant.institution_type === "higher_ed";
-  const { data, loading, error } = useStudentData();
-  const { data: timetable, loading: timetableLoading } = useAsync(
+  // A higher-education learner's week is their sections' periods, which the API does not give a learner (finding student-web-4).
+  const noSchedule = higherEd && !studentCapabilities().higherEdPages;
+  const { data, loading, error: studentError } = useStudentData();
+  const { data: timetable, loading: timetableLoading, error: timetableError } = useAsync(
     () => {
-      if (!data) return Promise.resolve(null);
+      if (!data || noSchedule) return Promise.resolve(null);
       if (higherEd) return fetchStudentSchedule(data.studentId);
       return data.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null);
     },
-    [data?.studentId, data?.classId, higherEd],
+    [data?.studentId, data?.classId, higherEd, noSchedule],
   );
+  const error = studentError ?? timetableError;
 
   if (error) {
     return (
@@ -62,6 +65,17 @@ export function StudentTimetable() {
         <PageHead eyebrow="Timetable" title="Timetable" />
         <div className="px-7 py-6">
           <EmptyState title="No learner record" body="This login is not yet linked to a learner record. Contact the school office." />
+        </div>
+      </>
+    );
+  }
+
+  if (noSchedule) {
+    return (
+      <>
+        <PageHead eyebrow="Timetable" title="Timetable" />
+        <div className="px-7 py-6">
+          <EmptyState title="Not on the new system yet" body="Your timetable, made up of the courses you take, is not here yet. Ask at the school office for your times." />
         </div>
       </>
     );

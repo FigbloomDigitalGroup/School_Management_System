@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  apiChangePassword, apiLoginWithEmail, apiLogout, apiMfaChallenge, apiMfaEnroll, apiMfaVerify, apiReauth,
-  continueSignIn, forgetApiSchools, hasSession, isApiError, safeReturnPath, signOutReasonNotice, userMessage,
+  apiChangePassword, apiLoginWithEmail, apiLoginWithSchool, apiLogout, apiMfaChallenge, apiMfaEnroll, apiMfaVerify, apiPasswordProblem, apiReauth,
+  continueSignIn, forgetApiSchools, hasSession, isApiError, safeReturnPath, SchoolNotFoundError, signOutReasonNotice, userMessage,
   type MfaEnrolment, type SignInStep,
 } from "@figbloom/shared";
 import { AuthLayout, type Scene } from "../components/AuthLayout";
@@ -20,9 +20,9 @@ const WELCOME: Scene = {
 type Stage = "checking" | "credentials" | SignInStep;
 
 /**
- * Sign-in on the new API: email and password, then whatever the server asks before it lets the session do anything
- * (a new password if an admin handed one out, two-step verification), then the school's page. The school-ID sign-in of
- * the Supabase build is not here: the API has no public school search yet (FIG-1872), so only email accounts sign in.
+ * Sign-in on the new API: email and password, or the school's address with a login ID and password (a learner's `ST-0001`, or any
+ * login ID the school office hands out; schoolLookupApi.ts turns the address into the school), then whatever the server asks before
+ * it lets the session do anything (a new password if the office handed one out, two-step verification), then the school's page.
  *
  * Where the person is comes from the server each time (continueSignIn), so a reload in the middle of a step, or a
  * session kept from earlier, lands on the right step.
@@ -108,22 +108,38 @@ function CancelLink({ onCancel }: { onCancel: () => void }) {
 
 // ---------------------------------------------------------------- email and password
 
+type SignInMode = "email" | "school";
+
 function CredentialsStep({ onSignedIn }: { onSignedIn: () => Promise<void> }) {
+  const [mode, setMode] = useState<SignInMode>("email");
   const [email, setEmail] = useState("");
+  const [school, setSchool] = useState("");
+  const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const bySchool = mode === "school";
+  const ready = bySchool ? !!school.trim() && !!loginId.trim() && !!password : !!email.trim() && !!password;
+
+  function pick(next: SignInMode) {
+    setMode(next);
+    setError("");
+    setPassword("");
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!email.trim() || !password) return;
+    if (!ready) return;
     setError("");
     setBusy(true);
     try {
-      await apiLoginWithEmail(email.trim(), password);
+      if (bySchool) await apiLoginWithSchool(school, loginId, password);
+      else await apiLoginWithEmail(email.trim(), password);
     } catch (err) {
-      // A wrong email or password is the same answer either way; throttling and outages say what they are.
-      setError(isApiError(err) && err.code === "unauthorized" ? "Check the email and password." : userMessage(err));
+      // A wrong email, login ID or password is the same answer either way; throttling and outages say what they are.
+      if (err instanceof SchoolNotFoundError) setError(err.message);
+      else setError(isApiError(err) && err.code === "unauthorized" ? (bySchool ? "Check the school address, the login ID and the password." : "Check the email and password.") : userMessage(err));
       setBusy(false);
       return;
     }
@@ -132,18 +148,39 @@ function CredentialsStep({ onSignedIn }: { onSignedIn: () => Promise<void> }) {
   }
 
   return (
-    <Card title="Sign in" lead="Use the email and password you were given.">
+    <Card title="Sign in" lead={bySchool ? "Use the school address, login ID and password the school office gave you." : "Use the email and password you were given."}>
+      <div role="group" aria-label="How you sign in" className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-page p-1 text-[12.5px] font-semibold">
+        {([["email", "Email"], ["school", "School login ID"]] as const).map(([m, label]) => (
+          <button
+            key={m} type="button" aria-pressed={mode === m} onClick={() => pick(m)}
+            className={`rounded-md px-3 py-1.5 ${mode === m ? "bg-white text-forest shadow-sm" : "text-ink-muted hover:text-ink"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <form onSubmit={(e) => void submit(e)} className="grid gap-3.5">
-        <TextField id="api-email" label="Email" type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
+        {bySchool ? (
+          <>
+            <TextField
+              id="api-school" label="School address" autoComplete="organization" autoCapitalize="none" spellCheck={false} autoFocus
+              hint="The name in your school's web address, after /s/ (for example alliance)." value={school} onChange={(e) => setSchool(e.target.value)}
+            />
+            <TextField id="api-login-id" label="Login ID" autoComplete="username" autoCapitalize="characters" spellCheck={false} mono value={loginId} onChange={(e) => setLoginId(e.target.value)} />
+          </>
+        ) : (
+          <TextField id="api-email" label="Email" type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
+        )}
         <TextField
           id="api-password" label="Password" type="password" showToggle autoComplete="current-password"
           value={password} onChange={(e) => setPassword(e.target.value)} error={error || undefined}
         />
-        <Button type="submit" variant="primary" block disabled={busy || !email.trim() || !password}>{busy ? "Signing in…" : "Sign in"}</Button>
+        <Button type="submit" variant="primary" block disabled={busy || !ready}>{busy ? "Signing in…" : "Sign in"}</Button>
       </form>
       <p className="mt-4 text-[12px] leading-relaxed text-ink-faint">
-        <Link to="/forgot-password" className="font-medium text-forest hover:underline">Forgot your password?</Link>
-        {" "}Signing in with a school ID is not on the new system yet.
+        {bySchool
+          ? "Forgot your password or login ID? Ask the school office: they can give you a new one."
+          : <Link to="/forgot-password" className="font-medium text-forest hover:underline">Forgot your password?</Link>}
       </p>
     </Card>
   );
@@ -162,6 +199,8 @@ function ChangePasswordStep({ onDone, onCancel }: { onDone: () => Promise<void>;
     e.preventDefault();
     if (next !== again) { setError("The two new passwords are not the same."); return; }
     if (next === current) { setError("Choose a password different from the one you were given."); return; }
+    const weak = apiPasswordProblem(next);
+    if (weak) { setError(weak); return; }
     setError("");
     setBusy(true);
     try {

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { fetchClassMaterials, formatShortDate, groupBySubject, localIsoDate, mediaSummary, type MaterialRow } from "@figbloom/shared";
+import { fetchClassMaterials, formatShortDate, groupBySubject, localIsoDate, mediaSummary, studentCapabilities, type MaterialRow } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
+import { FamilyMaterials } from "../../components/FamilyMaterials";
 import { MediaGlyph, MediaPlayer } from "../../components/Media";
 import { EmptyState } from "../../components/ui/DataTable";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
@@ -92,8 +93,11 @@ export function StudentMaterials() {
           <TableSkeleton rows={4} />
         ) : !data?.classId ? (
           <EmptyState title="No class yet" body="This login isn't linked to a class yet. Contact the school office." />
-        ) : (
+        ) : studentCapabilities().materialFiles ? (
           <ClassMaterials classId={data.classId} emptyBody="When your teachers share notes, worksheets or videos with your class, they'll be here." />
+        ) : (
+          // On the new system the title, subject, date and note are listed; the files wait on file storage.
+          <FamilyMaterials learnerId={data.studentId} first={null} />
         )}
       </div>
     </>

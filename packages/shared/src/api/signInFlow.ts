@@ -45,8 +45,11 @@ async function refuse(message: string): Promise<SignInOutcome> {
  */
 export async function continueSignIn(): Promise<SignInOutcome> {
   const me = viewOfMe(await apiMe());
+  // A password the office handed out is changed first, and until it is the server answers every route but this person's own record, the
+  // sign-out and the password change with 403 "Password change required", the two-step status included: so it is not asked for yet.
+  if (me.user.must_change_password) return { kind: "step", step: "change-password" };
   const mfa = await apiMfaStatus();
-  const step = stepAfterSignIn({ mustChangePassword: me.user.must_change_password, mfa });
+  const step = stepAfterSignIn({ mustChangePassword: false, mfa });
   if (step !== "done") return { kind: "step", step };
 
   const profile = await apiSignInProfile();

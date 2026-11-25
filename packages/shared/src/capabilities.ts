@@ -898,3 +898,45 @@ const AUDIT_ON_API: AuditCapabilities = { fieldChanges: false, everyChange: fals
 export function auditCapabilities(): AuditCapabilities {
   return onApi() ? AUDIT_ON_API : AUDIT_ON_SUPABASE;
 }
+
+/**
+ * The student pages (student/*): what a learner can do on this backend. A flag is true where that backend offers the control. The
+ * API serves a learner the same family reads a parent has, plus their own record, exams and chat (apps/api/docs/STUDENT-ACCOUNTS.md);
+ * what it does not give is listed in docs/web-on-api/student-pages.md (findings student-web-N).
+ */
+export interface StudentCapabilities {
+  /** "Mark as handed in", the Done tab, "overdue" and what was handed in (the API records no hand-in or done state). */
+  homeworkDone: boolean;
+  /** The teacher's worksheets and videos on a piece of work, and attaching a file to hand in (file storage, A5 / FIG-1873). */
+  homeworkFiles: boolean;
+  /** The teacher's name and the hand-in method on a piece of work (the family read has neither: finding parent-5). */
+  homeworkDetails: boolean;
+  /** Opening a learning material's file (file storage, A5 / FIG-1873: the API holds the title and note only). */
+  materialFiles: boolean;
+  /** The live-class banner on Today (online classes are not on the API: C13). */
+  liveClasses: boolean;
+  /** A higher-education learner's timetable and course results (no read of a learner's own sections or grades on the API: student-web-4). */
+  higherEdPages: boolean;
+  /** "Progress over time" under Results (no history read for a learner). */
+  progressOverTime: boolean;
+  /** Missed or excused papers under an exam (not in the learner's read). */
+  examAbsences: boolean;
+  /** Download a report card as a PDF (the learner read gives a summary, not the subject rows; the PDF is made per class). */
+  reportCardPdf: boolean;
+  /** API only: report cards shown as a summary list. */
+  familyReportCards: boolean;
+}
+
+const STUDENT_ON_SUPABASE: StudentCapabilities = {
+  homeworkDone: true, homeworkFiles: true, homeworkDetails: true, materialFiles: true, liveClasses: true, higherEdPages: true,
+  progressOverTime: true, examAbsences: true, reportCardPdf: true, familyReportCards: false,
+};
+
+const STUDENT_ON_API: StudentCapabilities = {
+  homeworkDone: false, homeworkFiles: false, homeworkDetails: false, materialFiles: false, liveClasses: false, higherEdPages: false,
+  progressOverTime: false, examAbsences: false, reportCardPdf: false, familyReportCards: true,
+};
+
+export function studentCapabilities(): StudentCapabilities {
+  return onApi() ? STUDENT_ON_API : STUDENT_ON_SUPABASE;
+}

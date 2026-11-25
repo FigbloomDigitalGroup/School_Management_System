@@ -15,6 +15,7 @@ const areas = Object.keys(files)
 
 export const adminPageDefs: readonly AdminPageDef[] = areas.flatMap((a) => a.admin ?? []);
 export const parentPageDefs = areas.flatMap((a) => a.parent ?? []);
+export const studentPageDefs = areas.flatMap((a) => a.student ?? []);
 export const teacherPageDefs: readonly TeacherPageDef[] = areas.flatMap((a) => a.teacher ?? []);
 export const staffPageDefs: readonly StaffPageDef[] = areas.flatMap((a) => a.staff ?? []);
 
@@ -23,6 +24,9 @@ export const API_ADMIN_PAGES: readonly string[] = ["admin", ...adminPageDefs.fil
 
 /** The parent pages available on the API build: the home, and each registered page. Every other entry of the parent menu is hidden. */
 export const API_PARENT_PAGES: readonly string[] = ["parent", ...parentPageDefs.map((p) => p.path)];
+
+/** The student pages available on the API build: the home ("Today"), and each registered page. Every other entry of the student menu is hidden. */
+export const API_STUDENT_PAGES: readonly string[] = ["student", ...studentPageDefs.map((p) => p.path)];
 
 /** The teacher pages available on the API build. */
 export const API_TEACHER_PAGES: readonly string[] = ["teacher", ...teacherPageDefs.filter((p) => p.inTeacherConsole !== false).map((p) => p.path)];

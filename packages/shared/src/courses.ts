@@ -208,6 +208,8 @@ export async function saveSectionTimetable(
  * sections feed one grid instead of one class.
  */
 export async function fetchStudentSchedule(studentId: string): Promise<Record<Weekday, TimetableRow[]>> {
+  // No read of a learner's own sections on the API (finding student-10): the page says so instead of asking (studentCapabilities().sectionTimetable).
+  if (onApi()) throw new NotOnApiError("A higher-education learner's timetable");
   const { data: enrolled, error } = await supabase()
     .from("enrollments")
     .select("course_section_id")

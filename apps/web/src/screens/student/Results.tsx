@@ -1,6 +1,7 @@
-import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor, loadPublishedCbeResults, pointsFor } from "@figbloom/shared";
+import { againstMean, GRADE_INK, gradeFor, gradingSchemeFor, loadPublishedCbeResults, pointsFor, studentCapabilities } from "@figbloom/shared";
 import { CbeResults } from "../../components/CbeResults";
 import { ExamSwitcher } from "../../components/ExamSwitcher";
+import { FamilyReportCards } from "../parent/FamilyReportCards";
 import { useAsync } from "../../lib/useAsync";
 import { useExamView } from "../../lib/useExamView";
 import type { ResultSubject } from "@figbloom/shared";
@@ -26,6 +27,7 @@ import { LearnerProgress } from "../../components/analytics/LearnerProgress";
  */
 export function StudentResults() {
   const { tenant } = useTenantSession();
+  const can = studentCapabilities();
   const { data, loading, error } = useStudentData();
   // CBE strand results (published assessments), alongside any exam marks.
   const { data: cbeByStudent, loading: cbeLoading } = useAsync(
@@ -35,7 +37,18 @@ export function StudentResults() {
   // The newest exam with results out, or whichever one the learner picks.
   const view = useExamView(data ? { id: data.studentId, classId: data.classId, examId: data.examId, exams: data.exams, subjects: data.subjects } : null);
 
-  if (tenant.institution_type === "higher_ed") return <StudentCourseResults />;
+  if (tenant.institution_type === "higher_ed") {
+    // The API has no read of a higher-education learner's own courses and grades (finding student-web-4).
+    if (can.higherEdPages) return <StudentCourseResults />;
+    return (
+      <>
+        <PageHead eyebrow="Results" title="Results" />
+        <div className="px-7 py-6">
+          <EmptyState title="Not on the new system yet" body="Your course results and GPA are not here yet. Ask at the school office for your results." />
+        </div>
+      </>
+    );
+  }
 
   if (error) {
     return (
@@ -122,12 +135,14 @@ export function StudentResults() {
                 minWidth="640px"
                 columns={[
                   { key: "name", header: "Subject", width: "1.6fr", render: (s: ResultSubject) => <Cell>{s.name}</Cell> },
-                  { key: "score", header: "Score", align: "right", width: "0.7fr", render: (s: ResultSubject) => <Mono>{s.score}</Mono> },
+                  // A paper marked out of something other than 100 says so; the grade and the class mean work in percent.
+                  { key: "score", header: "Score", align: "right", width: "0.7fr", render: (s: ResultSubject) => <Mono>{s.maxScore !== undefined && s.maxScore !== 100 ? `${s.rawScore} / ${s.maxScore}` : s.score}</Mono> },
                   {
                     key: "grade", header: "Grade", align: "right", width: "0.7fr",
+                    // On the API the grade is the one the school's own scheme gave the mark.
                     render: (s: ResultSubject) => (
-                      <span className="font-mono text-[13px] font-semibold" style={{ color: GRADE_INK[gradeFor(s.score, scheme)] }}>
-                        {gradeFor(s.score, scheme)}
+                      <span className="font-mono text-[13px] font-semibold" style={{ color: GRADE_INK[s.grade ?? gradeFor(s.score, scheme)] }}>
+                        {s.grade ?? gradeFor(s.score, scheme)}
                       </span>
                     ),
                   },
@@ -144,7 +159,7 @@ export function StudentResults() {
                 rowKey={(s) => s.name}
                 empty={{ title: "Not published yet", body: "Your results will appear here as soon as the school publishes them." }}
               />
-              <ExamAbsences studentId={data.studentId} examId={view.examId} />
+              {can.examAbsences && <ExamAbsences studentId={data.studentId} examId={view.examId} />}
             </div>
 
             <p className="mt-4 max-w-[620px] text-[12px] leading-relaxed text-ink-faint">
@@ -153,13 +168,17 @@ export function StudentResults() {
             </p>
           </>
         )}
-        {(data.exams.length > 0 || cbe.length > 0) && (
+        {can.progressOverTime && (data.exams.length > 0 || cbe.length > 0) && (
           <section className="mt-6">
             <h2 className="mb-3 text-lead font-semibold">Progress over time</h2>
             <LearnerProgress studentId={data.studentId} meanLabel="Your mean" />
           </section>
         )}
-        {data && <div className="mt-6"><ReportCardDownloads studentId={data.studentId} logoUrl={tenant.logo_url} /></div>}
+        {data && (
+          <div className="mt-6">
+            {can.familyReportCards ? <FamilyReportCards studentId={data.studentId} first={null} /> : <ReportCardDownloads studentId={data.studentId} logoUrl={tenant.logo_url} />}
+          </div>
+        )}
       </div>
     </>
   );

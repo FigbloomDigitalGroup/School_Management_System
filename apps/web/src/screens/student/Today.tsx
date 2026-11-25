@@ -1,4 +1,4 @@
-import { currentPeriodIndex, daysUntil, fetchClassTimetable, formatDueLabel, todayWeekday } from "@figbloom/shared";
+import { currentPeriodIndex, daysUntil, fetchClassTimetable, formatDueLabel, studentCapabilities, todayWeekday } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { PageHead } from "../../components/ConsoleShell";
@@ -14,6 +14,7 @@ import { LiveClassBanner } from "../../components/calls/LiveClasses";
  */
 export function StudentToday() {
   const { profile } = useTenantSession();
+  const can = studentCapabilities();
   const { data, loading, error } = useStudentData();
   const { data: timetable, loading: timetableLoading } = useAsync(
     () => (data?.classId ? fetchClassTimetable(data.classId) : Promise.resolve(null)),
@@ -67,7 +68,8 @@ export function StudentToday() {
   }
 
   const work = data.work;
-  const open = work.filter((w) => w.state !== "done").slice().sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+  // Where nothing records what was handed in, the work still to do is what is due from today on; anything earlier is not claimed to be late.
+  const open = work.filter((w) => w.state !== "done" && (can.homeworkDone || daysUntil(w.dueOn) >= 0)).slice().sort((a, b) => a.dueOn.localeCompare(b.dueOn));
   const overdue = work.filter((w) => w.state === "late");
 
   const day = todayWeekday();
@@ -87,13 +89,13 @@ export function StudentToday() {
           overdue.length > 0
             ? `${overdue.length} piece${overdue.length === 1 ? "" : "s"} of work ${overdue.length === 1 ? "is" : "are"} overdue. Everything else is on track.`
             : open.length > 0
-              ? `${open.length} piece${open.length === 1 ? "" : "s"} of work still to hand in this week.`
-              : "Nothing due this week. A quiet one."
+              ? `${open.length} piece${open.length === 1 ? "" : "s"} of work ${can.homeworkDone ? "still to hand in this week" : "coming up"}.`
+              : can.homeworkDone ? "Nothing due this week. A quiet one." : "No work coming up. A quiet one."
         }
       />
 
       <div className="px-7 py-6">
-        {data.classId && <LiveClassBanner classIds={[data.classId]} />}
+        {can.liveClasses && data.classId && <LiveClassBanner classIds={[data.classId]} />}
         <StatRow
           stats={[
             {
@@ -101,8 +103,12 @@ export function StudentToday() {
               value: nowP ? nowP[1] : "—",
               sub: nowP ? [nowP[2], nowP[3]].filter(Boolean).join(" · ") : day ? "No lesson recorded" : "No school today",
             },
-            { label: "To hand in", value: String(open.length), sub: "across all subjects" },
-            { label: "Overdue", value: String(overdue.length), sub: overdue.length ? "needs handing in" : "all clear", alarming: overdue.length > 0 },
+            can.homeworkDone
+              ? { label: "To hand in", value: String(open.length), sub: "across all subjects" }
+              : { label: "Work coming up", value: String(open.length), sub: "due from today" },
+            ...(can.homeworkDone
+              ? [{ label: "Overdue", value: String(overdue.length), sub: overdue.length ? "needs handing in" : "all clear", alarming: overdue.length > 0 }]
+              : []),
           ]}
         />
 
