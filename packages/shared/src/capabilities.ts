@@ -273,7 +273,7 @@ export function timetableCapabilities(): TimetableCapabilities {
 export interface CoursesCapabilities {
   /** A course's department (the API's course is a code, a title and credit hours). */
   courseDepartment: boolean;
-  /** Naming a section's instructor (a section has none in the API). */
+  /** Naming a section's instructor (a staff record; `PATCH /he-sections/{id}`, migration 107). */
   sectionInstructor: boolean;
   /** A section's room and capacity. */
   sectionRoomAndCapacity: boolean;
@@ -281,7 +281,7 @@ export interface CoursesCapabilities {
   sectionSchedule: boolean;
   /** Dropping a student from a section (an enrolment can be made, not ended). */
   dropEnrolment: boolean;
-  /** "My sections" for a lecturer: needs the instructor of a section. */
+  /** "My sections" for a lecturer (`GET /me/teaching/he-sections`, which needs the instructor of a section). */
   mySections: boolean;
 }
 
@@ -289,7 +289,7 @@ const COURSES_ON_SUPABASE: CoursesCapabilities = {
   courseDepartment: true, sectionInstructor: true, sectionRoomAndCapacity: true, sectionSchedule: true, dropEnrolment: true, mySections: true,
 };
 const COURSES_ON_API: CoursesCapabilities = {
-  courseDepartment: false, sectionInstructor: false, sectionRoomAndCapacity: false, sectionSchedule: false, dropEnrolment: false, mySections: false,
+  courseDepartment: false, sectionInstructor: true, sectionRoomAndCapacity: false, sectionSchedule: false, dropEnrolment: false, mySections: true,
 };
 
 export function coursesCapabilities(): CoursesCapabilities {

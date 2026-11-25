@@ -58,7 +58,7 @@ export async function listApiSubjects(tenantId: string): Promise<ApiSubject[]> {
 }
 
 /** The school's teachers, by name. A person who may not read the staff list (a teacher holding only Academics) gets an empty list, not an error: the screens then show every teacher as unassigned. */
-async function listTeachers(tenantId: string): Promise<TeacherOption[]> {
+export async function listTeachers(tenantId: string): Promise<TeacherOption[]> {
   try {
     const staff: StaffMember[] = await listAllPages(async (cursor) => {
       const r = await apiClient().get("/v1/tenants/{tenantId}/staff", { path: { tenantId }, query: { active: true, limit: API_PAGE_LIMIT, cursor }, tenantId });
