@@ -24,7 +24,7 @@ import { financeHarness } from "./support/financeHarness.js";
  * | src/worker/index.ts               | 1 | worker configuration                               | startup     | n/a (not an HTTP path) |
  */
 const EXPECTED: Record<string, number> = {
-  "config.ts": 34, // +3 startup refusals (088): MFA; +1 startup refusal (PayHero HTTPS callback URL outside local/test); +1 (MFA attempt limit looser than the default in staging/production)
+  "config.ts": 35, // +3 startup refusals (088): MFA; +1 startup refusal (PayHero HTTPS callback URL outside local/test); +1 (MFA attempt limit looser than the default in staging/production); +1 (My HR: PLATFORM_TOKEN_URL / PLATFORM_API_URL / HR_MY_HR_URL set but not an https address)
   "db/migrate.ts": 7,
   "db/pool.ts": 2,
   "db/roleAssert.ts": 14,

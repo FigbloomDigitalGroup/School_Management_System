@@ -20,6 +20,7 @@ redirect to the visitor log, the sick bay or Notices, and not all of those run o
 | `staff/chats` | The same list and thread as `teacher/chats` (`MyChats role="staff"`). A staff member cannot read the staff list, so chats show "Someone at the school" and they cannot start one (finding 29) |
 | `staff/leave` | The school's own leave form (the teacher's `Leave` screen): request, history, withdraw. Supabase gave other staff a Leave page only where the school's leave is Figbloom HR's; on the API there is no HR handoff, so the school's form is the one page for everyone |
 | `staff/account` | **My account**: details (read-only), password, two-step status, and "How we reach you" (a staff member has "General school notices" and "Chat messages"). Same sections as `admin/account` and `teacher/account` (`AccountSections`). The avatar menu's "My account" now works for staff |
+| `staff/visitors` | **Only for staff who hold the Visitors area**: the gate's and reception's visitor log (`StaffVisitors` → `DeskVisitors`, the same screen as on Supabase). Record a visitor at the gate or the office, move them along (taken to host, signed out), see the day's log. The data side is the visitors slice (`docs/web-on-api/visitors.md`). Escalating after arrival is hidden there (visitors-2), and the host and learner pickers are limited for this role (visitors-3) |
 | `staff/items` | **Only for staff who hold the Inventory area** (see below) |
 
 ## What is hidden on the API build, and why
@@ -28,9 +29,9 @@ redirect to the visitor log, the sick bay or Notices, and not all of those run o
 
 | Hidden | Why | Turns on when |
 |---|---|---|
-| `staff/visitors` | the visitors module (`visitors.ts`) has no API side yet (`gate-visits`) | the visitors slice merges: add `staff/visitors` to `staff` in `apps/web/src/api/pages/staff-shell.pages.tsx` (for people holding the Visitors area: give it a `when`; `StaffVisitors` already checks it) |
+| `staff/visitors` for a staff member **without** the Visitors area | the Visitors area gives `resource.visitor.read` and `.write`; without it the API shows a person only the visits they host (the teacher's page), and the Supabase app hides the page the same way. The page shows for holders of the area (`staffMayKeepVisitors`) | the school gives them the Visitors area |
 | `staff/items` for a staff member **without** the Inventory area | `GET /inventory/issues` needs `resource.inventory.read`, which only the Inventory area gives (finding 13); the plain staff role is refused (403). The page shows for holders of the area (`staffMayReadItems`) | the API lets a person read their own issued items (finding staff-1) |
-| `staff/loans` | **no backend on either build.** The Supabase page is a preview with sample data (it saves nothing, shows made-up history and a fixed borrowing limit). Hidden by the owner's decision on Nov 25. It is not an HR matter | not planned |
+| `staff/loans` | **no loans exist anywhere, not even on Supabase.** `staff/Loans.tsx` is a preview: a fixed borrowing limit and three sample loans, and a request lives only until the page reloads. On the API build it would show made-up loans to a real person, so it stays hidden. This is not the HR product (C13): the reason on `teacher/loans` is the same. Owner decision, 25 November 2026: leave it hidden | someone designs loans as a product (who approves, how repayments come off pay, where it is stored) |
 | `staff/my-hr` | not hidden by the build any more: it is shown **only while the API's My HR status is `available`**, and that is off by default (the owner switches it on and links schools). See [my-hr.md](my-hr.md) | the owner switches it on and links the school |
 
 ## What a plain staff account can and cannot do
@@ -42,6 +43,12 @@ Checked on a real API as a staff account with no admin areas, and as one holding
   inbox; use chats; open the account page (details, password form, notification switches).
 - **Cannot** (all 403): read the staff list, learners, classes or academic terms; read the inventory register or issues (an Inventory
   area holder can: that is why My items is theirs, and they can open the admin Inventory and Leave pages). They have no admin console.
+- **Holding only the Visitors area** (checked 25 November 2026 on a real API, a staff account with that one area): the whole visitors
+  page works. Open `staff/visitors`, record a walk-in for the office, take them to their host, sign them out (`GET` and `POST`
+  `/gate-visits` and `/advance` all answer 200). The staff list, learners and classes still answer 403, so the **"A member of staff"
+  picker is empty** ("Pick a member of staff", nobody to pick) and the **learner lookup finds no one**: a desk person can record a visit
+  for the office or the principal but not for a named teacher or a named learner (visitors-3). Without the area the page is not in the
+  menu, and its address sends the person back to the staff home.
 - **Cannot change their own name, phone or photo** (not on the API, see the account section), and cannot set up two-step: the server
   does not ask staff for it.
 - A staff sign-in that is **not linked to a staff record** (finding 36: an invited person is not joined to their record) opens the
@@ -49,12 +56,12 @@ Checked on a real API as a staff account with no admin areas, and as one holding
 
 ## Where the code is
 
-- `apps/web/src/api/pages/staff-shell.pages.tsx`: the staff pages (`staff/notices`, `staff/chats`, `staff/leave`, `staff/account`,
-  `staff/items`). `pages/types.ts` has a `staff` list for them (`StaffPageDef`, with an optional `when` on the person's admin areas),
+- `apps/web/src/api/pages/staff-shell.pages.tsx`: the staff pages (`staff/visitors`, `staff/notices`, `staff/chats`, `staff/leave`,
+  `staff/account`, `staff/items`). `pages/types.ts` has a `staff` list for them (`StaffPageDef`, with an optional `when` on the person's admin areas),
   and `pages/index.ts` builds `API_STAFF_PAGES` and `staffPagesFor(adminAreas)` from it.
 - `apps/web/src/api/ApiConsole.tsx`: the shell's part: `StaffPage` (menu, job title, the Staff | Admin switch) and `staffRoutes`.
   `apps/web/src/api/ApiStaffHome.tsx`: the staff home.
-- `packages/shared/src/api/otherStaffApi.ts`: the person's own staff record (`GET /staff/me`) and `staffMayReadItems`.
+- `packages/shared/src/api/otherStaffApi.ts`: the person's own staff record (`GET /staff/me`), `staffMayReadItems` and `staffMayKeepVisitors`.
 
 ## API findings: staff (numbered `staff-1` and `staff-2` so that no other slice shares a number)
 

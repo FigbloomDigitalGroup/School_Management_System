@@ -68,8 +68,8 @@ describe("OA-1 static contract", () => {
       if (rb && rb.additionalProperties === true) bad.push(`${key}: request body allows arbitrary properties`);
     }
     expect(bad).toEqual([]);
-    // 84 + migration 101: PATCH subject, PATCH class, class archive, PATCH teaching assignment, its archive.
-    expect(stage910Ops().length).toBe(89);
+    // 84 + migration 101: PATCH subject, PATCH class, class archive, PATCH teaching assignment, its archive; + migration 107: PATCH he-section.
+    expect(stage910Ops().length).toBe(90);
   });
 });
 
@@ -234,8 +234,10 @@ describe("OA-1 runtime conformance tour", () => {
     // higher education + online assessment
     const courseId = (await call("POST", `${T}/he-courses`, v, { code: "TOUR101", title: "Tour course", credit_hours: 3 })).course.id;
     await call("GET", `${T}/he-courses`, v);
-    const sectionId = (await call("POST", `${T}/he-sections`, v, { course_id: courseId, term_id: v.termId, label: "A" })).section.id;
+    const sectionId = (await call("POST", `${T}/he-sections`, v, { course_id: courseId, term_id: v.termId, label: "A", instructor_staff_id: null })).section.id;
+    v.sectionId = sectionId;
     await call("GET", `${T}/he-sections`, v);
+    await call("PATCH", `${T}/he-sections/{sectionId}`, v, { instructor_staff_id: staff.json().staff.id });
     v.enrolmentId = (await call("POST", `${T}/he-enrolments`, v, { section_id: sectionId, learner_id: v.learnerId })).enrolment.id;
     await call("GET", `${T}/he-enrolments`, v);
     await call("POST", `${T}/he-enrolments/{enrolmentId}/grade`, v, { score: 60, grade: "B" });

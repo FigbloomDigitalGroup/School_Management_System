@@ -1,4 +1,5 @@
 import { apiFetchAccessPeople, apiFetchStaffAreas, apiSetStaffAreas } from "./api/accessApi";
+import { apiFetchSchoolTeacherOptions } from "./api/coursesApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
@@ -324,8 +325,9 @@ export async function fetchSchoolStaffNames(tenantId: string): Promise<Map<strin
   return new Map((data ?? []).map((p) => [p.id, p.full_name]));
 }
 
-/** Teachers at a school (`id`, `full_name`), ordered by name. */
+/** Teachers at a school (`id`, `full_name`), ordered by name. On the API the id is the teacher's STAFF id (what a section's instructor is). */
 export async function fetchSchoolTeacherOptions(tenantId: string): Promise<{ id: string; full_name: string }[]> {
+  if (onApi()) return apiFetchSchoolTeacherOptions(tenantId);
   const { data, error } = await supabase()
     .from("profiles")
     .select("id, full_name")

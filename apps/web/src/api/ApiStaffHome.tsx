@@ -37,8 +37,10 @@ export function ApiStaffHome({ session, pages }: { session: SchoolSession; pages
   }
 
   const open = NAV.staff.filter((i) => pages.includes(i.to));
-  const notYet = NAV.staff.filter((i) => !pages.includes(i.to) && i.to !== "staff/items").map((i) => i.label);
+  // My items and Visitors are in the menu only for people holding the area (see staff-shell.pages.tsx): that is not "not yet".
+  const notYet = NAV.staff.filter((i) => !pages.includes(i.to) && i.to !== "staff/items" && i.to !== "staff/visitors").map((i) => i.label);
   const itemsHidden = !pages.includes("staff/items");
+  const visitorsHidden = !pages.includes("staff/visitors");
   const title = staff?.staff_title ?? null;
 
   return (
@@ -103,7 +105,8 @@ export function ApiStaffHome({ session, pages }: { session: SchoolSession; pages
 
         <p className="mt-6 rounded-xl border border-line bg-page px-5 py-4 text-[13px] leading-relaxed text-ink-muted">
           {notYet.length > 0 && <>Not in your menu on the new system: {notYet.join(", ")}. </>}
-          {itemsHidden && <>My items shows for staff who hold the Inventory area.</>}
+          {itemsHidden && <>My items shows for staff who hold the Inventory area. </>}
+          {visitorsHidden && <>Visitors shows for staff who hold the Visitors area.</>}
         </p>
       </div>
     </>
