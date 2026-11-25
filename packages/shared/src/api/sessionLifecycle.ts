@@ -37,14 +37,23 @@ export function sessionExpiryWarningMinutes(
 
 /**
  * Validates a post-sign-in return path so open redirects are impossible.
- * Only accepts in-app school routes (`/s/<slug>...`), never protocol-relative `//` or external URLs.
+ * Accepts in-app console routes (`/s/<slug>...`, `/org/<slug>...`, `/org-picker`, `/platform/...`),
+ * never protocol-relative `//` or external URLs.
  */
-export function safeReturnPath(raw: string | null | undefined, expectedSchoolPrefix?: string): string | null {
+export function safeReturnPath(raw: string | null | undefined, expectedPrefix?: string): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
-  if (!trimmed.startsWith("/s/") || trimmed.startsWith("//") || trimmed.includes("\\")) return null;
-  if (expectedSchoolPrefix) {
-    const base = expectedSchoolPrefix.replace(/\/+$/, "");
+  const isConsole =
+    trimmed.startsWith("/s/") ||
+    trimmed.startsWith("/org/") ||
+    trimmed === "/org-picker" ||
+    trimmed.startsWith("/platform/") ||
+    trimmed === "/platform";
+  if (!isConsole || trimmed.startsWith("//") || trimmed.includes("\\")) return null;
+  if (expectedPrefix) {
+    const rawBase = expectedPrefix.replace(/\/+$/, "");
+    // Platform home is `/platform/tenants`, but any `/platform/...` page belongs to the same console.
+    const base = rawBase.startsWith("/platform/") ? "/platform" : rawBase;
     if (trimmed !== base && !trimmed.startsWith(`${base}/`) && !trimmed.startsWith(`${base}?`)) return null;
   }
   return trimmed;

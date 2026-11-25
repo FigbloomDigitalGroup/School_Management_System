@@ -23,9 +23,15 @@ import { Modal } from "../components/ui/Modal";
  * - Signs out after 15 minutes of inactivity without clearing form drafts, redirecting to
  *   `/signin?reason=idle&next=...` so signing back in returns to the exact page.
  */
-/** A signed-in console page: a school's (`/s/...`) or an organisation's (`/org/...`, `/org-picker`, S11). */
+/** A signed-in console page: a school's (`/s/...`), an organisation's (`/org/...`, `/org-picker`, S11) or the platform console (`/platform/...`, P2). */
 function inConsole(path: string): boolean {
-  return path.startsWith("/s/") || path.startsWith("/org/") || path.startsWith("/org-picker");
+  return (
+    path.startsWith("/s/") ||
+    path.startsWith("/org/") ||
+    path.startsWith("/org-picker") ||
+    path === "/platform" ||
+    path.startsWith("/platform/")
+  );
 }
 
 export function ApiSessionGuard({ children }: { children: ReactNode }) {

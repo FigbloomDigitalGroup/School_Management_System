@@ -225,7 +225,10 @@ export type SecurityEventType =
   | "finance.bank_line.ignored"
   | "reporting.teacher_report.created"
   | "reporting.teacher_report.updated"
-  | "reporting.teacher_report.reviewed";
+  | "reporting.teacher_report.reviewed"
+  | "platform.organization.admins_read"
+  | "platform.school.admins_read"
+  | "platform.audit.read";
 
 export async function recordSecurityEvent(
   db: Db,

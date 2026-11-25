@@ -7,6 +7,7 @@ import { ApiForgotPassword, ApiResetPassword } from "./ApiPasswordReset";
 import { ApiSessionGuard } from "./ApiSessionGuard";
 import { ApiSignIn } from "./ApiSignIn";
 import { orgRoutes } from "./ApiOrgRoutes";
+import { platformRoutes } from "./ApiPlatformRoutes";
 
 /**
  * The web app on a build made for the new API (VITE_BACKEND=api, FIG-1890). It is deliberately not the Supabase app with
@@ -27,6 +28,7 @@ export function ApiApp() {
           <Route path="/reset-password" element={<ApiResetPassword />} />
           <Route path="/s/:slug/*" element={<ApiSchool />} />
           {orgRoutes}
+          {platformRoutes}
           <Route path="*" element={<Navigate to="/signin" replace />} />
         </Routes>
       </ApiSessionGuard>
