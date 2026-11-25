@@ -32,6 +32,10 @@ This closes findings 42 and 43 of the Timetable, My classes and Courses area, ex
   roster: everyone ever enrolled, "withdrawn" shown as dropped. Anyone else (a lecturer) gets the learners enrolled now in a section they
   instruct, from `/me/teaching`. The choice is made from `GET /v1/rbac/permissions`, so a lecturer's page never sends a request
   that is refused.
+- **The menu needs to know the school is a higher-education school.** Only an administrator may read the school profile, so the
+  session takes the kind of school from the school record (`institutionType` on `GET /v1/tenants/{id}`, which every member reads);
+  the profile still wins when it can be read. Without it a lecturer's school came out as K-12 and "My sections" was left out of
+  their menu (finding `sections-7`). By the shared `homeRouteFor` rule the same fix also sends a lecturer to "My sections" after sign-in, as on the Supabase build.
 - The semester column is the term's label, the same name the Semesters tab shows.
 - **Counts differ in one case.** A lecturer's count and roster leave out an archived learner. The admin Sections list counts every
   `enrolled` enrolment, because it counts them itself from the school-wide list (finding `sections-1`).
@@ -60,5 +64,9 @@ This closes findings 42 and 43 of the Timetable, My classes and Courses area, ex
   "Drop" stays hidden, and a learner who left a course stays on the roster until their record is archived.
 - **sections-5. No sign-in, no page.** A section can name a staff member who has no sign-in (a visiting lecturer); nothing says so on the
   Sections tab. The picker could mark teachers who cannot sign in.
+- **sections-7. A non-administrator could not learn the kind of school.** The profile read needs `resource.school_profile.read`, which
+  only an administrator holds, so a lecturer's session said "K-12". Found in the browser check. Fixed in API PR #406: the school record
+  carries `institutionType`. The same gap hides every other higher-education-only or K-12-only page for a teacher, parent or staff
+  member, so this is worth knowing about for the other areas.
 - **sections-6 (owner's decisions, API Part 3).** Who may name an instructor (today the Academics area, as for creating a section), and
   whether a lecturer's roster may show the admission number (it does now).
