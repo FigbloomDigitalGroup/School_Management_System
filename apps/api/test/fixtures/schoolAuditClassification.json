@@ -76,6 +76,7 @@
   "auth.password.reset_issued": "access",
   "auth.password.reset_requested": "hidden",
   "auth.reauthenticated": "hidden",
+  "auth.school_lookup.missed": "hidden",
   "auth.session.minted": "hidden",
   "auth.tenant.selected": "hidden",
   "communications.announcement.created": "communication",

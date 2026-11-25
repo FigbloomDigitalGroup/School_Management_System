@@ -4,6 +4,8 @@ import { normalizeIp } from "../../http/ip.js";
 export type SecurityEventType =
   | "auth.login.success"
   | "auth.login.failure"
+  // Public school lookup (docs/PUBLIC-SCHOOL-LOOKUP.md): an address that is unknown or not open for sign-in. No tenant.
+  | "auth.school_lookup.missed"
   | "auth.logout"
   | "auth.session.revoked"
   | "auth.tenant.selected"
