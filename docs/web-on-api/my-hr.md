@@ -59,8 +59,9 @@ my-hr-2. **Nobody registers a school with the platform on the API yet.** There i
     decides, an operator links each school with one SQL statement (API doc, "Linking a school"). Nothing in the API records that HR is not on
     for a school (Supabase learns it from the hand-off), so a linked school reads `available` and HR answers per call.
 
-my-hr-3. **The status is one small request per console load**, kept for 60 seconds per person (`useMyHrStatus`). A school with the proxy off pays
-    one `GET .../me/hr/status` per page load of the teacher, staff and admin consoles, answered from the database only.
+my-hr-3. **The status is a few small requests per page load.** `useMyHrStatus` keeps an answer for 60 seconds per person, but only once it has
+    arrived, so the shell, the gate and the screen each ask on a fresh load (2 to 4 calls seen in the browser pass). Each is answered from the
+    database only. Sharing one in-flight request in `useMyHr.ts` would make it one.
 
 my-hr-4. **A teacher who holds admin areas has no teacher console on the API build**, so their My HR entry (a teacher entry) is not in their menu:
     the page is reachable by address (`teacher/my-hr`) and gated the same way. This is the same gap every teacher page has for them; it closes
@@ -71,5 +72,17 @@ my-hr-5. **HR's answers are passed through, not described.** The API documents t
 
 ## What was verified, and what was not
 
-Verified: unit tests for the API calls and the menu rule; typecheck of shared, web and mobile; the API side against a fake HR. **Not** verified:
-anything against a real HR, a real platform or real credentials (none were used); the page with real HR data.
+Verified:
+
+- Unit tests: `myHrApi.test.ts` (14: every state, each route, each refusal) and `myHrNav.test.ts` (4), with the neighbouring My HR, errors, leave and
+  staff tests (69 in all); typecheck of shared, web, web tests and mobile.
+- One browser pass (Edge, headless) against a throwaway API (Postgres 16 container, the API built from the API branch, migrated, seeded) and a fake
+  HR on this machine: **off** (nothing set): the teacher has no My HR entry and the address goes back home (3 checks). **On**, school linked: the
+  teacher's entry, her summary, the three payslips, one payslip laid out from HR's figures, the leave, attendance and KPI tabs, no script errors; a
+  staff member's and the school admin's entries (and the admin's page); a school with no link has no entry and its address is closed (14 checks).
+  **Link removed**: the entry is gone and the address is closed (2 checks).
+- The Supabase build against the local demo (read only): the admin console loads, My HR is hidden by that build's own shell, the page by address
+  shows its own note, no script errors and no `my-hr` function call (4 checks).
+
+**Not** verified: anything against a real HR, a real platform or real credentials (none were used); the page with real HR data; the phone app (it
+compiles against the shared code and has no My HR screen).
