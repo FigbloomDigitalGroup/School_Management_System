@@ -12,7 +12,28 @@ Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md) and implementing 
 - **P3 (done on `feature/web-api-platform-console`)**:
   - Migration `apps/api/migrations/111_platform_organizations_and_admins_read.sql` (`platform.organizations.read`, `platform.tenants.admins.read`, `super_admin` only).
   - API routes: `GET /v1/platform/organizations`, `GET /v1/platform/organizations/{organizationId}`, `GET /v1/platform/organizations/{organizationId}/admins` (audited `platform.organization.admins_read`), `GET /v1/platform/schools/{schoolId}/admins` (audited `platform.school.admins_read`).
-  - Web: `platform/organizations` (`ApiPlatformOrganizations.tsx`) showing all organizations, their administrators, and their member schools; plus the **School administrators** panel on `platform/tenants`. `platformCapabilities()` now enables `organizationsPage` and `tenantAdminsPanel`.
+  - Web: `platform/organizations` (`ApiPlatformOrganizations.tsx`) showing all organizations, their administrators, and their member schools; plus the **School administrators** panel on `platform/tenants`. `platformCapabilities()` enables `organizationsPage` and `tenantAdminsPanel`.
+- **P4 (done on `feature/web-api-platform-console`)**:
+  - Migration `apps/api/migrations/112_platform_usage_counts.sql` (`platform.usage.read`, `public.platform_usage_counts()` counts-only `SECURITY DEFINER`, registered in `SECURITY-DEFINER-INVENTORY.md` + `securityDefiner.test.ts`).
+  - API route: `GET /v1/platform/usage`.
+  - Web: `platform/usage` (`ApiPlatformUsage.tsx`), `usagePage: true` in `platformCapabilities()`.
+- **P5 (done on `feature/web-api-platform-console`)**:
+  - Migration `apps/api/migrations/113_platform_audit_read.sql` (`platform.audit.read`, `public.platform_audit_events(...)` `SECURITY DEFINER`, never returns `ip` or `detail`, registered in `SECURITY-DEFINER-INVENTORY.md` + `securityDefiner.test.ts`).
+  - API route: `GET /v1/platform/audit-events` (reading is itself audited as `platform.audit.read`).
+  - Web: `platform/audit` (`ApiPlatformAudit.tsx`), `auditPage: true` in `platformCapabilities()`.
+
+## Remaining work (blocked on owner decisions Q1–Q8)
+
+All unblocked slices (**P1–P5**) are now implemented. Remaining platform console pages wait on owner answers to section 6 of `apps/api/docs/PLATFORM-CONSOLE.md`:
+
+- **Q1**: School & organization lifecycle ownership (this console vs `console.figbloom.org`) — suspend, reactivate, approve, move org (note Risk R5 delegation FK).
+- **Q2**: Billing ownership (`platform/subscriptions`, `platform/invoices`, licensed seat caps).
+- **Q3**: Impersonation / bounded support sessions (`platform/impersonation`).
+- **Q4**: Incidents (`platform/incidents` vs external status/ops).
+- **Q5**: Audit retention policy (7-year immutability claim).
+- **Q6**: Curriculum verification (`platform/curriculum`, D-5).
+- **Q7**: Live external provider checks on `platform/health`.
+- **Q8**: Super-admin + org-admin dual accounts (Risk R4).
 
 ## What works in P2
 

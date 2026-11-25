@@ -41,6 +41,7 @@ export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayKeepVisitors, staf
 export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type BloomReadiness, type BloomScope } from "./aiApi";
 export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";
 export {
+  apiFetchPlatformAuditEvents,
   apiFetchPlatformOpsStatus,
   apiFetchPlatformOrganization,
   apiFetchPlatformOrganizationAdmins,
@@ -48,6 +49,7 @@ export {
   apiFetchPlatformSchool,
   apiFetchPlatformSchoolAdmins,
   apiFetchPlatformSchools,
+  apiFetchPlatformUsage,
   apiLoadPlatformSession,
   apiProvisionSchool,
   parsePlatformOpsStatus,
@@ -60,10 +62,14 @@ export {
   type OpsUnmatchedCasesStatus,
   type OpsWorkerStatus,
   type PlatformAdminItem,
+  type PlatformAuditEventItem,
+  type PlatformAuditPage,
   type PlatformOpsStatus,
   type PlatformOrganizationItem,
   type PlatformSchoolItem,
   type PlatformSchoolOrganization,
+  type PlatformUsageSchoolItem,
+  type PlatformUsageSummary,
   type ProvisionSchoolInput,
   type ProvisionSchoolResult,
 } from "./platformApi";

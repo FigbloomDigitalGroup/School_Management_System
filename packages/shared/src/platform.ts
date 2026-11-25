@@ -1,9 +1,11 @@
 import type { FunctionInvokeOptions } from "@supabase/supabase-js";
 import {
+  apiFetchPlatformAuditEvents,
   apiFetchPlatformOrganizationAdmins,
   apiFetchPlatformOrganizations,
   apiFetchPlatformSchoolAdmins,
   apiFetchPlatformSchools,
+  apiFetchPlatformUsage,
   platformOrganizationToOrg,
   platformSchoolToTenant,
 } from "./api/platformApi";
@@ -621,7 +623,13 @@ export interface PlatformUsageRow {
 }
 
 export async function fetchPlatformUsage(): Promise<PlatformUsageRow[]> {
-  if (onApi()) throw new NotOnApiError("Platform usage and capacity");
+  if (onApi()) {
+    const usage = await apiFetchPlatformUsage();
+    return usage.items.map((r) => ({
+      tenant: { id: r.tenantId, name: r.name, slug: r.slug, licensed_seats: 0, status: r.status },
+      inUse: r.activeLearners + r.activeStaff,
+    }));
+  }
   const sb = supabase();
   const [{ data: tenants, error: e1 }, { data: counts, error: e2 }] = await Promise.all([
     sb.from("tenants").select("id,name,slug,licensed_seats,status").order("name").returns<PlatformUsageRow["tenant"][]>(),
@@ -769,7 +777,17 @@ export interface PlatformAuditRow { id: string; created_at: string; actor_label:
 
 /** The last 200 events across every school, newest first. */
 export async function fetchPlatformAudit(): Promise<PlatformAuditRow[]> {
-  if (onApi()) throw new NotOnApiError("Platform audit trail");
+  if (onApi()) {
+    const page = await apiFetchPlatformAuditEvents({ limit: 200 });
+    return page.items.map((e) => ({
+      id: e.id,
+      created_at: e.occurredAt,
+      actor_label: e.actorName ?? e.actorUserId ?? "system",
+      event: e.eventType,
+      category: e.eventType.split(".")[0] ?? "platform",
+      tenant_name: e.schoolName,
+    }));
+  }
   const { data, error } = await supabase()
     .from("audit_events")
     .select("id,created_at,actor_label,event,category,tenants(name)")

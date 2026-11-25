@@ -225,7 +225,8 @@ export type SecurityEventType =
   | "reporting.teacher_report.updated"
   | "reporting.teacher_report.reviewed"
   | "platform.organization.admins_read"
-  | "platform.school.admins_read";
+  | "platform.school.admins_read"
+  | "platform.audit.read";
 
 export async function recordSecurityEvent(
   db: Db,

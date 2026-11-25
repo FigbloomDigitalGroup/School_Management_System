@@ -192,6 +192,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/platform/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPlatformUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/audit-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPlatformAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/invitations": {
         parameters: {
             query?: never;
@@ -6054,6 +6086,42 @@ export interface components {
             items: components["schemas"]["PlatformAdminSummary"][];
             page: components["schemas"]["PageInfo"];
         };
+        PlatformUsageItem: {
+            /** Format: uuid */
+            tenantId: string;
+            name: string;
+            slug: string;
+            status: components["schemas"]["PlatformSchoolStatus"];
+            activeLearners: number;
+            activeStaff: number;
+            activeGuardianLinks: number;
+        };
+        PlatformUsageResponse: {
+            items: components["schemas"]["PlatformUsageItem"][];
+            totals: {
+                schools: number;
+                activeLearners: number;
+                activeStaff: number;
+                activeGuardianLinks: number;
+            };
+        };
+        PlatformAuditEvent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            occurredAt: string;
+            eventType: string;
+            /** Format: uuid */
+            schoolId: string | null;
+            schoolName: string | null;
+            /** Format: uuid */
+            actorUserId: string | null;
+            actorName: string | null;
+        };
+        PlatformAuditEventList: {
+            items: components["schemas"]["PlatformAuditEvent"][];
+            page: components["schemas"]["PageInfo"];
+        };
         PageInfo: {
             limit: number;
             next_cursor: string | null;
@@ -9771,6 +9839,56 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getPlatformUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformUsageResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listPlatformAuditEvents: {
+        parameters: {
+            query?: {
+                schoolId?: string;
+                eventPrefix?: string;
+                since?: string;
+                limit?: components["parameters"]["PageLimit"];
+                cursor?: components["parameters"]["PageCursor"];
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformAuditEventList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     accountsCreateInvitation: {

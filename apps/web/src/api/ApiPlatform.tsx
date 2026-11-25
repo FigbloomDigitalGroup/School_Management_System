@@ -11,9 +11,11 @@ import { ConsoleShell } from "../components/ConsoleShell";
 import { TenantTheme } from "../components/TenantTheme";
 import { Skeleton } from "../components/ui/Skeleton";
 import { useAsync } from "../lib/useAsync";
+import { ApiPlatformAudit } from "../screens/platform/ApiPlatformAudit";
 import { ApiPlatformHealth } from "../screens/platform/ApiPlatformHealth";
 import { ApiPlatformOrganizations } from "../screens/platform/ApiPlatformOrganizations";
 import { ApiPlatformTenants } from "../screens/platform/ApiPlatformTenants";
+import { ApiPlatformUsage } from "../screens/platform/ApiPlatformUsage";
 
 /**
  * The Figbloom platform console on an API build (slice P2 of apps/api/docs/PLATFORM-CONSOLE.md).
@@ -71,7 +73,7 @@ export function ApiPlatformShell() {
   const badges: Record<string, string> = {};
   if (counts?.tenants) badges["/platform/tenants"] = String(counts.tenants);
 
-  if (page !== "tenants" && page !== "organizations" && page !== "health") {
+  if (page !== "tenants" && page !== "organizations" && page !== "health" && page !== "usage" && page !== "audit") {
     return <Navigate to="/platform/tenants" replace />;
   }
 
@@ -92,6 +94,10 @@ export function ApiPlatformShell() {
           <div className="h-screen"><ApiPlatformTenants /></div>
         ) : page === "organizations" ? (
           <div className="h-screen"><ApiPlatformOrganizations /></div>
+        ) : page === "usage" ? (
+          <ApiPlatformUsage />
+        ) : page === "audit" ? (
+          <ApiPlatformAudit />
         ) : (
           <ApiPlatformHealth />
         )}

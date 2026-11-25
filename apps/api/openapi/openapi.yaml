@@ -490,6 +490,85 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/platform/usage:
+    get:
+      tags:
+        - platform
+      summary: Per-school usage counts (platform)
+      description: >
+        Super administrators only (`platform.usage.read`). Returns counts only (active learners, active staff
+        memberships, active guardian links per school) via `platform_usage_counts()`. No names or person IDs.
+        The caller's school (session or `X-Tenant-Id`) is ignored.
+      operationId: getPlatformUsage
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.usage.read
+      x-figbloom-tenantScope: none
+      responses:
+        "200":
+          description: Per-school usage counts and totals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformUsageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/platform/audit-events:
+    get:
+      tags:
+        - platform
+      summary: Platform-wide audit trail (platform)
+      description: >
+        Super administrators only (`platform.audit.read`). Newest-first security audit events across every school
+        via `platform_audit_events()`, keyset-paginated on `(occurred_at, id)`. Never returns `ip` or `detail`.
+        Reading the log is itself audited (`platform.audit.read`). The caller's school (session or `X-Tenant-Id`)
+        is ignored.
+      operationId: listPlatformAuditEvents
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.audit.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: schoolId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: eventPrefix
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: "^[a-z0-9._-]{1,80}$"
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: Platform audit events page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAuditEventList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/invitations:
     post:
       tags:
@@ -20634,6 +20713,119 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PlatformAdminSummary"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    PlatformUsageItem:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - name
+        - slug
+        - status
+        - activeLearners
+        - activeStaff
+        - activeGuardianLinks
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        status:
+          $ref: "#/components/schemas/PlatformSchoolStatus"
+        activeLearners:
+          type: integer
+          minimum: 0
+        activeStaff:
+          type: integer
+          minimum: 0
+        activeGuardianLinks:
+          type: integer
+          minimum: 0
+    PlatformUsageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - totals
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformUsageItem"
+        totals:
+          type: object
+          additionalProperties: false
+          required:
+            - schools
+            - activeLearners
+            - activeStaff
+            - activeGuardianLinks
+          properties:
+            schools:
+              type: integer
+              minimum: 0
+            activeLearners:
+              type: integer
+              minimum: 0
+            activeStaff:
+              type: integer
+              minimum: 0
+            activeGuardianLinks:
+              type: integer
+              minimum: 0
+    PlatformAuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - occurredAt
+        - eventType
+        - schoolId
+        - schoolName
+        - actorUserId
+        - actorName
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+        eventType:
+          type: string
+        schoolId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        schoolName:
+          type:
+            - string
+            - "null"
+        actorUserId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        actorName:
+          type:
+            - string
+            - "null"
+    PlatformAuditEventList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformAuditEvent"
         page:
           $ref: "#/components/schemas/PageInfo"
     PageInfo:

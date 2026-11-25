@@ -19,6 +19,7 @@ import {
 import { BASE, createFakeApi, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiTokenStore } from "./client";
 import {
+  apiFetchPlatformAuditEvents,
   apiFetchPlatformOpsStatus,
   apiFetchPlatformOrganization,
   apiFetchPlatformOrganizationAdmins,
@@ -26,6 +27,7 @@ import {
   apiFetchPlatformSchool,
   apiFetchPlatformSchoolAdmins,
   apiFetchPlatformSchools,
+  apiFetchPlatformUsage,
   apiLoadPlatformSession,
   apiProvisionSchool,
   parsePlatformOpsStatus,
@@ -257,6 +259,28 @@ describe("platform.ts on API backend & platformCapabilities", () => {
           page: { limit: 200, next_cursor: null },
         },
       },
+      "GET /v1/platform/usage": {
+        body: {
+          items: [{ tenantId: SCHOOL_A, name: "Alpha", slug: "alpha", status: "active", activeLearners: 120, activeStaff: 14, activeGuardianLinks: 110 }],
+          totals: { schools: 1, activeLearners: 120, activeStaff: 14, activeGuardianLinks: 110 },
+        },
+      },
+      "GET /v1/platform/audit-events": {
+        body: {
+          items: [
+            {
+              id: "ev-1",
+              occurredAt: "2026-11-25T10:00:00.000Z",
+              eventType: "platform.school.provisioned",
+              schoolId: SCHOOL_A,
+              schoolName: "Alpha",
+              actorUserId: USER,
+              actorName: "Platform Op",
+            },
+          ],
+          page: { limit: 100, next_cursor: null },
+        },
+      },
     });
 
     const tenants = await fetchAllTenants();
@@ -274,6 +298,10 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     expect((await fetchOrganizationAdminProfiles(ORG_1))[0]!.full_name).toBe("Org Lead");
     expect((await apiFetchPlatformSchoolAdmins(SCHOOL_A))[0]!.fullName).toBe("Principal");
     expect((await fetchSchoolAdmins(SCHOOL_A))[0]!.email).toBe("head@alpha.ac.ke");
+    expect((await apiFetchPlatformUsage()).totals.activeLearners).toBe(120);
+    expect((await fetchPlatformUsage())[0]!.inUse).toBe(134);
+    expect((await apiFetchPlatformAuditEvents()).items[0]!.eventType).toBe("platform.school.provisioned");
+    expect((await fetchPlatformAudit())[0]!.category).toBe("platform");
     expect(platformOrganizationFromApi({ id: ORG_1, name: "X", slug: "x", kind: "bad", status: "bad", createdAt: "2026-01-01T00:00:00.000Z", schoolCount: -1 }).status).toBe("pending");
 
     const nav = await fetchPlatformNavCounts();
@@ -282,12 +310,10 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     const unbacked = [
       () => activateTenant(SCHOOL_A),
       () => fetchServiceHistory(),
-      () => fetchPlatformUsage(),
       () => fetchPlatformIncidents(),
       () => fetchPlatformSubscriptions(),
       () => fetchPlatformInvoices(),
       () => fetchImpersonationLog(),
-      () => fetchPlatformAudit(),
     ];
     for (const fn of unbacked) {
       await expect(fn()).rejects.toSatisfy(isNotOnApiError);
@@ -296,6 +322,8 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     const apiCaps = platformCapabilities();
     expect(apiCaps.organizationsPage).toBe(true);
     expect(apiCaps.tenantAdminsPanel).toBe(true);
+    expect(apiCaps.usagePage).toBe(true);
+    expect(apiCaps.auditPage).toBe(true);
     expect(apiCaps.tenantIllustrativeCharts).toBe(false);
     expect(apiCaps.liveProviderChecks).toBe(false);
 

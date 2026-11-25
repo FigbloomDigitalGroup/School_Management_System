@@ -35,11 +35,13 @@ On `main` or in an open PR, not live in production yet.
 
 - **Pre-PR check and agent instructions**: `scripts/pre-pr-check.sh`, plus a "Before opening a PR into dev-staging
   or main" section in `CLAUDE.md` and `AGENTS.md`. Docs and tooling only.
-- **Platform console on the new API (slices P2 & P3)**: `super_admin` sign-in, platform shell (`ApiPlatform.tsx`),
+- **Platform console on the new API (slices P2–P5)**: `super_admin` sign-in, platform shell (`ApiPlatform.tsx`),
   `platform/tenants` (directory, active school admins via `GET /v1/platform/schools/:schoolId/admins`, onboarding via
   `POST /v1/platform/schools`), `platform/organizations` (read-only directory + org admins via `GET /v1/platform/organizations*`,
-  migration `111_platform_organizations_and_admins_read.sql`), and `platform/health` (`GET /v1/platform/ops/status`).
-  Unbacked pages remain gated behind `platformCapabilities()`.
+  migration `111_platform_organizations_and_admins_read.sql`), `platform/health` (`GET /v1/platform/ops/status`),
+  `platform/usage` (counts-only `GET /v1/platform/usage`, migration `112_platform_usage_counts.sql`), and
+  `platform/audit` (`GET /v1/platform/audit-events`, migration `113_platform_audit_read.sql`, read-audited).
+  Owner-decision-blocked pages (Q1–Q7) remain gated behind `platformCapabilities()`.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:

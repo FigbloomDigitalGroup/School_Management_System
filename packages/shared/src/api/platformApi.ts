@@ -270,6 +270,94 @@ export async function apiFetchPlatformSchoolAdmins(schoolId: string): Promise<Pl
   }));
 }
 
+// ---------------------------------------------------------------- usage counts (slice P4)
+
+export interface PlatformUsageSchoolItem {
+  tenantId: string;
+  name: string;
+  slug: string;
+  status: TenantStatus;
+  activeLearners: number;
+  activeStaff: number;
+  activeGuardianLinks: number;
+}
+
+export interface PlatformUsageSummary {
+  items: PlatformUsageSchoolItem[];
+  totals: {
+    schools: number;
+    activeLearners: number;
+    activeStaff: number;
+    activeGuardianLinks: number;
+  };
+}
+
+/** Counts-only cross-school usage summary (`GET /v1/platform/usage`). */
+export async function apiFetchPlatformUsage(): Promise<PlatformUsageSummary> {
+  const res = await apiClient().get("/v1/platform/usage", { tenantId: null });
+  return {
+    items: res.items.map((r) => ({
+      tenantId: r.tenantId,
+      name: r.name,
+      slug: r.slug,
+      status: (TENANT_STATUSES as readonly string[]).includes(r.status) ? (r.status as TenantStatus) : "setup_stalled",
+      activeLearners: r.activeLearners,
+      activeStaff: r.activeStaff,
+      activeGuardianLinks: r.activeGuardianLinks,
+    })),
+    totals: res.totals,
+  };
+}
+
+// ---------------------------------------------------------------- audit trail (slice P5)
+
+export interface PlatformAuditEventItem {
+  id: string;
+  occurredAt: string;
+  eventType: string;
+  schoolId: string | null;
+  schoolName: string | null;
+  actorUserId: string | null;
+  actorName: string | null;
+}
+
+export interface PlatformAuditPage {
+  items: PlatformAuditEventItem[];
+  nextCursor: string | null;
+}
+
+/** One page of platform-wide audit events (`GET /v1/platform/audit-events`, newest first, read-audited). */
+export async function apiFetchPlatformAuditEvents(opts?: {
+  schoolId?: string;
+  eventPrefix?: string;
+  since?: string;
+  limit?: number;
+  cursor?: string | null;
+}): Promise<PlatformAuditPage> {
+  const res = await apiClient().get("/v1/platform/audit-events", {
+    query: {
+      limit: opts?.limit ?? 100,
+      ...(opts?.cursor ? { cursor: opts.cursor } : {}),
+      ...(opts?.schoolId ? { schoolId: opts.schoolId } : {}),
+      ...(opts?.eventPrefix ? { eventPrefix: opts.eventPrefix } : {}),
+      ...(opts?.since ? { since: opts.since } : {}),
+    },
+    tenantId: null,
+  });
+  return {
+    items: res.items.map((e) => ({
+      id: e.id,
+      occurredAt: e.occurredAt,
+      eventType: e.eventType,
+      schoolId: e.schoolId,
+      schoolName: e.schoolName,
+      actorUserId: e.actorUserId,
+      actorName: e.actorName,
+    })),
+    nextCursor: res.page.next_cursor ?? null,
+  };
+}
+
 // ---------------------------------------------------------------- provisioning (POST /v1/platform/schools)
 
 export interface ProvisionSchoolInput {
