@@ -41,6 +41,17 @@ const PASSWORD = "correct-horse-battery";
 const ANY_OF: Record<string, { reason: string; sets: string[][] }> = {
   "POST /v1/rbac/org-delegations": { reason: "authority paths: platform/school administrator (manage) OR org administrator of the same organization (grant)", sets: [["rbac.org_delegations.manage"], ["org.delegations.grant"]] },
   "DELETE /v1/rbac/org-delegations": { reason: "authority paths: platform/school administrator (manage) OR org administrator of the same organization (revoke)", sets: [["rbac.org_delegations.manage"], ["org.delegations.revoke"]] },
+  // Student accounts (docs/STUDENT-ACCOUNTS.md): the per-learner reads are shared by a parent (their children) and a learner
+  // (their own learner), and the two attempt endpoints by staff and a learner (their own attempt); test/student.accounts.test.ts
+  ...Object.fromEntries(
+    ["attendance", "results", "report-cards", "homework", "materials", "timetable", "fees", "activities", "items"].map((leaf) => [
+      `GET /v1/tenants/{tenantId}/me/children/{learnerId}/${leaf}`,
+      { reason: "a parent's child (family) OR a learner's own learner (student)", sets: [["resource.family.read"], ["resource.student.self.read"]] },
+    ]),
+  ),
+  "GET /v1/tenants/{tenantId}/me/chat-contacts": { reason: "a parent (family) OR a learner (student)", sets: [["resource.family.read"], ["resource.student.self.read"]] },
+  "POST /v1/tenants/{tenantId}/online-exam-papers/{paperId}/attempts": { reason: "staff (academics write) OR a learner for their own learner", sets: [["resource.academics.write"], ["resource.student.self.read"]] },
+  "POST /v1/tenants/{tenantId}/online-exam-attempts/{attemptId}/submit": { reason: "staff (academics write) OR a learner for their own attempt", sets: [["resource.academics.write"], ["resource.student.self.read"]] },
 };
 const SCOPED = new Set(["POST /v1/tenants/{tenantId}/early-sign-outs", "POST /v1/tenants/{tenantId}/early-sign-outs/{signOutId}/void", "GET /v1/tenants/{tenantId}/leave-requests"]);
 type Row = { role: string; operation: string; permissions: string[]; tenantContext: string; expected: string; actual: number; pass: boolean };
@@ -73,6 +84,10 @@ describe("RBAC and cross-tenant matrices over the full OpenAPI surface", () => {
     tokens.school_admin_A = await login({ email: "admin-a@example.com", password: PASSWORD });
     tokens.teacher_A = await login({ tenantId: A(), loginId: "TC-0001", password: PASSWORD });
     tokens.parent_A = await login({ tenantId: A(), loginId: "PT-0001", password: PASSWORD });
+    // a learner with a student login (docs/STUDENT-ACCOUNTS.md) and NO live learner link: the role's own permissions only
+    const student = await user("matrix-student@example.com", hash);
+    await ctx.pool.query(`INSERT INTO school_memberships (user_id, tenant_id, role, login_id) VALUES ($1, $2, 'student', 'ST-0901')`, [student, A()]);
+    tokens.student_A = await login({ tenantId: A(), loginId: "ST-0901", password: PASSWORD });
     tokens.school_admin_B_in_A = await login({ email: "matrix-admin-b@example.com", password: PASSWORD });
     tokens.org_admin = await login({ email: "orgadmin@example.com", password: PASSWORD });
     // a disabled account and a revoked session
@@ -126,7 +141,7 @@ describe("RBAC and cross-tenant matrices over the full OpenAPI surface", () => {
   }
 
   /** The oracle: effective permissions per role from the database catalogue plus the admin-area implications. */
-  async function effective(role: "school_admin" | "teacher" | "parent"): Promise<Set<string>> {
+  async function effective(role: "school_admin" | "teacher" | "parent" | "student"): Promise<Set<string>> {
     const r = await ctx.pool.query<{ permission_code: string }>(`SELECT permission_code FROM role_permissions WHERE role = $1`, [role]);
     const set = new Set(r.rows.map((x) => x.permission_code));
     if (role === "school_admin") {
@@ -167,6 +182,7 @@ describe("RBAC and cross-tenant matrices over the full OpenAPI surface", () => {
     ["school_admin_A", "school_admin"],
     ["teacher_A", "teacher"],
     ["parent_A", "parent"],
+    ["student_A", "student"],
   ] as const) {
     it(`${principal}: every permission-gated operation is allowed exactly when the catalogue grants all documented permissions`, async () => {
       const eff = await effective(role);

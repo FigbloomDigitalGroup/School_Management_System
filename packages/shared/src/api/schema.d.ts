@@ -2136,7 +2136,7 @@ export interface paths {
         put?: never;
         /**
          * Start an online exam attempt
-         * @description The learner must be a member of the paper's class (400). One in-progress attempt per learner and paper (409). Replays return the original response.
+         * @description Staff (resource.academics.write): the learner must be a member of the paper's class (400); one in-progress attempt per learner and paper (409); replays return the original response. A learner signed in with a student account (resource.student.self.read) starts their OWN attempt only: learner_id must be their own learner (any other is 404), the paper must be published for one of their own current classes (404 otherwise) and have questions (409), and a learner may start one attempt per paper (409). The learner's answer is a StudentOnlineExamAttempt (questions without the answer key); no Idempotency-Key replay for a learner. docs/STUDENT-ACCOUNTS.md
          */
         post: operations["startOnlineExamAttempt"];
         delete?: never;
@@ -2156,9 +2156,29 @@ export interface paths {
         put?: never;
         /**
          * Submit an online exam attempt
-         * @description A submitted attempt is final (409 on a second submit; database-enforced). Replays return the original response.
+         * @description A submitted attempt is final (409 on a second submit; database-enforced). Replays return the original response. A learner signed in with a student account (resource.student.self.read) submits their OWN attempt only (another learner's attempt is 404), with answers only (a score is 403); it is marked automatically and the answer carries no mark (StudentOnlineExamSubmission). docs/STUDENT-ACCOUNTS.md
          */
         post: operations["submitOnlineExamAttempt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/online-exam-papers/{paperId}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish an online exam paper to the learners of its class
+         * @description Until a paper is published no learner sees it (migration 110, docs/STUDENT-ACCOUNTS.md). Publishing again keeps the first time. There is no unpublish.
+         */
+        post: operations["publishOnlineExamPaper"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5318,7 +5338,7 @@ export interface paths {
         };
         /**
          * The child's health profile, medication authorizations (with consent status), active schedules, administrations of the last 60 days and the newest 100 sick-bay visits
-         * @description A parent answers a consent request through POST /health/medications/authorizations/{authorizationId}/consent.
+         * @description A parent answers a consent request through POST /health/medications/authorizations/{authorizationId}/consent. Parents only: a learner signed in with a student account is refused with 403 (no student page shows health; docs/STUDENT-ACCOUNTS.md).
          */
         get: operations["familyChildHealth"];
         put?: never;
@@ -5529,6 +5549,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/learners/{learnerId}/student-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A learner's login: whether one exists, its login id, whether the one-time password is still to be changed, last sign-in
+         * @description The school office only: a school administrator, or a teacher or staff member holding the People area (resource.learner.write, re-checked in the database, which also refuses organisation administrators). Never carries password material. docs/STUDENT-ACCOUNTS.md
+         */
+        get: operations["getStudentAccount"];
+        put?: never;
+        /**
+         * Make a learner's login: a login id (ST-0001...) and a one-time password, shown once
+         * @description The school office only (as for the status read). The answer carries the one-time password ONCE: it is not stored, logged or audited, and no later answer carries it (there is no Idempotency-Key replay; a second create for a learner with a live login is 409, never a second account). The learner must change it at first sign-in (POST /v1/auth/login/login-id with the school id and login id, then POST /v1/auth/password/change). Concurrent creates give one account. 404 for a learner not in this school, 409 for an archived learner. Audited as student.account.created.
+         */
+        post: operations["createStudentAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/learners/{learnerId}/student-account/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give a learner's login a new one-time password (shown once); ends every session of the login
+         * @description The school office only, with a recently confirmed password (403 reauth_required otherwise, POST /v1/auth/reauth). The learner must change the new password at the next sign-in. A disabled login stays disabled (409). 404 when the learner has no login. Audited as student.account.password_reset (no password material).
+         */
+        post: operations["resetStudentAccountPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/learners/{learnerId}/student-account/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke a learner's login (final): the login id stops signing in and every session ends
+         * @description The school office only, with a recently confirmed password and a reason. A new login is a new create (a new account and login id). 404 when the learner has no login. Audited as student.account.revoked.
+         */
+        post: operations["revokeStudentAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/learner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The signed-in learner's own record: learner id, name, admission number, boarding, login id and current class
+         * @description A learner signed in with a student account (resource.student.self.read). 404 when the caller has no live learner in this school (revoked login, archived learner). The learner id is the one to use on the shared per-learner reads /me/children/{learnerId}/... docs/STUDENT-ACCOUNTS.md
+         */
+        get: operations["studentMyLearner"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/learner/online-exams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The learner's online exam papers: published papers of their own current classes, with their own attempts (at most 200)
+         * @description A learner signed in with a student account. No question, answer key, score or other learner's attempt is in this list. Start an attempt with POST /online-exam-papers/{paperId}/attempts (learner_id = their own).
+         */
+        get: operations["studentMyOnlineExams"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/learner/online-exam-attempts/{attemptId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One of the learner's own attempts: the paper's questions (without the answer key) and the answers saved so far
+         * @description Another learner's attempt, or an attempt at a paper the learner no longer sees, is 404. No score.
+         */
+        get: operations["studentMyOnlineExamAttempt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/learner/online-exam-attempts/{attemptId}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save the answers of the learner's own attempt while it is in progress (replaces the saved set)
+         * @description Keys must be this paper's question ids (400 otherwise); a submitted attempt is 409; another learner's attempt is 404. Submit with POST /online-exam-attempts/{attemptId}/submit.
+         */
+        put: operations["studentSaveOnlineExamAnswers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/me/hr/status": {
         parameters: {
             query?: never;
@@ -5677,8 +5841,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Who a parent may start a chat with: the school's administrators and the teachers of their children's current classes
-         * @description The same rule as POST /chat/conversations (may_talk), which is checked again on every chat write.
+         * Who a parent or a learner may start a chat with: the school's administrators and the teachers of their children's (or their own) current classes
+         * @description The same rule as POST /chat/conversations (may_talk), which is checked again on every chat write. A parent needs resource.family.read; a learner signed in with a student account needs resource.student.self.read and gets the school's administrators and the teachers of their own class only (no staff list, no other learner; docs/STUDENT-ACCOUNTS.md).
          */
         get: operations["familyChatContacts"];
         put?: never;
@@ -6949,6 +7113,11 @@ export interface components {
             max_score: string;
             /** Format: date-time */
             created_at: string;
+            /**
+             * Format: date-time
+             * @description When the paper was published to the learners of its class (null until then; migration 110).
+             */
+            published_at?: string | null;
             questions?: {
                 [key: string]: unknown;
             }[] | null;
@@ -7586,7 +7755,7 @@ export interface components {
             /** Format: uuid */
             submitted_by: string;
             /** @enum {string} */
-            submitted_via: "office" | "guardian";
+            submitted_via: "office" | "guardian" | "learner";
             note: string | null;
             /** @description File metadata only: no object storage exists and no byte is stored or served. */
             file: {
@@ -8597,6 +8766,114 @@ export interface components {
             is_primary_payer: boolean;
             class: components["schemas"]["FamilyChildClass"] | null;
         };
+        /** @description A learner's login as the school office sees it (docs/STUDENT-ACCOUNTS.md). Never password material. */
+        StudentAccountStatus: {
+            /** Format: uuid */
+            learner_id: string;
+            has_login: boolean;
+            /** @description ST-0001 style; signs in with POST /v1/auth/login/login-id and the school id */
+            login_id: string | null;
+            /** @enum {string|null} */
+            account_status: "active" | "disabled" | "invited" | null;
+            /** @description True until the learner replaces the one-time password; null without a login */
+            must_change_password: boolean | null;
+            /** Format: date-time */
+            created_at: string | null;
+            /**
+             * Format: date-time
+             * @description When the office last set a one-time password (create or reset)
+             */
+            password_set_at: string | null;
+            /** Format: date-time */
+            last_sign_in_at: string | null;
+            /** @description Earlier logins of this learner that were revoked */
+            revoked_logins: number;
+        };
+        /** @description The answer to a create or a reset: the ONLY place the one-time password ever appears. */
+        StudentAccountIssued: {
+            /** Format: uuid */
+            learner_id: string;
+            /** Format: uuid */
+            user_id: string;
+            login_id: string;
+            /** @constant */
+            must_change_password: true;
+            /** @description Shown once to the office, handed to the learner, changed at first sign-in */
+            one_time_password: string;
+        };
+        StudentLearner: {
+            /** Format: uuid */
+            learner_id: string;
+            full_name: string;
+            admission_no: string;
+            boarding: boolean;
+            login_id: string | null;
+            class: components["schemas"]["FamilyChildClass"] | null;
+        };
+        /** @description A question as a learner sees it (never the answer key) */
+        StudentOnlineExamQuestion: {
+            id: string;
+            prompt: string;
+            /** @enum {string} */
+            kind: "mcq" | "true_false";
+            options: string[] | null;
+            points: number;
+        };
+        StudentOnlineExamAttemptSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "in_progress" | "submitted";
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            submitted_at: string | null;
+        };
+        StudentOnlineExam: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            /** @description Decimal number as text (exact PostgreSQL numeric). */
+            max_score: string;
+            class: components["schemas"]["FamilyRef"];
+            subject: components["schemas"]["FamilyRef"];
+            /** Format: date-time */
+            published_at: string;
+            question_count: number;
+            /** @description The learner's own attempts at this paper, oldest first (a learner may start one) */
+            attempts: components["schemas"]["StudentOnlineExamAttemptSummary"][];
+        };
+        StudentOnlineExamAttempt: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "in_progress" | "submitted";
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            submitted_at: string | null;
+            /** @description Question id to the chosen answer (saved so far, or submitted) */
+            answers: {
+                [key: string]: string;
+            };
+            paper: {
+                /** Format: uuid */
+                id: string;
+                title: string;
+                max_score: string;
+                subject: components["schemas"]["FamilyRef"];
+                questions: components["schemas"]["StudentOnlineExamQuestion"][];
+            };
+        };
+        /** @description A learner's submission answer; no mark (the learner is not told the score) */
+        StudentOnlineExamSubmission: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "submitted";
+            /** Format: date-time */
+            submitted_at: string;
+        };
         FamilyRef: {
             /** Format: uuid */
             id: string;
@@ -8925,7 +9202,7 @@ export interface components {
             full_name: string;
             /** @enum {string} */
             role: "school_admin" | "teacher";
-            /** @description For a teacher, which of the caller's children they teach (subject null = class teacher) */
+            /** @description For a teacher, which of the caller's children (or, for a learner, the learner themselves) they teach (subject null = class teacher) */
             teaches: {
                 /** Format: uuid */
                 learner_id: string;
@@ -14405,7 +14682,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        attempt: components["schemas"]["OnlineExamAttempt"];
+                        attempt: components["schemas"]["OnlineExamAttempt"] | components["schemas"]["StudentOnlineExamAttempt"];
                     };
                 };
             };
@@ -14445,7 +14722,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        attempt: components["schemas"]["OnlineExamSubmission"];
+                        attempt: components["schemas"]["OnlineExamSubmission"] | components["schemas"]["StudentOnlineExamSubmission"];
                     };
                 };
             };
@@ -14455,6 +14732,38 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["IdempotencyKeyReused"];
+        };
+    };
+    publishOnlineExamPaper: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                paperId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        paper: components["schemas"]["OnlineExamPaper"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getAttendanceSettings: {
@@ -23283,7 +23592,7 @@ export interface operations {
             };
             path: {
                 tenantId: string;
-                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                /** @description One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404 */
                 learnerId: string;
             };
             cookie?: never;
@@ -23319,7 +23628,7 @@ export interface operations {
             };
             path: {
                 tenantId: string;
-                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                /** @description One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404 */
                 learnerId: string;
             };
             cookie?: never;
@@ -23350,7 +23659,7 @@ export interface operations {
             };
             path: {
                 tenantId: string;
-                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                /** @description One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404 */
                 learnerId: string;
             };
             cookie?: never;
@@ -23386,7 +23695,7 @@ export interface operations {
             };
             path: {
                 tenantId: string;
-                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                /** @description One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404 */
                 learnerId: string;
             };
             cookie?: never;
@@ -23421,7 +23730,7 @@ export interface operations {
             };
             path: {
                 tenantId: string;
-                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                /** @description One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404 */
                 learnerId: string;
             };
             cookie?: never;
@@ -23454,7 +23763,7 @@ export interface operations {
             };
             path: {
                 tenantId: string;
-                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                /** @description One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404 */
                 learnerId: string;
             };
             cookie?: never;
@@ -23487,7 +23796,7 @@ export interface operations {
             };
             path: {
                 tenantId: string;
-                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                /** @description One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404 */
                 learnerId: string;
             };
             cookie?: never;
@@ -23520,7 +23829,7 @@ export interface operations {
             };
             path: {
                 tenantId: string;
-                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                /** @description One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404 */
                 learnerId: string;
             };
             cookie?: never;
@@ -23553,7 +23862,7 @@ export interface operations {
             };
             path: {
                 tenantId: string;
-                /** @description One of the caller's own children (GET /me/children); any other id answers 404 */
+                /** @description One of the caller's own children (GET /me/children), or for a learner signed in with a student account their own learner (GET /me/learner); any other id answers 404 */
                 learnerId: string;
             };
             cookie?: never;
@@ -23992,6 +24301,277 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getStudentAccount: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        account: components["schemas"]["StudentAccountStatus"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createStudentAccount: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created; the one-time password is in this answer only */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        account: components["schemas"]["StudentAccountIssued"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    resetStudentAccountPassword: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK; the one-time password is in this answer only */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        account: components["schemas"]["StudentAccountIssued"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    revokeStudentAccount: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revoked: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    studentMyLearner: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        learner: components["schemas"]["StudentLearner"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    studentMyOnlineExams: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        papers: components["schemas"]["StudentOnlineExam"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    studentMyOnlineExamAttempt: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                attemptId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        attempt: components["schemas"]["StudentOnlineExamAttempt"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    studentSaveOnlineExamAnswers: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                attemptId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    answers: {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        attempt: components["schemas"]["StudentOnlineExamAttempt"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     myHrStatus: {

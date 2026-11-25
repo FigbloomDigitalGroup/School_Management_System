@@ -42,6 +42,14 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "transport_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: resolves only the calling guardian account's linked, active learners in the current tenant" },
   // Migration 099: family reads (docs/FAMILY-READS.md)
   "family_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: the calling account's children in the current school (live link, active account, parent membership, active guardian record, live relationship, active learner); no argument, so no other account can be asked about" },
+  // Migration 110: student accounts (docs/STUDENT-ACCOUNTS.md)
+  "student_my_learner()": { secdef: true, grantees: ["figbloom_app"], why: "learner_accounts is owner-only: the calling account's own learner in the current school (live link, active account, student membership, active learner); no argument, so no other account can be asked about" },
+  "student_account_actor_may_manage(uuid)": { secdef: true, grantees: [], why: "internal: is the GUC actor the school office of the tenant in context (super administrator, school administrator, or teacher/staff holding the People area)" },
+  "student_account_create(uuid,uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "the school office makes a learner's login (Argon2id hash from the API, must_change_password, ST- number under the per-school login-id lock, one live login per learner); audited" },
+  "student_account_reset_password(uuid,uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "the school office sets a new one-time password hash on a live learner login, forces a change and ends every session; audited" },
+  "student_account_revoke(uuid,uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "the school office revokes a learner login (final): link closed, student membership archived, sessions ended; audited" },
+  "student_account_status(uuid,uuid)": { secdef: true, grantees: ["figbloom_app"], why: "the school office reads whether a learner has a login (login id, forced-change flag, last sign-in); no password material" },
+  "learner_accounts_on_membership_archive()": { secdef: true, grantees: [], why: "trigger; archiving a membership revokes the person's learner login link" },
   // Migration 105: org console (docs/ORG-CONSOLE.md)
   "org_my_audit_events(uuid,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "security_audit_events has no SELECT grant: the CALLER's own events (actor from app.user_id, no actor argument) about one organisation they administer (re-checked in the database: org_admin of an active organisation); no ip column; at most 201 rows" },
   // Migration 106: the school's audit log (docs/SCHOOL-AUDIT.md)
@@ -508,6 +516,11 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "transport_fanout_notifications(uuid)",
   "transport_my_children()",
   "family_my_children()",
+  "student_my_learner()",
+  "student_account_create(uuid,uuid,text)",
+  "student_account_reset_password(uuid,uuid,text)",
+  "student_account_revoke(uuid,uuid,text)",
+  "student_account_status(uuid,uuid)",
   "org_my_audit_events(uuid,timestamp with time zone,uuid,integer)",
   "school_audit_events(text,timestamp with time zone,text,timestamp with time zone,uuid,integer)",
   "auth_credential_by_email(text)",
@@ -603,7 +616,8 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
     // membership-change function, which is attached twice (UPDATE and DELETE). Migration 026 adds
     // four: users (status), organizations (status) and organization_memberships (UPDATE and DELETE).
     // Migration 029 adds class_memberships_integrity_guard. Later attendance triggers are invokers.
-    expect(r.rows.length).toBe(17);
+    // Migration 110 adds learner_accounts_on_membership_archive (school_memberships).
+    expect(r.rows.length).toBe(18);
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 

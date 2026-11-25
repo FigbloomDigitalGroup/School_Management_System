@@ -14,7 +14,8 @@ export interface DenialAuditPayload {
     | "rbac.guardian_access.denied"
     | "rbac.staff_areas.denied"
     | "ai.bloom.denied"
-    | "family.child.denied";
+    | "family.child.denied"
+    | "student.learner.denied";
   actorUserId: string;
   tenantId: string | null;
   detail: Record<string, unknown>;

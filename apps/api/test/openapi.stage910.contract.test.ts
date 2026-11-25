@@ -68,8 +68,9 @@ describe("OA-1 static contract", () => {
       if (rb && rb.additionalProperties === true) bad.push(`${key}: request body allows arbitrary properties`);
     }
     expect(bad).toEqual([]);
-    // 84 + migration 101: PATCH subject, PATCH class, class archive, PATCH teaching assignment, its archive; + migration 107: PATCH he-section.
-    expect(stage910Ops().length).toBe(90);
+    // 84 + migration 101: PATCH subject, PATCH class, class archive, PATCH teaching assignment, its archive; + migration 107: PATCH he-section;
+    // + migration 110: publish an online exam paper.
+    expect(stage910Ops().length).toBe(91);
   });
 });
 
@@ -246,7 +247,8 @@ describe("OA-1 runtime conformance tour", () => {
     await call("GET", `${T}/he-enrolments/{enrolmentId}/grade-revisions`, v);
     v.paperId = (await call("POST", `${T}/online-exam-papers`, v, { class_id: v.classId, subject_id: v.subjectId, title: "Tour paper", max_score: 20 })).paper.id;
     await call("GET", `${T}/online-exam-papers`, v);
-    v.attemptId = (await call("POST", `${T}/online-exam-papers/{paperId}/attempts`, v, { learner_id: v.learnerId })).attempt.id;
+    await call("POST", `${T}/online-exam-papers/{paperId}/publish`, v); // migration 110 (docs/STUDENT-ACCOUNTS.md)
+    v.attemptId =(await call("POST", `${T}/online-exam-papers/{paperId}/attempts`, v, { learner_id: v.learnerId })).attempt.id;
     await call("POST", `${T}/online-exam-attempts/{attemptId}/submit`, v, { score: 15 });
 
     // attendance

@@ -48,6 +48,7 @@ import { registerUnmatchedCallbackRoutes } from "./http/routes/unmatchedCallback
 import { registerAccountRoutes } from "./http/routes/accounts.js";
 import { registerGuardianInvitationRoutes } from "./http/routes/guardianInvitations.js";
 import { registerFamilyRoutes } from "./http/routes/family.js";
+import { registerStudentAccountRoutes } from "./http/routes/studentAccounts.js";
 import { registerTeachingRoutes } from "./http/routes/teaching.js";
 import { registerSchoolAuditRoutes } from "./http/routes/schoolAudit.js";
 import { registerAiRoutes } from "./http/routes/ai.js";
@@ -243,6 +244,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerAccountRoutes(app, pool);
   await registerGuardianInvitationRoutes(app, pool);
   await registerFamilyRoutes(app, pool);
+  await registerStudentAccountRoutes(app, pool);
   await registerTeachingRoutes(app, pool);
   await registerSchoolAuditRoutes(app, pool);
   await registerAiRoutes(app, pool);

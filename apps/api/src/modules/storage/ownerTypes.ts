@@ -1,6 +1,6 @@
 import type { Tx } from "../../db/sql.js";
 import { forbidden, notFound, validationError } from "../../http/errors.js";
-import { isMyChild } from "../family/children.js";
+import { mayPayFor } from "../finance/payer.js";
 import { loadEffectivePermissions, requirePermission, type AuthzContext } from "../rbac/authorize.js";
 
 /**
@@ -9,7 +9,8 @@ import { loadEffectivePermissions, requirePermission, type AuthzContext } from "
  * Every stored object belongs to one owner type. The type decides who may upload, finish, read and delete it, which content
  * types and sizes are accepted, and whether `owner_resource_id` must name a real owner. Staff reach an object through the
  * type's staff permission (the same permission the owning domain uses); a few types also have a narrow non-staff path:
- *   - payment_proof: a parent of the learner billed on the invoice the proof names (live family link, `isMyChild`);
+ *   - payment_proof: a parent of the learner billed on the invoice the proof names (live family link), or that learner
+ *     themselves through their own login (docs/STUDENT-ACCOUNTS.md): the payer rule, `mayPayFor`;
  *   - avatar: any member of the school, for the photo that names their own user id;
  *   - school_logo: any member of the school may read it (the legacy crest was public).
  * Nothing else is reachable without the staff permission. Widening a rule here is a security change.
@@ -117,11 +118,15 @@ async function invoiceLearnerId(tx: Tx, tenantId: string, invoiceId: string): Pr
   return res.rows[0]?.learner_id ?? null;
 }
 
-/** A parent of the learner billed on this invoice, by a live family link checked now. */
+/** A parent of the learner billed on this invoice (live family link), or that learner's own login, checked now. */
 async function isFamilyOfInvoice(tx: Tx, authz: AuthzContext, tenantId: string, invoiceId: string): Promise<boolean> {
-  if (authz.membership?.role !== "parent") return false;
+  if (!isPayerRole(authz)) return false;
   const learnerId = await invoiceLearnerId(tx, tenantId, invoiceId);
-  return learnerId !== null && (await isMyChild(tx, learnerId)) !== null;
+  return learnerId !== null && (await mayPayFor(tx, authz, learnerId));
+}
+
+function isPayerRole(authz: AuthzContext): boolean {
+  return authz.membership?.role === "parent" || authz.membership?.role === "student";
 }
 
 /** An avatar must show a learner of this school or a member of this school. */
@@ -156,7 +161,7 @@ export async function authorizeUploadStart(
   const rule = OWNER_TYPE_RULES[input.ownerResourceType];
   const perms = await loadEffectivePermissions(tx, authz);
   const staff = perms.has(rule.write);
-  const familyPath = input.ownerResourceType === "payment_proof" && authz.membership?.role === "parent";
+  const familyPath = input.ownerResourceType === "payment_proof" && isPayerRole(authz);
   const selfPath = input.ownerResourceType === "avatar" && authz.membership !== null;
   // Refuse a caller with no path to this type before looking at the owner, so a missing owner id never masks the 403.
   if (!staff && !familyPath && !selfPath) await deny(tx, authz, rule.write, input.ip);
