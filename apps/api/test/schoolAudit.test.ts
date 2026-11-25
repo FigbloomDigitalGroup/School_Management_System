@@ -257,10 +257,11 @@ describe("school audit log", () => {
     });
 
     it("since keeps that day and later; a bad date is refused", async () => {
+      // The events are minutes old, so yesterday (UTC) always keeps them, even just after midnight UTC, and tomorrow never does.
       const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-      const today = new Date().toISOString().slice(0, 10);
+      const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
       expect(await events("admin", `?since=${tomorrow}`)).toEqual([]);
-      expect((await events("admin", `?since=${today}&limit=200`)).length).toBeGreaterThan(0);
+      expect((await events("admin", `?since=${yesterday}&limit=200`)).length).toBe(VISIBLE.length);
       for (const bad of ["2026-02-31", "yesterday", "2026-1-1"]) expect((await get("admin", `?since=${bad}`)).statusCode, bad).toBe(400);
     });
 
