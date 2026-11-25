@@ -468,6 +468,12 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: [],
     why: "trigger; availability under FOR UPDATE; closed issues final",
   },
+  // Migration 115 (stock movements, docs/INVENTORY-STOCK.md).
+  "inventory_movements_apply()": {
+    secdef: false,
+    grantees: [],
+    why: "INVOKER trigger; locks the item FOR UPDATE under row security, refuses assets, written-off items and stock below 0 or below what issues owe, stamps the recorder from app.user_id, moves the count; refuses any UPDATE",
+  },
   // Migration 055 (leave).
   "leave_requests_guard()": {
     secdef: false,

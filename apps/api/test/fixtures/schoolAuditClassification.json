@@ -178,6 +178,7 @@
   "inventory.issue.created": "operations",
   "inventory.item.created": "operations",
   "inventory.item.retired": "operations",
+  "inventory.movement.recorded": "operations",
   "job.cancelled": "hidden",
   "job.dead": "hidden",
   "job.retry_scheduled": "hidden",
