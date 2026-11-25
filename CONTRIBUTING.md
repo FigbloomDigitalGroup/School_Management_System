@@ -20,6 +20,10 @@ fix/typo ──────────PR──┘
 
 Repos that also have `dev-stable`, `development` or `production` treat them like `dev-staging`: Mike approves.
 
+**School_Management_System:** read [CHANGELOG.md](CHANGELOG.md) before you start. It lists what is live in
+production, the database objects and endpoints your branch must keep, and what `dev-staging` / `dev-joe` are
+missing from `main`. Every PR that changes live behaviour adds a line to it.
+
 ## Your branches
 
 | Repo | Dev branches |
