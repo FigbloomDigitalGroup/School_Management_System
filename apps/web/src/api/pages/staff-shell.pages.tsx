@@ -11,8 +11,9 @@ const TeacherLeave = lazy(() => import("../../screens/teacher/Leave").then((m) =
 
 /**
  * The staff console (role "staff"): the pages of other staff, by their address under /s/<slug>/. The home (`staff`) and the menu
- * are the shell's (ApiConsole.tsx). Not here, and so not in the menu: Visitors (the visitors module is not on the API yet),
- * Loans and My HR (there is no HR product on the API). `staff/items` is for people holding the Inventory area (`when`).
+ * are the shell's (ApiConsole.tsx). Not here, and so not in the menu: Visitors (the visitors module is not on the API yet) and
+ * Loans (no backend on either build: the Supabase page is a preview). My HR is in `my-hr.pages.tsx`. `staff/items` is for people holding
+ * the Inventory area (`when`).
  */
 export const pages: AreaPages = {
   staff: [

@@ -30,8 +30,8 @@ redirect to the visitor log, the sick bay or Notices, and not all of those run o
 |---|---|---|
 | `staff/visitors` | the visitors module (`visitors.ts`) has no API side yet (`gate-visits`) | the visitors slice merges: add `staff/visitors` to `staff` in `apps/web/src/api/pages/staff-shell.pages.tsx` (for people holding the Visitors area: give it a `when`; `StaffVisitors` already checks it) |
 | `staff/items` for a staff member **without** the Inventory area | `GET /inventory/issues` needs `resource.inventory.read`, which only the Inventory area gives (finding 13); the plain staff role is refused (403). The page shows for holders of the area (`staffMayReadItems`) | the API lets a person read their own issued items (finding staff-1) |
-| `staff/loans` | no loans on the API: there is no HR product (C13) | not planned |
-| `staff/my-hr` | no HR product on the API (C13) | not planned |
+| `staff/loans` | **no backend on either build.** The Supabase page is a preview with sample data (it saves nothing, shows made-up history and a fixed borrowing limit). Hidden by the owner's decision on Nov 25. It is not an HR matter | not planned |
+| `staff/my-hr` | not hidden by the build any more: it is shown **only while the API's My HR status is `available`**, and that is off by default (the owner switches it on and links schools). See [my-hr.md](my-hr.md) | the owner switches it on and links the school |
 
 ## What a plain staff account can and cannot do
 
