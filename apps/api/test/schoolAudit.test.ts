@@ -313,11 +313,20 @@ describe("school audit log", () => {
       "medication.authorization_approved", "medication.authorization_rejected",
       "health.sick_bay.visit_corrected", "health.sick_bay.visit_updated",
     ];
+    const MIGRATIONS = join(process.cwd(), "migrations");
     const written = (): string[] => {
       const found = new Set<string>(DYNAMIC);
       for (const file of walk(SRC)) {
         const text = readFileSync(file, "utf8");
         for (const m of text.matchAll(/(?:eventType|event_type)\W{1,3}"([a-z_]+\.[a-z_.]+)"/g)) found.add(m[1]!);
+      }
+      // The database functions write events too (invitations, a member deactivated, delegations, jobs): every dotted
+      // literal inside an INSERT INTO security_audit_events statement of a migration.
+      for (const name of readdirSync(MIGRATIONS).filter((n) => n.endsWith(".sql"))) {
+        const text = readFileSync(join(MIGRATIONS, name), "utf8");
+        for (const stmt of text.matchAll(/insert\s+into\s+(?:public\.)?security_audit_events[\s\S]*?;/gi)) {
+          for (const m of stmt[0].matchAll(/'([a-z_]+(?:\.[a-z_]+)+)'/g)) found.add(m[1]!);
+        }
       }
       return [...found].sort();
     };
@@ -326,7 +335,7 @@ describe("school audit log", () => {
       const kinds = written();
       expect(kinds.length).toBeGreaterThan(150);
       // School B is this test's own: one event of each kind, then read back what its administrator sees.
-      for (const k of kinds) await event(ids.tenantB, k, id.adminB, 0, { snapshot: true });
+      for (const k of kinds) await event(ids.tenantB, k, id.adminB ?? null, 0, { snapshot: true });
       const seen = new Map<string, string>();
       let cursor: string | null = null;
       for (let i = 0; i < 40; i++) {

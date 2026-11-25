@@ -65,18 +65,26 @@ BEGIN
       FROM (
         SELECT e.id, e.occurred_at, e.event_type, e.actor_user_id,
                CASE
+                 -- two administrators' actions on an account belong to the log, though they are written under auth.
+                 WHEN e.event_type IN ('auth.password.reset_issued', 'auth.mfa.admin_reset') THEN 'access'
                  -- never shown: sign-in and session events, refusals, read events, personal and internal ones
                  WHEN e.event_type ~ '^(auth|family|ai|notifications|identity)\.' THEN NULL
                  WHEN e.event_type ~ '[._](denied|viewed)$' THEN NULL
+                 -- platform operators' notes on unmatched M-Pesa callbacks: not a school's own actions
+                 WHEN e.event_type ~ '^finance\.unmatched\.' THEN NULL
                  WHEN e.event_type IN ('finance.mpesa.operator_inconclusive', 'communications.chat.started',
                                        'communications.notification_preferences.updated',
-                                       'attendance.register.stale_ignored') THEN NULL
+                                       'communications.device_token.reclaimed',
+                                       'attendance.register.stale_ignored', 'import.learners.preview_expired',
+                                       'rbac.org_delegation.legacy_inert', 'rbac.org_delegation.review_required') THEN NULL
                  WHEN e.event_type ~ '^storage\.' AND e.event_type <> 'storage.object.deleted' THEN NULL
                  -- shown, by category (the web console's eight)
                  WHEN e.event_type ~ '^(directory|import)\.' THEN 'provisioning'
                  WHEN e.event_type ~ '^academics\.(year|term|subject|class|teaching_assignment|membership)\.' THEN 'provisioning'
                  WHEN e.event_type ~ '^attendance\.settings\.' THEN 'provisioning'
                  WHEN e.event_type ~ '^rbac\.' THEN 'access'
+                 -- invitations (staff and guardian), a member deactivated, a guardian link revoked: written by the database functions
+                 WHEN e.event_type ~ '^(account|guardian)\.' THEN 'access'
                  WHEN e.event_type ~ '^(academics|curriculum)\.' THEN 'academic'
                  WHEN e.event_type ~ '^reporting\.teacher_report\.' THEN 'academic'
                  WHEN e.event_type ~ '^finance\.' THEN 'financial'
