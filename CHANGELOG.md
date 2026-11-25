@@ -33,6 +33,14 @@ rename it or change how it behaves without a PR that Mike approves.
 
 On `main` or in an open PR, not live in production yet.
 
+- **Guards for stock movements and the behaviour log**: migration `20261125000000_behaviour_inventory_guards.sql`
+  fixes the three RLS-check failures on `main` since 2026-11-24.
+  - `inventory_movements`, `behaviour_settings`, `behaviour_categories`, `behaviour_entries` and
+    `behaviour_staff_notes` get all three audit triggers (insert, update, delete) and a `zz_<table>_same_school`
+    trigger over every reference to another school table.
+  - `behaviour_period` is no longer callable by signed-in users (it returned any school's term dates). It's now
+    internal to `behaviour_points`, which is unchanged. Don't call `behaviour_period` from the apps; use
+    `packages/shared/src/behaviour.ts`.
 - **Pre-PR check and agent instructions**: `scripts/pre-pr-check.sh`, plus a "Before opening a PR into dev-staging
   or main" section in `CLAUDE.md` and `AGENTS.md`. Docs and tooling only.
 - **CI runs the pre-PR check** on every PR into `dev-staging` or `main` (job "Pre-PR check (CHANGELOG rules)" in
