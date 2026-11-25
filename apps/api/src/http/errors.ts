@@ -11,7 +11,17 @@ export type ErrorCode =
   | "conflict"
   | "idempotency_key_reused"
   | "service_unavailable"
-  | "internal_error";
+  | "internal_error"
+  // My HR (docs/MY-HR.md): the same codes the Supabase `my-hr` function answers with.
+  | "my_hr_off"
+  | "school_not_linked"
+  | "not_linked"
+  | "pending_hr"
+  | "hr_off"
+  | "hr_forbidden"
+  | "hr_not_connected"
+  | "hr_unavailable"
+  | "hr_bad_answer";
 
 /** Additive field-level validation detail (OI-4 / FIG-1621). Never carries submitted values. */
 export type ErrorDetail = {
