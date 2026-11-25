@@ -161,7 +161,9 @@ export function ChatThread({ conversationId, myId, tenantId, role, canReply, ove
         ) : null}
       </header>
 
-      {caps.oversight && (
+      {/* A learner is always told the school's administrators can read the chat, as on Supabase, even on the API, which has no such read
+          for any role yet (an owner decision, finding student-web-9): the notice stays until the owner says whether the read is built or the words change. */}
+      {(caps.oversight || role === "student") && (
         <p className="border-b border-line-soft bg-[#FAFBFA] px-5 py-1.5 text-[11.5px] text-ink-faint">
           <span aria-hidden>◈ </span>{CHAT_OVERSIGHT_NOTICE}
         </p>

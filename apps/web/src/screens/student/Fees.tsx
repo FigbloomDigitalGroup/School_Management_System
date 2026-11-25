@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { formatMoney, formatPhone, itemsForStudent, loadStudentFeeData, type Receipt } from "@figbloom/shared";
+import { formatMoney, formatPhone, itemsForStudent, loadStudentFeeData, onApi, studentCapabilities, type Receipt } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -30,6 +30,9 @@ export function StudentFees() {
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => loadStudentFeeData(profile.id), [profile.id, reloadKey]);
   const toast = useToast();
+  const can = studentCapabilities();
+  // On the API the proofs on the invoice come with the fees; only Supabase asks again.
+  const api = onApi();
 
   const [open, setOpen] = useState(false);
 
@@ -40,10 +43,10 @@ export function StudentFees() {
   // invoice yet" (while fees load) never read as "none uploaded" — but a
   // reload after an upload keeps the list up.
   const { data: proofsFor, loading: proofsLoading } = useAsync(
-    async () => ({ invoiceId, proofs: invoiceId ? await listPaymentProofs(invoiceId) : ([] as PaymentProof[]) }),
-    [invoiceId, proofReload],
+    async () => ({ invoiceId, proofs: invoiceId && !api ? await listPaymentProofs(invoiceId) : ([] as PaymentProof[]) }),
+    [invoiceId, proofReload, api],
   );
-  const proofs = proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
+  const proofs = api ? (data?.proofs ?? []) : proofsFor?.invoiceId === invoiceId ? proofsFor.proofs : null;
   const proofsPending = !proofs && proofsLoading;
 
   async function openProof(path: string) {
@@ -59,7 +62,7 @@ export function StudentFees() {
     setOpen(true);
   }
 
-  const receiptSigs = useReceiptSignatures(data?.receipts.map((r) => r.id) ?? []);
+  const receiptSigs = useReceiptSignatures(can.signatures ? (data?.receipts.map((r) => r.id) ?? []) : []);
 
   const feeItems = data ? itemsForStudent(data.feeItems as never, { boarding: data.boarding }, data.formLevel, data.classLevel) : [];
 
@@ -126,7 +129,7 @@ export function StudentFees() {
                   { key: "ref", header: "Reference", render: (r: Receipt) => <Cell>{r.ref}</Cell> },
                   { key: "amount", header: "Amount", align: "right", render: (r: Receipt) => <Mono>{formatMoney(r.amount, tenant.country)}</Mono> },
                   { key: "st", header: "", align: "right", width: "0.8fr", render: () => <Badge tone="ok">Received</Badge> },
-                  { key: "signed", header: "Signed for the school", align: "right", width: "1.3fr", render: (r: Receipt) => <ReceiptSignature signature={receiptSigs.get(r.id)} /> },
+                  ...(can.signatures ? [{ key: "signed", header: "Signed for the school", align: "right" as const, width: "1.3fr", render: (r: Receipt) => <ReceiptSignature signature={receiptSigs.get(r.id)} /> }] : []),
                 ]}
                 rows={data.receipts}
                 rowKey={(r) => r.id}
@@ -171,19 +174,28 @@ export function StudentFees() {
               <header className="border-b border-line px-4 py-3">
                 <h2 className="text-body font-semibold">Payment proof</h2>
                 <p className="mt-0.5 text-[12px] text-ink-faint">
-                  Paid to the school's paybill, by bank or at the office? Paste the confirmation SMS or upload the slip for the bursar to confirm.
+                  {can.paymentProofSubmit
+                    ? "Paid to the school's paybill, by bank or at the office? Paste the confirmation SMS or upload the slip for the bursar to confirm."
+                    : "Proofs of payment the school has received for this invoice, and what became of them."}
                 </p>
               </header>
 
-              <PaymentProofForm
-                tenantId={tenant.id}
-                invoiceId={invoiceId}
-                uploadedBy={profile.id}
-                balanceCents={data.balance}
-                country={tenant.country}
-                school={{ paybill: tenant.payment_paybill, till: tenant.payment_till }}
-                onSent={() => setProofReload((n) => n + 1)}
-              />
+              {can.paymentProofSubmit ? (
+                <PaymentProofForm
+                  tenantId={tenant.id}
+                  invoiceId={invoiceId}
+                  uploadedBy={profile.id}
+                  balanceCents={data.balance}
+                  country={tenant.country}
+                  school={{ paybill: tenant.payment_paybill, till: tenant.payment_till }}
+                  onSent={() => setProofReload((n) => n + 1)}
+                />
+              ) : (
+                <p role="note" className="border-b border-line-soft bg-page px-4 py-3 text-[12.5px] leading-relaxed text-ink-muted">
+                  Sending a proof of payment is not on the new system yet: it needs the school's file storage, which is not set up. Pay with M-Pesa
+                  above, or take your receipt to the school office.
+                </p>
+              )}
 
               <div>
                 {proofsPending ? (
@@ -225,6 +237,7 @@ export function StudentFees() {
           balanceCents={data.balance}
           invoiceId={invoiceId}
           country={tenant.country}
+          learnerId={data.studentId}
           initialPhone={formatPhone(profile.phone).replace("+254 ", "0")}
           onClose={() => setOpen(false)}
           onSettled={() => setReloadKey((n) => n + 1)}

@@ -154,7 +154,7 @@ function ContactPicker({ open, role, onClose, onPick }: { open: boolean; role: R
   }, [contacts, query]);
 
   return (
-    <Modal open={open} onClose={onClose} eyebrow="Chats" title="Start a chat" blurb={onApi() ? "Staff with an account at the school." : "Only people you're connected to through a learner are listed."} width={520}>
+    <Modal open={open} onClose={onClose} eyebrow="Chats" title="Start a chat" blurb={onApi() ? (role === "student" ? "Your class teachers and the school office." : "Staff with an account at the school.") : "Only people you're connected to through a learner are listed."} width={520}>
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}

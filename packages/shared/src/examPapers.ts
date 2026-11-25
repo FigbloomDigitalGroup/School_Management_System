@@ -1,4 +1,5 @@
 import { apiCreateOnlineExamPaper, apiFetchExamPapers, apiFetchMyTeachingPairs } from "./api/examPapersApi";
+import { apiFetchSittingQuestions, apiSaveExamAttempt, apiStartExamAttempt } from "./api/studentExamsApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
@@ -665,6 +666,7 @@ export interface SittingQuestion {
 
 /** The questions, without keys: readable by a learner only once they've started. */
 export async function fetchSittingQuestions(paperId: string): Promise<SittingQuestion[]> {
+  if (onApi()) return apiFetchSittingQuestions(paperId);
   const { data, error } = await supabase().from("exam_questions").select("id, kind, prompt, options, points").eq("paper_id", paperId).order("position");
   if (error) throw new Error(error.message);
   return ((data ?? []) as { id: string; kind: QuestionKind; prompt: string; options: string[] | null; points: number }[])
@@ -695,6 +697,7 @@ function toSession(raw: unknown): AttemptSession {
 
 /** Starts the clock, or picks up an attempt already under way. */
 export async function startExamAttempt(paperId: string): Promise<AttemptSession> {
+  if (onApi()) return apiStartExamAttempt(paperId);
   const { data, error } = await supabase().rpc("start_exam_attempt", { p_paper_id: paperId });
   if (error) throw new Error(error.message);
   return toSession(data);
@@ -702,6 +705,7 @@ export async function startExamAttempt(paperId: string): Promise<AttemptSession>
 
 /** Autosave (submit = false) or hand in (submit = true). */
 export async function saveExamAttempt(paperId: string, answers: Answers, submit: boolean): Promise<AttemptSession> {
+  if (onApi()) return apiSaveExamAttempt(paperId, answers, submit);
   const { data, error } = await supabase().rpc("save_exam_attempt", { p_paper_id: paperId, p_answers: answers, p_submit: submit });
   if (error) throw new Error(error.message);
   return toSession(data);

@@ -996,16 +996,26 @@ export interface StudentCapabilities {
   reportCardPdf: boolean;
   /** API only: report cards shown as a summary list. */
   familyReportCards: boolean;
+  /** Invoice and receipt signatures on Fees (signatures wait on C12 / FIG-1880). */
+  signatures: boolean;
+  /** Send a proof of payment (a slip or the pasted message): the proof's file needs object storage that is not set up (A5). */
+  paymentProofSubmit: boolean;
+  /** "Your score", released results and a review of a marked paper under Exams & tests (the API marks a learner's attempt but tells them no score). */
+  examScores: boolean;
+  /** The study helper's checks of the learner's opt-in at an opt-in school and of an exam being open (the API's /ai/query does neither: student-6). */
+  studyHelperChecks: boolean;
 }
 
 const STUDENT_ON_SUPABASE: StudentCapabilities = {
   homeworkDone: true, homeworkFiles: true, homeworkDetails: true, materialFiles: true, liveClasses: true, higherEdPages: true,
   progressOverTime: true, examAbsences: true, reportCardPdf: true, familyReportCards: false,
+  signatures: true, paymentProofSubmit: true, examScores: true, studyHelperChecks: true,
 };
 
 const STUDENT_ON_API: StudentCapabilities = {
   homeworkDone: false, homeworkFiles: false, homeworkDetails: false, materialFiles: false, liveClasses: false, higherEdPages: false,
   progressOverTime: false, examAbsences: false, reportCardPdf: false, familyReportCards: true,
+  signatures: false, paymentProofSubmit: false, examScores: false, studyHelperChecks: false,
 };
 
 export function studentCapabilities(): StudentCapabilities {

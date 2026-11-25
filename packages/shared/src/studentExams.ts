@@ -1,3 +1,7 @@
+import { apiActiveRole } from "./api/ownLearner";
+import { apiLoadStudentPapers } from "./api/studentExamsApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { canStartSitting, fetchLearnerExamStates, type LearnerExamState } from "./examExtensions";
 import { fetchClassPapers, fetchPaperTotals, fetchReleasedAttempts, paperWindow, type AttemptRow, type ExamPaperRow } from "./examPapers";
 
@@ -103,6 +107,11 @@ export function familyPaperGroups(papers: StudentPaper[], nowMs: number): Family
 
 /** Every published paper for the learner's class, with their standing on each. */
 export async function loadStudentPapers(classId: string, studentId: string): Promise<StudentPaper[]> {
+  // On the API this is the signed-in learner's own online papers (api/studentExamsApi.ts); a parent has no read of a child's papers there.
+  if (onApi()) {
+    if (apiActiveRole() !== "student") throw new NotOnApiError("A child's exam papers");
+    return apiLoadStudentPapers();
+  }
   const [papers, states, results] = await Promise.all([fetchClassPapers(classId), fetchLearnerExamStates(studentId), fetchReleasedAttempts(studentId)]);
   const totals = await fetchPaperTotals(papers.filter((p) => results.has(p.id)).map((p) => p.id));
   return papers.map((paper): StudentPaper => ({ paper, state: states.get(paper.id), result: results.get(paper.id), total: totals.get(paper.id) }));

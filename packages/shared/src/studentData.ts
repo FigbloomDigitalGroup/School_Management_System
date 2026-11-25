@@ -1,5 +1,5 @@
 import { apiMarkNoticeRead } from "./api/noticesApi";
-import { apiLoadStudentData } from "./api/studentApi";
+import { apiLoadStudentData, apiLoadStudentFeeData } from "./api/studentApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import { supabase } from "./supabase";
@@ -11,6 +11,7 @@ import { fetchInvoiceCharges, standingCharges, type FeeCharge } from "./feeCharg
 import { audienceIncludes, type AudienceViewer } from "./audience";
 import { normaliseGuide } from "./homework";
 import { fetchPaidPayments } from "./paidPayments";
+import type { PaymentProof } from "./paymentProofs";
 
 /**
  * One real query for everything a signed-in student's screens need — mobile
@@ -117,9 +118,13 @@ export interface StudentFeeData {
   termLabel: string | null;
   feeItems: { id: string; name: string; amount_cents: number; applies_to: "all" | "boarders" | "day" | "form_level"; form_level: number | null; level: ClassLevel | null }[];
   receipts: Receipt[];
+  /** API only: the payment proofs on this invoice (read with the fees, not listed apart). */
+  proofs?: PaymentProof[];
 }
 
 export async function loadStudentFeeData(profileId: string): Promise<StudentFeeData | null> {
+  // The API knows who is asking: the learner's own invoices, with their lines, charges, payments and proofs, are one read (api/studentApi.ts).
+  if (onApi()) return apiLoadStudentFeeData();
   const { data: studentRow } = await supabase()
     .from("students")
     .select("id, full_name, admission_no, boarding, classes(name, form_level, level)")

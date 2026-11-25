@@ -5,11 +5,15 @@ import { NotOnApiError, parentCapabilities, studentCapabilities } from "../capab
 import { fetchStudentSchedule } from "../courses";
 import { fetchStudentCourseResults } from "../courseGrades";
 import { fetchOwnLearnerInventory } from "../inventory";
-import { loadStudentData, markAssignmentHandedIn, markStudentNoticeRead } from "../studentData";
+import { askTutor } from "../ai";
+import { fetchChatContacts, fetchMyConversations } from "../chat";
+import { payWithMpesa } from "../mpesaPay";
+import { loadStudentData, loadStudentFeeData, markAssignmentHandedIn, markStudentNoticeRead } from "../studentData";
 import { currentPeriodIndex, fetchClassTimetable } from "../timetable";
 import { BASE, createFakeApi, type FakeApi, type FakeReply, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
 import { apiActiveRole, apiFetchOwnLearner, forgetOwnLearner, setApiActiveRole } from "./ownLearner";
+import { resetDirectory } from "./directoryApi";
 import { apiFetchChildren } from "./parentApi";
 import { workItemFromFamily, weekFromFamilyTimetable } from "./studentApi";
 import { createMemoryTokenStore } from "./tokenStore";
@@ -47,10 +51,11 @@ function boot(routes: Record<string, FakeRoute>, role: string | null = "student"
   setApiTokenStore(createMemoryTokenStore({ token: "tok", expiresAt: "2099-01-01T00:00:00Z", userId: "u-student" }));
   setApiActiveTenant(T);
   setApiActiveRole(role);
+  forgetOwnLearner();
   return api;
 }
 const ok = (body: unknown): FakeReply => ({ body });
-const refused = (status: number, code: string): FakeReply => ({ status, body: { error: { code, message: "no" } } });
+const refused = (status: number, code: string, message = "no"): FakeReply => ({ status, body: { error: { code, message } } });
 const per = (tail: string) => `GET ${P}/me/children/${L}/${tail}`;
 
 afterEach(() => {
@@ -229,5 +234,120 @@ describe("a piece of work from the family read", () => {
     expect(workItemFromFamily(homework("w1", "2026-12-01") as never)).toEqual({
       id: "w1", title: "Work w1", subject: "Mathematics", teacher: "", dueOn: "2026-12-01", state: "open", how: "", body: "Do it.", needs: [], minutes: null, hasFile: false,
     });
+  });
+});
+
+// ---------------------------------------------------------------- fees
+
+const invoice = (o: Record<string, unknown> = {}) => ({
+  id: "b1111111-1111-4111-8111-111111111111", term, currency: "KES", due_on: "2026-12-15", status: "part_paid", lines_minor: 4_500_000, charges_minor: 50_000, adjustments_minor: 0,
+  total_minor: 4_550_000, paid_minor: 1_000_000, balance_minor: 3_550_000, created_at: "2026-11-01T08:00:00Z", voided_at: null,
+  lines: [{ name: "Tuition", amount_minor: 4_000_000 }, { name: "Boarding", amount_minor: 500_000 }],
+  charges: [{ amount_minor: 50_000, reason: "Lost textbook", created_at: "2026-11-05T08:00:00Z" }],
+  payments: [
+    { id: "pay-1", amount_minor: 1_000_000, method: "mpesa", status: "success", mpesa_receipt: "SKX1234", reference: null, failure_reason: null, created_at: "2026-11-02T08:00:00Z", completed_at: "2026-11-02T08:01:00Z" },
+    { id: "pay-2", amount_minor: 500_000, method: "mpesa", status: "failed", mpesa_receipt: null, reference: null, failure_reason: "cancelled", created_at: "2026-11-03T08:00:00Z", completed_at: null },
+  ],
+  proofs: [{ id: "pr-1", status: "rejected", txn_code: "QAB1", txn_amount_minor: 500_000, note: null, file_name: null, rejection_reason: "Wrong amount", created_at: "2026-11-04T08:00:00Z" }],
+  ...o,
+});
+
+describe("the learner's own fees", () => {
+  it("is the balance of the newest invoice that is not voided, with its lines, charges, receipts and proofs, in cents", async () => {
+    boot({
+      [`GET ${P}/me/learner`]: ok({ learner: learner() }),
+      [per("fees")]: ok({ invoices: [invoice({ id: "voided", voided_at: "2026-11-06T00:00:00Z", status: "voided" }), invoice(), invoice({ id: "old", term: { id: "t0", label: "Term 3, 2025" }, payments: [] })] }),
+    });
+    const fees = await loadStudentFeeData("ignored");
+    expect(fees).toMatchObject({
+      studentId: L, invoiceId: "b1111111-1111-4111-8111-111111111111", name: "Amina Ochieng", admissionNo: "ADM-1001", className: "Form 2 West", formLevel: 2, classLevel: "secondary",
+      balance: 3_550_000, billed: 4_550_000, dueOn: "2026-12-15", termLabel: "Term 1, 2026",
+    });
+    expect(fees!.feeItems.map((i) => [i.name, i.amount_cents, i.applies_to])).toEqual([["Tuition", 4_000_000, "all"], ["Boarding", 500_000, "all"]]);
+    expect(fees!.charges.map((c) => [c.reason, c.amountCents])).toEqual([["Lost textbook", 50_000]]);
+    expect(fees!.receipts.map((r) => [r.amount, r.ref])).toEqual([[1_000_000, "SKX1234"]]);
+    expect(fees!.proofs).toEqual([expect.objectContaining({ id: "pr-1", status: "rejected", rejection_reason: "Wrong amount", txn_amount_cents: 500_000, file_path: null })]);
+    // No phone number is anywhere in it.
+    expect(JSON.stringify(fees)).not.toMatch(/msisdn|phone/i);
+  });
+
+  it("is a zero balance and no invoice for a learner not billed yet, and null for a login with no live learner", async () => {
+    boot({ [`GET ${P}/me/learner`]: ok({ learner: learner() }), [per("fees")]: ok({ invoices: [] }) });
+    expect(await loadStudentFeeData("p")).toMatchObject({ invoiceId: null, balance: 0, billed: 0, receipts: [], proofs: [], feeItems: [] });
+    boot({ [`GET ${P}/me/learner`]: refused(404, "not_found") });
+    expect(await loadStudentFeeData("p")).toBeNull();
+  });
+
+  it("asks for an M-Pesa prompt for their own invoice and reads the payment back from their own fees; where M-Pesa is not set up it says so", async () => {
+    const inv = "b1111111-1111-4111-8111-111111111111";
+    boot({
+      [`POST ${P}/finance/mpesa/prompts`]: { status: 201, body: { payment: { id: "pay-9" } } },
+      [per("fees")]: ok({ invoices: [invoice({ payments: [{ id: "pay-9", amount_minor: 100_000, method: "mpesa", status: "success", mpesa_receipt: "SKY9", reference: null, failure_reason: null, created_at: "2026-11-25T08:00:00Z", completed_at: "2026-11-25T08:00:30Z" }] })] }),
+    });
+    const out = await payWithMpesa({ invoiceId: inv, amountCents: 100_000, msisdn: "254712345678", learnerId: L }, { intervalMs: 1 });
+    expect(out).toEqual({ kind: "success", receipt: "SKY9" });
+    expect(api.callsTo(`POST ${P}/finance/mpesa/prompts`)[0]!.body).toEqual({ invoice_id: inv, amount_minor: 100_000, msisdn: "254712345678" });
+    // M-Pesa not set up for the school (or down): the dialog says so, nothing was sent.
+    boot({ [`POST ${P}/finance/mpesa/prompts`]: refused(503, "service_unavailable") });
+    expect(await payWithMpesa({ invoiceId: inv, amountCents: 100_000, msisdn: "254712345678", learnerId: L })).toEqual({ kind: "unavailable" });
+    // Without the learner id the invoice is found among the learner's own (the parent's list is a 403 for a learner and is never asked).
+    boot({
+      [`GET ${P}/me/learner`]: ok({ learner: learner() }),
+      [`POST ${P}/finance/mpesa/prompts`]: { status: 201, body: { payment: { id: "pay-9" } } },
+      [per("fees")]: ok({ invoices: [invoice({ payments: [{ id: "pay-9", amount_minor: 100_000, method: "mpesa", status: "failed", mpesa_receipt: null, reference: null, failure_reason: "cancelled", created_at: "2026-11-25T08:00:00Z", completed_at: null }] })] }),
+    });
+    expect(await payWithMpesa({ invoiceId: inv, amountCents: 100_000, msisdn: "254712345678" }, { intervalMs: 1 })).toMatchObject({ kind: "failed" });
+    expect(api.callsTo(`GET ${P}/me/children`)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------- chat
+
+describe("a learner's chats", () => {
+  const CT = "c9999999-9999-4999-8999-999999999999";
+  const AD = "c8888888-8888-4888-8888-888888888888";
+
+  it("lists the people from /me/chat-contacts (the office and their own class teachers), never the staff list", async () => {
+    resetDirectory();
+    boot({
+      [`GET ${P}/me/chat-contacts`]: ok({ contacts: [
+        { user_id: CT, full_name: "David Kamau", role: "teacher", teaches: [{ learner_id: L, class_name: "Form 2 West", subject: null }, { learner_id: L, class_name: "Form 2 West", subject: "Mathematics" }] },
+        { user_id: AD, full_name: "Grace Wanjiku", role: "school_admin", teaches: [] },
+      ] }),
+      [`GET ${P}/chat/conversations`]: ok({ conversations: [{ id: "cv-1", peer_user_id: CT, last_message_at: null, created_at: "2026-11-25T08:00:00Z" }], page: { limit: 50, next_cursor: null } }),
+    });
+    const contacts = await fetchChatContacts("student");
+    expect(contacts.map((c) => [c.name, c.role, c.detail])).toEqual([
+      ["David Kamau", "teacher", "Class teacher · Form 2 West, Mathematics · Form 2 West"],
+      ["Grace Wanjiku", "school_admin", "School office"],
+    ]);
+    const chats = await fetchMyConversations("student");
+    expect(chats.map((c) => [c.otherName, c.otherRole])).toEqual([["David Kamau", "teacher"]]);
+    expect(api.callsTo(`GET ${P}/staff`)).toHaveLength(0);
+    resetDirectory();
+  });
+});
+
+// ---------------------------------------------------------------- the study helper
+
+describe("a learner's study helper", () => {
+  it("asks /ai/query with the public scope only, the chat packed into one prompt, and reads the answer", async () => {
+    boot({ [`POST ${P}/ai/query`]: ok({ status: "ok", scope: "public", answer: "A fraction is part of a whole.", provider: "figbloom_ai", citations: [] }) });
+    const text = await askTutor([
+      { role: "user", content: "What is a fraction?" },
+      { role: "assistant", content: "Part of a whole. Want an example?" },
+      { role: "user", content: "Yes" },
+    ]);
+    expect(text).toBe("A fraction is part of a whole.");
+    const body = api.callsTo(`POST ${P}/ai/query`)[0]!.body as { scope: string; prompt: string };
+    expect(body.scope).toBe("public");
+    expect(body.prompt).toBe("User: What is a fraction?\n\nBloom: Part of a whole. Want an example?\n\nUser: Yes");
+  });
+
+  it("says why when Bloom does not answer: the school has no helper (403), or it is busy (503 with Retry-After)", async () => {
+    boot({ [`POST ${P}/ai/query`]: refused(403, "forbidden", "AI is not enabled for this school") });
+    await expect(askTutor([{ role: "user", content: "Hi" }])).rejects.toMatchObject({ name: "EdgeError", status: 403 });
+    boot({ [`POST ${P}/ai/query`]: { status: 503, headers: { "retry-after": "15" }, body: { status: "unavailable", reason: "circuit_open" } } });
+    await expect(askTutor([{ role: "user", content: "Hi" }])).rejects.toMatchObject({ status: 503, message: "Bloom is not answering right now. Try again in 15 seconds." });
   });
 });

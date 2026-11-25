@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AI_HELPER_REFUSAL_TEXT, askTutor, EdgeError, fetchAiHelperStatus, helperRefusal, type TutorTurn } from "@figbloom/shared";
+import { AI_HELPER_REFUSAL_TEXT, askTutor, EdgeError, fetchAiHelperStatus, fetchAiStatus, helperRefusal, onApi, studentCapabilities, type TutorTurn } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -22,9 +22,16 @@ const STARTERS = [
  *
  * At a school that asks for a parent's opt-in, a learner without one is
  * told to ask at home instead (helperRefusal(); ai-assist checks again).
+ *
+ * On the new API the helper is the PUBLIC scope of /ai/query, on when `GET /ai/status` says Bloom is on for the school (the school
+ * record carries no AI settings there). The API checks neither the learner's opt-in nor an exam being open (studentCapabilities().studyHelperChecks,
+ * finding student-6), so neither is offered here.
  */
 export function StudyHelper() {
   const { tenant } = useTenantSession();
+  const can = studentCapabilities();
+  const api = onApi();
+  const { data: ai, loading: aiLoading, error: aiError } = useAsync(() => (api ? fetchAiStatus(tenant.id) : Promise.resolve(null)), [api, tenant.id]);
   const [turns, setTurns] = useState<TutorTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -32,16 +39,26 @@ export function StudyHelper() {
   const [blocked, setBlocked] = useState("");
   const [refused, setRefused] = useState("");
   const end = useRef<HTMLDivElement>(null);
-  const optInMode = tenant.ai_tutor_access === "opt_in";
+  const optInMode = can.studyHelperChecks && tenant.ai_tutor_access === "opt_in";
   const { data: mine, loading: checking } = useAsync(
     () => (optInMode ? fetchAiHelperStatus(null) : Promise.resolve(null)), [optInMode, tenant.id]);
 
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [turns, busy]);
 
   const refusal = helperRefusal({
-    aiEnabled: !!tenant.ai_enabled, tutorEnabled: !!tenant.ai_tutor_enabled,
+    aiEnabled: api ? !!ai?.aiEnabled : !!tenant.ai_enabled, tutorEnabled: api ? !!ai?.tutorEnabled : !!tenant.ai_tutor_enabled,
     access: optInMode ? "opt_in" : "all", optInActive: !!mine?.optInActive,
   });
+  if (api && (aiLoading || aiError)) {
+    return (
+      <>
+        <PageHead eyebrow="Study helper" title="Ask Bloom" />
+        {aiError
+          ? <p className="mx-7 my-6 max-w-[560px] rounded-lg border border-line bg-white px-4 py-4 text-[13px] text-ink-muted">Could not check whether the study helper is on: {aiError.message}</p>
+          : <div className="mx-7 my-6 max-w-[560px]"><Skeleton className="h-14 rounded-lg" /></div>}
+      </>
+    );
+  }
   if (optInMode && checking && refusal !== "school_off") {
     return (
       <>
