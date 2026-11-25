@@ -8,6 +8,7 @@ import { DataTable, EmptyState, Mono } from "../../components/ui/DataTable";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
+import { PagedList } from "../../components/ui/PagedList";
 
 type Tab = "mine" | "school" | "calls";
 
@@ -121,7 +122,7 @@ function SchoolChats() {
     [learners, learnerText],
   );
 
-  const { data: conversations, loading, error } = useAsync(() => fetchSchoolConversations(tenant.id, learnerId), [tenant.id, learnerId]);
+  const { data: conversations, loading, error } = useAsync(() => fetchSchoolConversations(tenant.id, learnerId), [tenant.id, learnerId], { cache: false });
 
   const shown = useMemo(() => filterSchoolConversations(conversations ?? [], nameFilter), [conversations, nameFilter]);
 
@@ -158,7 +159,8 @@ function SchoolChats() {
           ) : shown.length === 0 ? (
             <EmptyState title="No chats." body={learnerId || nameFilter ? "No chats match these filters." : "No one at the school has chatted yet."} />
           ) : (
-            shown.map((c) => <SchoolChatRow key={c.id} c={c} active={c.id === selected?.id} onOpen={() => setSelectedId(c.id)} />)
+            <PagedList items={shown} keyOf={(c) => c.id} pageSize={20} label="chats" className="px-3 py-2"
+              render={(c) => <SchoolChatRow c={c} active={c.id === selected?.id} onOpen={() => setSelectedId(c.id)} />} />
           )}
         </div>
       </div>

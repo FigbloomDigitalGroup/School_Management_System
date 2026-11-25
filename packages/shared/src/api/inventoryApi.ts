@@ -59,6 +59,10 @@ export function inventoryItemFromApi(i: ApiItem): InventoryItem {
     purchased_on: null,
     unit_cost_cents: null,
     notes: null,
+    // Stock in and out (consumables, units, reorder levels) is not on the API yet: slice S1 of docs/handoffs/WEB-ON-API-ROADMAP.md.
+    unit: null,
+    consumable: false,
+    reorder_level: null,
     retired_at: i.retired_at ?? null,
     created_at: i.created_at,
   };

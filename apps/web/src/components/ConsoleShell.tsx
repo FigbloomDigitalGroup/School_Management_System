@@ -54,7 +54,29 @@ export interface ShellAction {
   title?: string;
   /** Working on it: the entry is dimmed and says so. */
   busy?: boolean;
+  /** A small mark at the end: "external" opens another product in a new tab (↗), "connect" isn't set up yet (+). */
+  mark?: "external" | "connect";
+  /** A page in this app: the entry is a link to it (and shows as current there); onClick is for other callers' buttons. */
+  to?: string;
   onClick: () => void;
+}
+
+/** The mark at the end of a side action; its words are for screen readers (and the "+" has a tooltip). */
+function ShellActionMark({ mark }: { mark: NonNullable<ShellAction["mark"]> }) {
+  if (mark === "external") {
+    return (
+      <>
+        <span aria-hidden className="shrink-0 text-[12px] leading-none opacity-70">↗</span>
+        <span className="sr-only">(opens in a new tab)</span>
+      </>
+    );
+  }
+  return (
+    <>
+      <span aria-hidden title="Connect" className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-[11px] leading-none opacity-70">+</span>
+      <span className="sr-only">Connect</span>
+    </>
+  );
 }
 
 interface Props {
@@ -200,7 +222,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           scrolls as a last resort for windows too short even for that. */}
       <nav
         aria-label="Main"
-        className="flex shrink-0 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-4 transition-[width] duration-150"
+        className="no-scrollbar flex shrink-0 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3 py-4 transition-[width] duration-150"
         style={{ width: open ? 224 : 68, background: tenantScoped ? "var(--accent-deep)" : "#17402A" }}
       >
         <div className="flex min-h-[34px] shrink-0 items-center gap-3 px-0.5 pb-2">
@@ -271,7 +293,7 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
           </NavLink>
         )}
 
-        <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
+        <div className="no-scrollbar -mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1">
         {/* Each heading folds its pages away and opens them again; they all start open. Collapsed to icons, a thin line stands in for the
             heading and every page stays on show, since an icon is the only way to reach it. */}
         {sections.map((section, i) => {
@@ -337,22 +359,36 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
         {sideActions.length > 0 && (
           // Other Figbloom products: set apart, so they don't read as the last entry of the heading above.
           <div className="mt-1 flex flex-col gap-0.5 border-t border-white/10 pt-1.5">
-            {sideActions.map((a) => (
-              <button
-                key={a.key}
-                type="button"
-                onClick={a.onClick}
-                disabled={a.busy}
-                aria-busy={a.busy || undefined}
-                title={a.title ?? a.label}
-                className={`hit flex w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-left text-white/75 hover:bg-white/10 disabled:opacity-60 ${open ? "" : "justify-center"}`}
-                style={{ height: 38 }}
-              >
-                <Icon name={a.icon} />
-                {open && <span className="flex-1 truncate text-body">{a.label}</span>}
-                {open && a.busy && <span className="font-mono text-[10px] text-white/60">Opening…</span>}
-              </button>
-            ))}
+            {sideActions.map((a) => {
+              const look = (current: boolean) =>
+                `hit flex w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-[9px] px-2.5 text-left disabled:opacity-60 ${current ? "bg-white font-semibold text-forest" : "text-white/75 hover:bg-white/10"} ${open ? "" : "justify-center"}`;
+              const inside = (
+                <>
+                  <Icon name={a.icon} />
+                  {open && <span className="flex-1 truncate text-body">{a.label}</span>}
+                  {open && a.busy && <span className="font-mono text-[10px] text-white/60">Opening…</span>}
+                  {open && !a.busy && a.mark && <ShellActionMark mark={a.mark} />}
+                </>
+              );
+              return a.to ? (
+                <NavLink key={a.key} to={a.to} title={a.title ?? a.label} className={({ isActive }) => look(isActive)} style={{ height: 38 }}>
+                  {inside}
+                </NavLink>
+              ) : (
+                <button
+                  key={a.key}
+                  type="button"
+                  onClick={a.onClick}
+                  disabled={a.busy}
+                  aria-busy={a.busy || undefined}
+                  title={a.title ?? a.label}
+                  className={look(false)}
+                  style={{ height: 38 }}
+                >
+                  {inside}
+                </button>
+              );
+            })}
           </div>
         )}
         </div>

@@ -1,27 +1,46 @@
 /**
- * "HR & Payroll" in the web console: a one-time sign-in link into Figbloom HR
- * for the person clicking (SCHOOLS_HR_HANDOFF_CONTRACT.md section 3).
+ * "HR & Payroll" in the web console (SCHOOLS_HR_HANDOFF_CONTRACT.md section 3; HR_CONNECT_SPEC.md): whether
+ * Figbloom HR is there for the school, asking Figbloom for it, and a one-time sign-in link into it for the
+ * person clicking.
  *
- * POST {"tenant_id": "<the school's tenants.id>"} with the person's own JWT.
+ * POST {"tenant_id": "<the school's tenants.id>", "action"?: "open" | "status" | "request"} with the person's own
+ * JWT. JWT verification may be off at the gateway (production's self-hosted Supabase turns it off for every
+ * function), so the caller is always checked here (auth.getUser with their Authorization header).
  *
- *   1. The same rule as the sidebar item, asked as the caller:
- *      hr_handoff_status(tenant_id) (20261105700000). It refuses (42501)
- *      anyone who isn't the school's admin, an org admin of its organisation,
- *      or a holder of the fees area; 'off' (platform_settings
- *      PLATFORM_HANDOFF_ENABLED) and 'not_linked' (the platform doesn't know
- *      the school yet) are refused here.
- *      'not_enabled' (the platform said no in the last hour) is asked again:
- *      someone clicking means they expect it to work now.
+ * Every action first asks the same rule as the sidebar, as the caller: hr_handoff_status(tenant_id)
+ * (20261105700000). It refuses (42501 -> 403 forbidden) anyone who isn't the school's admin, an org admin of its
+ * organisation, or a holder of the fees area; 'off' (platform_settings PLATFORM_HANDOFF_ENABLED, the master
+ * switch) hides everything.
+ *
+ * action "status" -> {enabled, connection, requested_at, can_request_hr}
+ *   enabled         false while PLATFORM_HANDOFF_ENABLED is off (then connection and requested_at are null)
+ *   connection      whether HR is there for the school, from the platform with Schools' service client
+ *                   (kept in memory a minute per school, the platform's cache_seconds at most):
+ *     not_connected   the platform doesn't know the school (platform_links), or GET /tenants/{id}/modules/hr
+ *                     isn't module_status "active"
+ *     setting_up      HR is on but GET /tenants/{id}/links/hr is 404: HR hasn't created/linked the school yet
+ *     connected       HR is on and linked: the handoff will work
+ *     unknown         the platform couldn't be asked (not configured, unreachable, an error): the web app
+ *                     offers HR as if connected, and the launch tab says what's wrong
+ *   requested_at    when the school asked Figbloom for HR (ISO), or null
+ *
+ * action "request" -> {requested_at}: the school asks Figbloom for HR (tenants.hr_requested_at / _by,
+ *   20261124100000; staff see it in the console via platform-schools and switch HR on there). The first request
+ *   is kept: asking again answers its time. 409 already_connected when HR is connected or being set up;
+ *   403 handoff_off while the switch is off.
+ *
+ * action "open" (the default) -> {url, expires_at}:
+ *   1. 'not_linked' (the platform doesn't know the school yet) is refused; 'not_enabled' (the platform said no
+ *      in the last hour) is asked again: someone clicking means they expect it to work now.
  *   2. POST /handoffs to the platform as Schools (_shared/platformClient.ts):
  *      target "hr", the school, and the caller's profile: id, name, role and
  *      a real email or null (a synthetic sign-in address is no email).
- *   3. The platform's answer is recorded (platform_record_module_status), so
- *      the item hides for an hour after a "no" and shows after a "yes":
- *        201                          -> {url, expires_at}; the web app opens url in a new tab
+ *   3. The platform's answer is recorded (platform_record_module_status):
+ *        201                          -> {url, expires_at}; the web app's launch tab replaces itself with url
  *        409 target_not_enabled       -> HR isn't on for the school
  *        409 target_not_linked        -> HR is on but its company isn't linked to the school
  *        409 target_no_handoff_url    -> HR hasn't registered where it accepts sign-ins
- *        404                          -> the platform doesn't know the school
+ *        404                          -> the platform doesn't know the school (school_not_linked)
  *        429                          -> too many in the last minute
  *        unreachable / 5xx / token    -> 503, try again shortly
  *
@@ -49,7 +68,21 @@ export interface Deps {
   asUser: any;
   /** null when the PLATFORM_* secrets aren't set. */
   client: PlatformClient | null;
+  /** Each school's HR connection as last worked out (one per warm isolate; a fresh one per test). */
+  connections?: ConnectionCache;
+  now?: () => number;
 }
+
+/** Whether Figbloom HR is there for a school (see the top). */
+export type HrConnection = "connected" | "setting_up" | "not_connected" | "unknown";
+export type ConnectionCache = Map<string, { value: HrConnection; until: number }>;
+
+/** How long a school's connection is kept (the platform's cache_seconds, at most this); a failed check only briefly. */
+export const CONNECTION_CACHE_SECONDS = 60;
+export const UNKNOWN_CACHE_SECONDS = 15;
+
+export const ACTIONS = ["open", "status", "request"] as const;
+type Action = typeof ACTIONS[number];
 
 /** Same as the database's platform_real_email(): trimmed, lower-case, and null for a synthetic or malformed address. */
 export function realEmail(address: string | null | undefined): string | null {
@@ -66,7 +99,10 @@ const TARGET_REFUSALS: Record<string, string> = {
   target_no_handoff_url: "HR & Payroll isn't ready to accept sign-ins from Figbloom Schools yet. Try again later.",
 };
 
-export async function handle(req: Request, { admin, asUser, client }: Deps): Promise<Response> {
+export async function handle(req: Request, deps: Deps): Promise<Response> {
+  const { admin, asUser, client } = deps;
+  const connections = deps.connections ?? new Map();
+  const now = deps.now ?? Date.now;
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return fail(405, "method_not_allowed", "Use POST.");
   if (!req.headers.get("Authorization")) return fail(401, "unauthorized", "Sign in first.");
@@ -79,6 +115,9 @@ export async function handle(req: Request, { admin, asUser, client }: Deps): Pro
   try { body = await req.json(); } catch { return fail(400, "invalid_json", "The body must be JSON."); }
   const tenantId = typeof body?.tenant_id === "string" ? body.tenant_id.trim() : "";
   if (!UUID.test(tenantId)) return fail(400, "invalid_school", "Say which school (tenant_id).");
+  const action: Action | null = body?.action === undefined || body?.action === null ? "open"
+    : (ACTIONS as readonly unknown[]).includes(body.action) ? body.action as Action : null;
+  if (!action) return fail(400, "unknown_action", 'The action must be "open", "status" or "request".');
 
   // 1. the rule, as the caller
   const { data: status, error: statusError } = await asUser.rpc("hr_handoff_status", { p_tenant_id: tenantId });
@@ -87,6 +126,47 @@ export async function handle(req: Request, { admin, asUser, client }: Deps): Pro
     console.error("open-hr: hr_handoff_status failed:", statusError.message);
     return fail(500, "status_failed", "Could not check access to HR & Payroll. Try again.");
   }
+  if (!["off", "not_linked", "not_enabled", "available"].includes(status)) {
+    console.error("open-hr: unexpected hr_handoff_status:", status);
+    return fail(500, "status_failed", "Could not check access to HR & Payroll. Try again.");
+  }
+
+  if (action === "status") {
+    if (status === "off") return json({ enabled: false, connection: null, requested_at: null, can_request_hr: false });
+    const [connection, requested] = await Promise.all([
+      status === "not_linked" ? Promise.resolve<HrConnection>("not_connected") : connectionOf(admin, client, connections, now, tenantId),
+      requestedAt(admin, tenantId),
+    ]);
+    return json({ enabled: true, connection, requested_at: requested.ok ? requested.at : null, can_request_hr: true });
+  }
+
+  if (action === "request") {
+    if (status === "off") return fail(403, "handoff_off", "HR & Payroll isn't available from Figbloom Schools yet.");
+    const connection = status === "not_linked" ? "not_connected" : await connectionOf(admin, client, connections, now, tenantId);
+    if (connection === "connected" || connection === "setting_up") {
+      return fail(409, "already_connected", "Figbloom HR is already switched on for this school.");
+    }
+    const before = await requestedAt(admin, tenantId);
+    if (!before.ok) return fail(500, "request_failed", "Couldn't send the request. Try again.");
+    if (before.at) return json({ requested_at: before.at });
+    const { data: at, error: requestError } = await admin.rpc("platform_record_hr_request", { p_tenant_id: tenantId, p_profile_id: user.id });
+    if (requestError || !at) {
+      console.error("open-hr: could not record the HR request:", requestError?.message ?? "no answer");
+      return fail(500, "request_failed", "Couldn't send the request. Try again.");
+    }
+    connections.delete(tenantId);
+    const { data: me } = await admin.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+    const { error: auditError } = await admin.from("audit_events").insert({
+      tenant_id: tenantId,
+      actor_id: user.id,
+      actor_label: me?.full_name ?? "Unknown",
+      event: "Asked Figbloom for HR & Payroll",
+      category: "access",
+    });
+    if (auditError) console.error("open-hr: audit failed:", auditError.message);
+    return json({ requested_at: iso(at) });
+  }
+
   switch (status) {
     case "off":
       return fail(403, "handoff_off", "Signing in to HR & Payroll from Figbloom Schools isn't available yet.");
@@ -125,9 +205,11 @@ export async function handle(req: Request, { admin, asUser, client }: Deps): Pro
   } catch (err) {
     if (err instanceof PlatformError && err.status === 409 && Object.hasOwn(TARGET_REFUSALS, err.code)) {
       await record(admin, tenantId, false, err.code);
+      connections.delete(tenantId);
       return fail(409, err.code, TARGET_REFUSALS[err.code]!);
     }
     if (err instanceof PlatformError && err.status === 404) {
+      connections.delete(tenantId);
       return fail(409, "school_not_linked", "The Figbloom platform doesn't know this school yet. Try again later, or ask Figbloom.");
     }
     if (err instanceof PlatformError && err.status === 429) {
@@ -160,6 +242,63 @@ export async function handle(req: Request, { admin, asUser, client }: Deps): Pro
   return json({ url: url.href, expires_at: answer.expires_at });
 }
 
+/**
+ * Whether HR is there for the school (see the top), kept a minute per school. Never throws: a platform that can't be
+ * asked is "unknown". Asked only after the caller passed the rule and the switch is on.
+ */
+export async function connectionOf(
+  // deno-lint-ignore no-explicit-any
+  admin: any, client: PlatformClient | null, cache: ConnectionCache, now: () => number, tenantId: string,
+): Promise<HrConnection> {
+  const kept = cache.get(tenantId);
+  if (kept && kept.until > now()) return kept.value;
+  const { value, seconds } = await askPlatform(admin, client, tenantId);
+  cache.set(tenantId, { value, until: now() + seconds * 1000 });
+  return value;
+}
+
+// deno-lint-ignore no-explicit-any
+async function askPlatform(admin: any, client: PlatformClient | null, tenantId: string): Promise<{ value: HrConnection; seconds: number }> {
+  if (!client) return { value: "unknown", seconds: UNKNOWN_CACHE_SECONDS };
+  try {
+    const { data: link, error } = await admin
+      .from("platform_links").select("platform_id").eq("kind", "tenant").eq("local_id", tenantId).maybeSingle();
+    if (error) throw new Error(`platform_links: ${error.message}`);
+    if (!link?.platform_id) return { value: "not_connected", seconds: CONNECTION_CACHE_SECONDS };
+    const module = await client.getTenantModule(String(link.platform_id), TARGET);
+    const asked = Number(module?.cache_seconds);
+    const seconds = asked > 0 ? Math.min(asked, CONNECTION_CACHE_SECONDS) : CONNECTION_CACHE_SECONDS;
+    if (module?.module_status !== "active") return { value: "not_connected", seconds };
+    try {
+      await client.getTenantLink(String(link.platform_id), TARGET);
+      return { value: "connected", seconds };
+    } catch (err) {
+      if (err instanceof PlatformError && err.status === 404) return { value: "setting_up", seconds };
+      throw err;
+    }
+  } catch (err) {
+    const why = err instanceof PlatformError ? `${err.status} ${err.code}` : err instanceof Error ? err.message : String(err);
+    console.error(`open-hr: HR connection check failed for school ${tenantId}: ${why}`);
+    return { value: "unknown", seconds: UNKNOWN_CACHE_SECONDS };
+  }
+}
+
+/** tenants.hr_requested_at as ISO (null: never asked); ok false when it couldn't be read. */
+// deno-lint-ignore no-explicit-any
+async function requestedAt(admin: any, tenantId: string): Promise<{ ok: boolean; at: string | null }> {
+  const { data, error } = await admin.from("tenants").select("hr_requested_at").eq("id", tenantId).maybeSingle();
+  if (error) {
+    console.error("open-hr: could not read the HR request:", error.message);
+    return { ok: false, at: null };
+  }
+  return { ok: true, at: data?.hr_requested_at ? iso(data.hr_requested_at) : null };
+}
+
+const iso = (v: unknown): string => {
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime()) ? String(v) : d.toISOString();
+};
+
 // deno-lint-ignore no-explicit-any
 async function record(admin: any, tenantId: string, enabled: boolean, reason: string | null) {
   const { error } = await admin.rpc("platform_record_module_status", {
@@ -174,6 +313,7 @@ const json = (body: unknown, status = 200) =>
 const fail = (status: number, code: string, error: string) => json({ error, code }, status);
 
 let platformClient: PlatformClient | null | undefined;
+const warmConnections: ConnectionCache = new Map();
 
 if (import.meta.main) {
   Deno.serve((req) => {
@@ -187,6 +327,6 @@ if (import.meta.main) {
       const config = platformConfigFromEnv();
       platformClient = config ? new PlatformClient(config) : null;
     }
-    return handle(req, { admin, asUser, client: platformClient });
+    return handle(req, { admin, asUser, client: platformClient, connections: warmConnections });
   });
 }

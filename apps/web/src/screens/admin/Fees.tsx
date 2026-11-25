@@ -1,19 +1,22 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
-  PAYMENT_SMS_FLAG_LABEL, REJECT_REASONS, balanceStanding, feeFigures, feesCapabilities, fetchFeesCollection, fetchSchoolYearGroups, fetchTenantCurrentTerm, fetchTermFeeItems, formatMoney,
-  itemsForStudent, proofFlags, proofToConfirm, rejectPaymentProof, rejectionReason, targetYearLabel, totalCents, yearLabel,
+  COLLECTION_FILTERS, PAYMENT_SMS_FLAG_LABEL, REJECT_REASONS, balanceStanding, feesCapabilities, fetchCollectionPage, fetchFeesExtras, fetchLargestBalances,
+  fetchSchoolYearGroups, fetchTenantCurrentTerm, fetchTermAmounts, fetchTermFeeItems, formatMoney, formatShortDate, groupFeeItems, itemsForStudent, onApi,
+  proofFlags, proofToConfirm, rejectPaymentProof, rejectionReason, targetYearLabel, termFigures, totalCents, yearLabel,
 } from "@figbloom/shared";
-import type { FeeItem, FeesCollection, OutstandingRow, OverpaidRow, PayableInvoice, PendingProof, YearGroup } from "@figbloom/shared";
+import type { CollectionFilter, CollectionRow, FeeItem, OutstandingRow, OverpaidRow, PayableInvoice, PendingProof } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
-import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { TextField } from "../../components/ui/Field";
 import { Cell, DataTable, Mono } from "../../components/ui/DataTable";
+import { Pagination } from "../../components/ui/Pagination";
+import { usePaging } from "../../components/ui/usePaging";
 import { useToast } from "../../components/ui/Toast";
-import { useAsync } from "../../lib/useAsync";
+import { invalidate, useQuery } from "../../lib/queryCache";
 import { useTenantSession } from "../../lib/sessionContext";
 import { privateDocUrl } from "../../lib/uploads";
 import { SignTermInvoices } from "../../components/signatures/InvoiceSignatures";
@@ -21,50 +24,61 @@ import { TermReceipts } from "../../components/signatures/ReceiptSignatures";
 import { FeeItemsEditor } from "./FeeItemsEditor";
 import { BillTermModal, RecordPaymentModal } from "./FeeCollection";
 
-interface FeesData extends FeesCollection {
-  feeItems: FeeItem[];
-  formLevels: YearGroup[];
-}
+const feesKey = (tenantId: string, ...parts: (string | number | null)[]) => [tenantId, "fees", ...parts].join(":");
 
-async function fetchFees(tenantId: string): Promise<FeesData> {
-  const term = await fetchTenantCurrentTerm(tenantId);
-  const [collection, feeItems, formLevels] = await Promise.all([
-    fetchFeesCollection(tenantId, term),
-    term ? fetchTermFeeItems(term.id) : Promise.resolve([] as FeeItem[]),
-    // Year groups, not bare form_levels: Grade 1 and Form 1 are both 1.
-    fetchSchoolYearGroups(tenantId),
-  ]);
-  return { ...collection, feeItems, formLevels };
-}
-
+/**
+ * The term's fees: figures that open the matching list, fee items grouped by
+ * band, the collection a page at a time (search and status filters on the
+ * server), the largest balances, overpayments and proofs to review. Each part
+ * loads on its own through the query cache, so coming back is instant.
+ */
 export function Fees() {
   const caps = feesCapabilities();
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, error } = useAsync(() => fetchFees(tenant.id), [tenant.id, reloadKey]);
-  // A reloadKey refetch keeps what's already on screen; switching to a different school's
-  // data must not show the previous one's meanwhile — skeleton for those only.
-  const [loadedFor, setLoadedFor] = useState(tenant.id);
-  if (!loading && loadedFor !== tenant.id) setLoadedFor(tenant.id);
-  const pending = loading && (!data || loadedFor !== tenant.id);
+  const [params, setParams] = useSearchParams();
+  const filter = (COLLECTION_FILTERS.find((f) => f.key === params.get("status"))?.key ?? "all") as CollectionFilter;
+  const setFilter = (f: CollectionFilter) => {
+    const next = new URLSearchParams(params);
+    if (f === "all") next.delete("status"); else next.set("status", f);
+    setParams(next, { replace: true });
+    document.getElementById("fee-collection")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const [query, setQuery] = useState("");
+
+  const termQ = useQuery(feesKey(tenant.id, "term"), () => fetchTenantCurrentTerm(tenant.id), { staleTime: 5 * 60_000 });
+  const term = termQ.data ?? null;
+  const termId = term?.id ?? null;
+  const items = useQuery(termId ? feesKey(tenant.id, "items", termId) : null, () => fetchTermFeeItems(termId!), { staleTime: 5 * 60_000 });
+  const groups = useQuery(feesKey(tenant.id, "yeargroups"), () => fetchSchoolYearGroups(tenant.id), { staleTime: 10 * 60_000 });
+  const amounts = useQuery(termId ? feesKey(tenant.id, "amounts", termId) : null, () => fetchTermAmounts(tenant.id, termId!));
+  const largest = useQuery(amounts.data ? feesKey(tenant.id, "largest", termId, amounts.data.length, amounts.data.reduce((a, r) => a + r.paid_cents, 0)) : null,
+    () => fetchLargestBalances(amounts.data!));
+  const extras = useQuery(termQ.data !== undefined && !termQ.loading ? feesKey(tenant.id, "extras", termId) : null, () => fetchFeesExtras(tenant.id, termId));
+
+  const termPending = termQ.loading;
+  const figures = amounts.data ? termFigures(amounts.data) : null;
+
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [editingItems, setEditingItems] = useState(false);
   const [billing, setBilling] = useState(false);
-  // null: closed. {}: open with a learner search. Otherwise that invoice (and proof, when confirming one).
   const [recording, setRecording] = useState<{ invoice?: PayableInvoice; proof?: PendingProof } | null>(null);
   const [rejecting, setRejecting] = useState<PendingProof | null>(null);
+
+  /** After billing, a payment, a proof or an item edit: everything fee-related refetches. */
+  function refresh() {
+    invalidate(`${tenant.id}:fees:`);
+    setReloadKey((k) => k + 1);
+  }
 
   function done(message: string) {
     setBilling(false);
     setRecording(null);
-    setReloadKey((k) => k + 1);
+    refresh();
     toast(message);
   }
 
-  // Confirming goes through RecordPaymentModal instead: a proof is only
-  // confirmed together with the payment it shows, so the balance moves too.
-  // The reason is shown to the family, so they know whether to resubmit or call.
   async function rejectProof(id: string, reason: string): Promise<boolean> {
     try {
       await rejectPaymentProof({ proofId: id, reviewerId: profile.id, reason });
@@ -87,160 +101,102 @@ export function Fees() {
     }
   }
 
-  // What each year group actually pays in total, day vs boarding — not just
-  // one representative figure, since year-scoped items (KCSE registration
-  // etc.) mean the total genuinely differs year to year, not only by residence.
-  const totalsByForm = data
-    ? data.formLevels.map((g) => ({
+  const feeItems = items.data ?? [];
+  const totalsByForm = items.data && groups.data
+    ? groups.data.map((g) => ({
         key: g.key,
         label: yearLabel(g.level, g.year),
-        day: totalCents(itemsForStudent(data.feeItems, { boarding: false }, g.year, g.level)),
-        boarder: totalCents(itemsForStudent(data.feeItems, { boarding: true }, g.year, g.level)),
+        day: totalCents(itemsForStudent(feeItems, { boarding: false }, g.year, g.level)),
+        boarder: totalCents(itemsForStudent(feeItems, { boarding: true }, g.year, g.level)),
       }))
     : [];
-
-  const { billed, collected, outstandingTotal, collectedPct, owingCount, fullyPaidCount, fullyPaidPct } = feeFigures(data?.invoices ?? []);
+  const money = (c: number) => formatMoney(c, tenant.country);
+  const error = termQ.error ?? amounts.error;
 
   return (
     <>
       <PageHead
-        eyebrow={data?.term ? `Fees · ${data.term.name.toLowerCase()}` : "Fees"}
+        eyebrow={term ? `Fees · ${term.name.toLowerCase()}` : "Fees"}
         title="Fee structure and collection"
-        blurb="Published once at the start of term. Changing an amount later only affects invoices created after the change."
+        blurb={onApi()
+          ? "Published once at the start of term. Changing an amount later only affects invoices created after the change."
+          : "Published once at the start of term. Changing an amount after publication notifies every affected parent, so the composer says how many before you confirm."}
         actions={
           <>
-            <Button onClick={() => setBilling(true)} disabled={!data?.term}>Bill learners</Button>
-            {caps.invoiceSignatures && data?.term && <SignTermInvoices key={`${data.term.id}:${reloadKey}`} termId={data.term.id} />}
-            <Button variant="accent" onClick={() => setRecording({})} disabled={!data?.term}>Record a payment</Button>
+            <Button onClick={() => setBilling(true)} disabled={!term || !items.data}>Bill learners</Button>
+            {caps.invoiceSignatures && term && <SignTermInvoices key={`${term.id}:${reloadKey}`} termId={term.id} />}
+            <Button variant="accent" onClick={() => setRecording({})} disabled={!term}>Record a payment</Button>
           </>
         }
       />
 
-      <div className="px-7 py-6">
-        {error ? (
+      <div className="grid gap-5 px-7 py-6">
+        {error && (
           <p className="flex items-center gap-1.5 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
             <span aria-hidden>✕</span>Could not load fees: {error.message}
           </p>
-        ) : pending || !data ? (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="rounded-lg border border-line bg-white px-4 py-3.5">
-                <Skeleton className="h-2.5 w-20" />
-                <Skeleton className="mt-2 h-6 w-16" />
-                <Skeleton className="mt-1.5 h-2.5 w-24" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <>
-          {data.term && data.invoices.length === 0 && (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-sunken px-4 py-3">
-              <p className="text-[13px] leading-relaxed">
-                No invoices yet for {data.term.name}. {data.feeItems.length > 0
-                  ? "Parents see nothing owing until learners are billed."
-                  : "Add this term's fee items, then bill learners."}
-              </p>
-              {data.feeItems.length > 0 && <Button variant="accent" onClick={() => setBilling(true)}>Bill learners</Button>}
-            </div>
-          )}
-          <StatRow
-            stats={[
-              { label: "Billed this term", value: formatMoney(billed, tenant.country), sub: `${data.invoices.length.toLocaleString()} learners` },
-              { label: "Collected", value: formatMoney(collected, tenant.country), sub: `${collectedPct}% of billed` },
-              { label: "Outstanding", value: formatMoney(outstandingTotal, tenant.country), sub: `${owingCount.toLocaleString()} learners owe a balance`, alarming: true },
-              { label: "Fully paid", value: `${fullyPaidPct}%`, sub: `${fullyPaidCount.toLocaleString()} invoices cleared` },
-            ]}
-          />
-          </>
         )}
 
-        <div className="mt-5 grid grid-cols-1 gap-4 min-[1500px]:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-          <section className="overflow-hidden rounded-lg border border-line">
-            <header className="flex items-center justify-between border-b border-line px-4 py-3">
-              <h2 className="text-body font-semibold">{data?.term ? data.term.name : "Term"} fee items</h2>
-              <Button onClick={() => setEditingItems(true)} disabled={!data?.term}>Edit</Button>
-            </header>
-            <div>
-              {error ? null : pending || !data ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
-                    <Skeleton className="h-3 w-40" />
-                    <Skeleton className="h-3 w-16" />
-                  </div>
-                ))
-              ) : (
-                <>
-                  {data.feeItems.map((i) => (
-                    <div key={i.id} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium">{i.name}</div>
-                        <div className="mt-0.5 text-[11.5px] text-ink-faint">
-                          {i.applies_to === "all" ? "Every learner"
-                            : i.applies_to === "boarders" ? "Boarders only"
-                            : i.applies_to === "day" ? "Day scholars only"
-                            : `${targetYearLabel(i.level, i.form_level ?? 0)} only`}
-                        </div>
-                      </div>
-                      <Mono>{formatMoney(i.amount_cents, tenant.country)}</Mono>
-                    </div>
-                  ))}
-                  {totalsByForm.length > 0 && (
-                    <div className="bg-sunken px-4 py-3">
-                      <div className="mb-2 text-[12px] font-semibold">What each year group pays in total</div>
-                      <div className="grid gap-1.5">
-                        <div className="grid gap-2 text-[11px] font-semibold text-ink-faint" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-                          <span>Year</span><span className="text-right">Day</span><span className="text-right">Boarder</span>
-                        </div>
-                        {totalsByForm.map((t) => (
-                          <div key={t.key} className="grid gap-2 text-[13px]" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-                            <span className="font-medium">{t.label}</span>
-                            <div className="text-right"><Mono>{formatMoney(t.day, tenant.country)}</Mono></div>
-                            <div className="text-right"><Mono>{formatMoney(t.boarder, tenant.country)}</Mono></div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </section>
+        {term && figures && figures.invoices === 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-sunken px-4 py-3">
+            <p className="text-[13px] leading-relaxed">
+              No invoices yet for {term.name}. {feeItems.length > 0 ? "Parents see nothing owing until learners are billed." : "Add this term's fee items, then bill learners."}
+            </p>
+            {feeItems.length > 0 && <Button variant="accent" onClick={() => setBilling(true)}>Bill learners</Button>}
+          </div>
+        )}
 
-          {error ? null : pending || !data ? (
-            <TableSkeleton rows={6} />
-          ) : (
+        <FeeWidgets figures={figures} loading={termPending || (!!termId && amounts.loading)} money={money} active={filter} onFilter={setFilter} />
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+          <FeeItemsCard
+            title={`${term ? term.name : "Term"} fee items`}
+            loading={termPending || (!!termId && items.loading)}
+            items={feeItems}
+            totalsByForm={totalsByForm}
+            money={money}
+            onEdit={term ? () => setEditingItems(true) : undefined}
+          />
+          {largest.loading || amounts.loading || termPending ? <TableSkeleton rows={6} /> : (
             <DataTable
               title="Largest outstanding balances"
+              filters={figures && figures.owing > 0 ? <Button onClick={() => setFilter("owing")}>All {figures.owing.toLocaleString()} owing →</Button> : undefined}
               columns={[
                 { key: "name", header: "Learner", width: "1.6fr", render: (r: OutstandingRow) => <Cell sub={r.cls}>{r.name}</Cell> },
                 { key: "billed", header: "Billed", align: "right", render: (r: OutstandingRow) => (
-                  <Cell sub={r.charges > 0 ? `incl. ${formatMoney(r.charges, tenant.country)} charges` : undefined}>
-                    <Mono>{formatMoney(r.billed, tenant.country)}</Mono>
-                  </Cell>
+                  <Cell sub={r.charges > 0 ? `incl. ${money(r.charges)} charges` : undefined}><Mono>{money(r.billed)}</Mono></Cell>
                 ) },
-                { key: "paid", header: "Paid", align: "right", render: (r: OutstandingRow) => <Mono>{formatMoney(r.paid, tenant.country)}</Mono> },
-                { key: "bal", header: "Balance", align: "right", render: (r: OutstandingRow) => (
-                  <span className="font-mono text-[12.5px] font-medium text-warn-ink">{formatMoney(r.billed - r.paid, tenant.country)}</span>
-                ) },
-                { key: "st", header: "", align: "right", render: (r: OutstandingRow) => (
-                  <Badge tone={r.paid === 0 ? "warn" : "muted"}>{balanceStanding(r)}</Badge>
-                ) },
+                { key: "paid", header: "Paid", align: "right", render: (r: OutstandingRow) => <Mono>{money(r.paid)}</Mono> },
+                { key: "bal", header: "Balance", align: "right", render: (r: OutstandingRow) => <span className="font-mono text-[12.5px] font-medium text-warn-ink">{money(r.billed - r.paid)}</span> },
+                { key: "st", header: "", align: "right", render: (r: OutstandingRow) => <Badge tone={r.paid === 0 ? "warn" : "muted"}>{balanceStanding(r)}</Badge> },
                 { key: "pay", header: "", align: "right", render: (r: OutstandingRow) => (
-                  <Button onClick={() => setRecording({ invoice: { id: r.id, studentName: r.name, cls: r.cls, balanceCents: r.billed - r.paid } })}>
-                    Record payment
-                  </Button>
+                  <Button onClick={() => setRecording({ invoice: { id: r.id, studentName: r.name, cls: r.cls, balanceCents: r.billed - r.paid } })}>Record payment</Button>
                 ) },
               ]}
-              rows={data.outstanding}
+              rows={largest.data ?? []}
               rowKey={(r) => r.id}
               minWidth="780px"
+              pageSize={10}
               empty={{ title: "Every balance is cleared", body: "Nothing outstanding this term. That is rare — worth telling the board." }}
             />
           )}
         </div>
 
-        {data && data.overpaid.length > 0 && (
-          <div className="mt-4">
+        {termId && (
+          <CollectionTable
+            tenantId={tenant.id}
+            termId={termId}
+            filter={filter}
+            onFilter={setFilter}
+            query={query}
+            onQuery={setQuery}
+            figures={figures}
+            money={money}
+            onRecord={(r) => setRecording({ invoice: { id: r.id, studentName: r.studentName, cls: r.cls, balanceCents: Math.max(r.total - r.paid, 0) } })}
+          />
+        )}
+        {extras.data && extras.data.overpaid.length > 0 && (
+          <div className="">
             <DataTable
               title="Paid more than was owed"
               columns={[
@@ -254,7 +210,7 @@ export function Fees() {
                   <span className="font-mono text-[12.5px] font-medium text-warn-ink">{formatMoney(r.overpaid_cents, tenant.country)}</span>
                 ) },
               ]}
-              rows={data.overpaid}
+              rows={extras.data.overpaid}
               rowKey={(r) => r.id}
               minWidth="720px"
               empty={{ title: "No overpayments", body: "" }}
@@ -266,8 +222,8 @@ export function Fees() {
           </div>
         )}
 
-        <div className="mt-4">
-          {error ? null : pending || !data ? (
+        <div className="">
+          {extras.loading || termPending ? (
             <TableSkeleton rows={3} />
           ) : (
             <DataTable
@@ -315,7 +271,7 @@ export function Fees() {
                   </div>
                 ) },
               ]}
-              rows={data.pendingProofs.filter((r) => !reviewedIds.has(r.id))}
+              rows={extras.data!.pendingProofs.filter((r) => !reviewedIds.has(r.id))}
               rowKey={(r) => r.id}
               minWidth="820px"
               empty={{ title: "Nothing to review", body: "Bank slips, pasted M-Pesa messages and other payment evidence parents send will appear here for confirmation." }}
@@ -323,27 +279,27 @@ export function Fees() {
           )}
         </div>
 
-        {caps.invoiceSignatures && data?.term && (
-          <div className="mt-4">
-            <TermReceipts termId={data.term.id} reloadKey={reloadKey} />
+        {caps.invoiceSignatures && term && (
+          <div className="">
+            <TermReceipts termId={term.id} reloadKey={reloadKey} />
           </div>
         )}
       </div>
 
-      {editingItems && data?.term && (
+      {editingItems && term && (
         <FeeItemsEditor
-          termId={data.term.id}
-          termName={data.term.name}
+          termId={term.id}
+          termName={term.name}
           tenantId={tenant.id}
           country={tenant.country}
-          onClose={() => { setEditingItems(false); setReloadKey((k) => k + 1); }}
+          onClose={() => { setEditingItems(false); refresh(); }}
         />
       )}
 
-      {billing && data?.term && (
+      {billing && term && (
         <BillTermModal
-          term={data.term}
-          feeItems={data.feeItems}
+          term={term}
+          feeItems={feeItems}
           tenantId={tenant.id}
           country={tenant.country}
           onClose={() => setBilling(false)}
@@ -351,9 +307,9 @@ export function Fees() {
         />
       )}
 
-      {recording && data?.term && (
+      {recording && term && (
         <RecordPaymentModal
-          termId={data.term.id}
+          termId={term.id}
           country={tenant.country}
           invoice={recording.invoice}
           proof={recording.proof && proofToConfirm(recording.proof)}
@@ -412,5 +368,214 @@ function RejectProofModal({ proof, onClose, onReject }: {
         <TextField id="reject-reason" label="Reason" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
       </div>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- widgets
+
+function FeeWidgets({ figures, loading, money, active, onFilter }: {
+  figures: ReturnType<typeof termFigures> | null; loading: boolean; money: (c: number) => string;
+  active: CollectionFilter; onFilter: (f: CollectionFilter) => void;
+}) {
+  const card = (label: string, value: string, sub: string, filter: CollectionFilter | null, alarming = false) => {
+    const body = (
+      <>
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-mono text-micro tracking-[0.1em] text-ink-faint">{label.toUpperCase()}</span>
+          {filter && <span aria-hidden className="text-[13px] text-ink-faint">→</span>}
+        </div>
+        {loading || !figures ? (
+          <><Skeleton className="mt-2.5 h-6 w-20" /><Skeleton className="mt-2 h-2.5 w-28" /></>
+        ) : (
+          <>
+            <div className="mt-1.5 font-mono text-2xl tracking-tight" style={{ color: alarming ? "#D9550C" : undefined }}>{value}</div>
+            <div className="mt-0.5 text-[11.5px] text-ink-faint">{sub}</div>
+          </>
+        )}
+      </>
+    );
+    const cls = "min-w-0 rounded-lg border bg-white px-4 py-3.5 text-left";
+    return filter ? (
+      <button key={label} type="button" aria-pressed={active === filter} onClick={() => onFilter(filter)}
+        aria-label={figures ? `${label}: ${value}. Show the ${filter === "all" ? "whole" : filter.replace("_", " ")} list` : label}
+        className={`${cls} transition-colors hover:border-[#9DB5A6] hover:bg-page ${active === filter ? "border-[#17402A] ring-1 ring-[#17402A]" : "border-line"}`}>
+        {body}
+      </button>
+    ) : <div key={label} className={`${cls} border-line`}>{body}</div>;
+  };
+  const f = figures;
+  return (
+    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
+      {card("Billed this term", f ? money(f.billed) : "", f ? `${f.invoices.toLocaleString()} learners` : "", "all")}
+      {card("Collected", f ? money(f.collected) : "", f ? `${f.paid.toLocaleString()} fully paid` : "", "paid")}
+      {card("Outstanding", f ? money(f.outstanding) : "", f ? `${f.owing.toLocaleString()} owe · ${f.partPaid.toLocaleString()} part paid` : "", "owing", true)}
+      {card("% collected", f ? `${f.collectedPct}%` : "", f ? `${f.nothingPaid.toLocaleString()} have paid nothing` : "", null)}
+      {card("Overdue", f ? f.overdue.toLocaleString() : "", "past the due date, not cleared", "overdue", (f?.overdue ?? 0) > 0)}
+      {f && !loading && (
+        <div className="col-span-full -mt-1 h-2 overflow-hidden rounded-full bg-line-soft" role="img" aria-label={`${f.collectedPct}% of the term's fees collected`}>
+          <div className="h-full rounded-full bg-[#1BAF7A]" style={{ width: `${Math.min(100, f.collectedPct)}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- fee items by band
+
+function FeeItemsCard({ title, loading, items, totalsByForm, money, onEdit }: {
+  title: string; loading: boolean; items: FeeItem[]; money: (c: number) => string; onEdit?: () => void;
+  totalsByForm: { key: string; label: string; day: number; boarder: number }[];
+}) {
+  const bands = groupFeeItems(items);
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const [showTotals, setShowTotals] = useState(false);
+  const toggle = (k: string) => setOpen((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  return (
+    <section className="overflow-hidden rounded-lg border border-line bg-white self-start">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+        <div>
+          <h2 className="text-body font-semibold">{title}</h2>
+          {!loading && <p className="mt-0.5 text-[12px] text-ink-faint">{items.length.toLocaleString()} items in {bands.length} group{bands.length === 1 ? "" : "s"}</p>}
+        </div>
+        <div className="flex gap-2">
+          {bands.length > 1 && <Button onClick={() => setOpen(open.size === bands.length ? new Set() : new Set(bands.map((b) => b.key)))}>{open.size === bands.length ? "Collapse all" : "Expand all"}</Button>}
+          <Button onClick={onEdit} disabled={!onEdit}>Edit</Button>
+        </div>
+      </header>
+      {loading ? (
+        Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-2.5 last:border-0">
+            <Skeleton className="h-3 w-40" /><Skeleton className="h-3 w-16" />
+          </div>
+        ))
+      ) : bands.length === 0 ? (
+        <p className="px-4 py-6 text-center text-[13px] text-ink-muted">No fee items for this term yet. Use Edit to add tuition, boarding and activities.</p>
+      ) : (
+        <ul>
+          {bands.map((b) => {
+            const isOpen = open.has(b.key);
+            const names = [...new Set(b.items.map((i) => i.name))];
+            return (
+              <li key={b.key} className="border-b border-line-soft last:border-0">
+                <button type="button" aria-expanded={isOpen} onClick={() => toggle(b.key)}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-page">
+                  <span aria-hidden className={`text-[11px] text-ink-faint transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold">{b.label}</span>
+                    <span className="block truncate text-[11.5px] text-ink-faint">{b.items.length} item{b.items.length === 1 ? "" : "s"} · {names.slice(0, 4).join(", ")}{names.length > 4 ? `, +${names.length - 4} more` : ""}</span>
+                  </span>
+                  <Mono>{money(b.totalCents)}</Mono>
+                </button>
+                {isOpen && (
+                  <ul className="bg-page/60 pb-1">
+                    {b.items.map((i) => (
+                      <li key={i.id} className="flex items-center justify-between gap-3 px-4 py-2 pl-10">
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] font-medium">{i.name}</div>
+                          <div className="mt-0.5 text-[11.5px] text-ink-faint">
+                            {i.applies_to === "all" ? "Every learner" : i.applies_to === "boarders" ? "Boarders only" : i.applies_to === "day" ? "Day scholars only" : `${targetYearLabel(i.level, i.form_level ?? 0)} only`}
+                          </div>
+                        </div>
+                        <Mono>{money(i.amount_cents)}</Mono>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {!loading && totalsByForm.length > 0 && (
+        <div className="border-t border-line bg-sunken px-4 py-3">
+          <button type="button" aria-expanded={showTotals} onClick={() => setShowTotals((v) => !v)} className="flex w-full items-center justify-between text-left text-[12px] font-semibold">
+            <span>What each year group pays in total</span>
+            <span className="font-normal text-ink-muted">{showTotals ? "Hide" : `Show ${totalsByForm.length}`}</span>
+          </button>
+          {showTotals && (
+            <div className="mt-2 grid gap-1.5">
+              <div className="grid gap-2 text-[11px] font-semibold text-ink-faint" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                <span>Year</span><span className="text-right">Day</span><span className="text-right">Boarder</span>
+              </div>
+              {totalsByForm.map((t) => (
+                <div key={t.key} className="grid gap-2 text-[13px]" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <span className="font-medium">{t.label}</span>
+                  <div className="text-right"><Mono>{money(t.day)}</Mono></div>
+                  <div className="text-right"><Mono>{money(t.boarder)}</Mono></div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------- collection, server-paged
+
+const STATUS_BADGE = (r: CollectionRow) =>
+  r.status === "paid" ? <Badge tone="ok">✓ Paid</Badge>
+  : r.status === "overdue" ? <Badge tone="warn">{r.paid > 0 ? "Overdue · part paid" : "Overdue"}</Badge>
+  : r.paid > 0 ? <Badge tone="info">Part paid</Badge>
+  : <Badge>Nothing paid</Badge>;
+
+function CollectionTable({ tenantId, termId, filter, onFilter, query, onQuery, figures, money, onRecord }: {
+  tenantId: string; termId: string; filter: CollectionFilter; onFilter: (f: CollectionFilter) => void;
+  query: string; onQuery: (q: string) => void; figures: ReturnType<typeof termFigures> | null;
+  money: (c: number) => string; onRecord: (r: CollectionRow) => void;
+}) {
+  const [typed, setTyped] = useState(query);
+  const q = query.trim();
+  const [total, setTotal] = useState(0);
+  const paging = usePaging(total, `${filter}|${q}`);
+  const page = useQuery(feesKey(tenantId, "collection", termId, filter, q, paging.offset, paging.size),
+    () => fetchCollectionPage(tenantId, termId, { filter, query: q, offset: paging.offset, limit: paging.size }), { staleTime: 30_000 });
+  if (page.data && page.data.total !== total) setTotal(page.data.total);
+  const count = (f: CollectionFilter) => !figures ? null
+    : f === "all" ? figures.invoices : f === "paid" ? figures.paid : f === "owing" ? figures.owing : f === "overdue" ? figures.overdue
+    : f === "part_paid" ? figures.partPaid : figures.nothingPaid;
+
+  return (
+    <section id="fee-collection" className="grid scroll-mt-4 gap-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="mr-auto text-body font-semibold">Learners and invoices</h2>
+        <div role="group" aria-label="Status" className="flex flex-wrap rounded-md border border-[#D3DAD5] bg-white p-0.5">
+          {COLLECTION_FILTERS.map((f) => (
+            <button key={f.key} type="button" aria-pressed={filter === f.key} onClick={() => onFilter(f.key)} className="rounded px-3 py-1.5 text-small"
+              style={filter === f.key ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
+              {f.label}{count(f.key) != null ? ` · ${count(f.key)!.toLocaleString()}` : ""}
+            </button>
+          ))}
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); onQuery(typed); }} className="flex gap-2">
+          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Learner, admission no. or class" aria-label="Search learners"
+            className="w-56 rounded-md border border-[#D3DAD5] bg-white px-2.5 py-1.5 text-small outline-none" />
+          <Button type="submit">Search</Button>
+          {q && <Button onClick={() => { setTyped(""); onQuery(""); }}>Clear</Button>}
+        </form>
+      </div>
+      {page.error ? <p className="text-[12.5px] text-warn-ink">Could not load the invoices: {page.error.message}</p>
+        : page.loading ? <TableSkeleton rows={8} /> : (
+          <DataTable
+            columns={[
+              { key: "name", header: "Learner", width: "1.6fr", render: (r: CollectionRow) => <Cell sub={[r.admissionNo ? `ADM ${r.admissionNo}` : null, r.cls].filter(Boolean).join(" · ")}>{r.studentName}</Cell> },
+              { key: "billed", header: "Billed", align: "right", render: (r: CollectionRow) => <Cell sub={r.charges > 0 ? `incl. ${money(r.charges)} charges` : undefined}><Mono>{money(r.total)}</Mono></Cell> },
+              { key: "paid", header: "Paid", align: "right", render: (r: CollectionRow) => <Mono>{money(r.paid)}</Mono> },
+              { key: "bal", header: "Balance", align: "right", render: (r: CollectionRow) => r.total > r.paid ? <span className="font-mono text-[12.5px] font-medium text-warn-ink">{money(r.total - r.paid)}</span> : <span className="text-ink-faint">—</span> },
+              { key: "due", header: "Due", render: (r: CollectionRow) => <span className="text-[13px]">{r.dueOn ? formatShortDate(r.dueOn) : "—"}</span> },
+              { key: "st", header: "Status", render: STATUS_BADGE },
+              { key: "pay", header: "", align: "right", render: (r: CollectionRow) => r.status !== "paid" ? <Button onClick={() => onRecord(r)}>Record payment</Button> : null },
+            ]}
+            rows={page.data?.rows ?? []}
+            rowKey={(r) => r.id}
+            minWidth="880px"
+            pageSize={0}
+            empty={q ? { title: "Nobody matches", body: "Try a learner's name, admission number or class." }
+              : { title: filter === "all" ? "No invoices yet" : "No one in this list", body: filter === "all" ? "Bill learners to create this term's invoices." : "Try another status." }}
+          />
+        )}
+      {total > 0 && <Pagination {...paging.props} total={total} />}
+    </section>
   );
 }

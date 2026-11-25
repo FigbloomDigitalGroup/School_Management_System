@@ -21,12 +21,28 @@
  * (payments_one_pending_per_invoice, FIG-1321). A request matching the
  * prompt in flight (same number, same amount) gets that one back; anything
  * else waits for it. A prompt older than any prompt lives is settled by
- * asking Daraja, as mpesa-callback would, never credited from here.
+ * asking Daraja, through the same settleFromDaraja as mpesa-callback.
+ *
+ * The "check" action ({ action: "check", payment_id }): the paying app calls
+ * it while it waits. A payment still pending CHECK_AFTER_MS after the prompt
+ * (the callback never came, or Daraja couldn't confirm it then: the sandbox
+ * throttles its query) is settled by asking Daraja, through the same
+ * settleFromDaraja the callback uses. Allowed to anyone who may read the
+ * payment (RLS: the learner's guardians, the learner, the school's fees
+ * staff), limited per payment, and never a new prompt.
+ *
+ * DARAJA_TENANTS, when set, lists the only schools that may use M-Pesa here
+ * (e.g. a demo school on sandbox credentials); every other school gets the
+ * same 503 as when M-Pesa isn't set up, with nothing sent to Daraja.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { CORS_HEADERS } from "../_shared/cors.ts";
-import { darajaToken, darajaUrl, queryStk as darajaQueryStk, stkPassword, type StkOutcome, timestamp, unpaidOutcome } from "../_shared/daraja.ts";
+import {
+  darajaTenants, darajaToken, darajaUrl, type QueryRetry, queryStk as darajaQueryStk, stkPassword, type StkOutcome, tenantMayUseDaraja, timestamp,
+  unpaidOutcome,
+} from "../_shared/daraja.ts";
+import { settleFromDaraja } from "../_shared/mpesaSettle.ts";
 import { dbLimiter, type Limiter, userKey } from "../_shared/rateLimit.ts";
 
 interface Body { invoice_id: string; amount_cents: number; msisdn: string }
@@ -36,19 +52,30 @@ const PROMPT_LIFETIME_MS = 2 * 60_000;
 /** Prompts per caller, and per phone number, in PROMPT_WINDOW. */
 const PROMPT_LIMIT = 10;
 const PROMPT_WINDOW = "1 hour";
+/** The 503 the apps read as "online M-Pesa isn't available for this school" (mpesaPay.ts). */
+const NOT_SET_UP = "M-Pesa payments aren't set up for this school yet.";
+/** "check" asks Daraja only about a prompt at least this old: before then the callback is the usual answer. */
+const CHECK_AFTER_MS = 20_000;
+/** Daraja questions per payment from "check" in CHECK_WINDOW (the apps ask every 15 s or so). */
+const CHECK_LIMIT = 6;
+const CHECK_WINDOW = "1 minute";
+
+type QueryStk = (checkoutRequestId: string, retry?: QueryRetry) => Promise<StkOutcome>;
 
 export interface Deps {
   // deno-lint-ignore no-explicit-any
   admin: any;
   // deno-lint-ignore no-explicit-any
   asUser: any;
-  queryStk?: (checkoutRequestId: string) => Promise<StkOutcome>;
+  queryStk?: QueryStk;
   withinLimit?: Limiter;
+  /** The per-payment limit on "check". */
+  checkLimit?: Limiter;
 }
 
 export async function handle(
   req: Request,
-  { admin, asUser, queryStk = darajaQueryStk, withinLimit = () => Promise.resolve(true) }: Deps,
+  { admin, asUser, queryStk = darajaQueryStk, withinLimit = () => Promise.resolve(true), checkLimit = () => Promise.resolve(true) }: Deps,
 ): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -63,6 +90,9 @@ export async function handle(
   try { body = await req.json(); } catch { return json({ error: "Invalid request body" }, 400); }
   // JSON that isn't an object (null, a number, a list) can't be destructured below (FIG-1324)
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "Invalid request body" }, 400);
+  if ((body as { action?: unknown }).action === "check") {
+    return checkPayment(admin, asUser, queryStk, checkLimit, (body as { payment_id?: unknown }).payment_id);
+  }
   const { invoice_id, amount_cents, msisdn } = body;
 
   if (!invoice_id) return json({ error: "Which invoice is this for?" }, 400);
@@ -84,7 +114,7 @@ export async function handle(
   const callbackBase = Deno.env.get("DARAJA_CALLBACK_URL");
   if (!callbackSecret || !callbackBase) {
     console.error("mpesa-stk-push: DARAJA_CALLBACK_SECRET or DARAJA_CALLBACK_URL is not set");
-    return json({ error: "M-Pesa payments aren't set up for this school yet." }, 503);
+    return json({ error: NOT_SET_UP }, 503);
   }
   const callbackUrl = new URL(callbackBase);
   callbackUrl.searchParams.set("token", callbackSecret);
@@ -93,6 +123,11 @@ export async function handle(
   const { data: invoice, error: invErr } = await asUser
     .from("fee_invoices").select("id, tenant_id, student_id, total_cents, paid_cents").eq("id", invoice_id).single();
   if (invErr || !invoice) return json({ error: "That invoice is not yours to pay." }, 403);
+  // DARAJA_TENANTS: a school not on the list is answered exactly as when M-Pesa isn't set up,
+  // before anything reaches Daraja (not even settling an old prompt) or payments
+  if (!tenantMayUseDaraja(invoice.tenant_id, darajaTenants())) {
+    return json({ error: NOT_SET_UP }, 503);
+  }
   if (!(await paysFor(admin, user.id, invoice.student_id))) {
     return json({ error: "Only the learner's family can pay by M-Pesa here. The school office records payments it receives." }, 403);
   }
@@ -183,7 +218,11 @@ if (import.meta.main) {
     const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
     });
-    return handle(req, { admin, asUser, withinLimit: dbLimiter(admin, "mpesa-stk-push", PROMPT_LIMIT, PROMPT_WINDOW) });
+    return handle(req, {
+      admin, asUser,
+      withinLimit: dbLimiter(admin, "mpesa-stk-push", PROMPT_LIMIT, PROMPT_WINDOW),
+      checkLimit: dbLimiter(admin, "mpesa-stk-push:check", CHECK_LIMIT, CHECK_WINDOW),
+    });
   });
 }
 
@@ -205,13 +244,13 @@ async function paysFor(admin: any, profileId: string, studentId: string): Promis
 async function promptInFlight(
   // deno-lint-ignore no-explicit-any
   admin: any,
-  queryStk: (checkoutRequestId: string) => Promise<StkOutcome>,
+  queryStk: QueryStk,
   invoiceId: string,
   msisdn: string,
   amountCents: number,
 ): Promise<Response | null> {
   const { data: pending, error } = await admin.from("payments")
-    .select("id, msisdn, amount_cents, checkout_request_id, created_at")
+    .select("id, msisdn, amount_cents, checkout_request_id, mpesa_receipt, created_at")
     .eq("invoice_id", invoiceId).eq("status", "pending").maybeSingle();
   // an error here is an error, never "nothing in flight"
   if (error) return json({ error: "Could not check for a payment already in progress. Try again." }, 500);
@@ -234,16 +273,19 @@ async function promptInFlight(
   if (pending.checkout_request_id) {
     let outcome: StkOutcome;
     try {
-      outcome = await queryStk(pending.checkout_request_id);
+      // fewer retries than the callback's: the parent is waiting on this answer
+      outcome = await queryStk(pending.checkout_request_id, { delaysMs: [1500, 3000] });
     } catch {
       return json({ error: "We couldn't check the last M-Pesa payment for this invoice. Try again in a minute." }, 502);  // 503 reads as "M-Pesa isn't set up" in mpesaPay.ts
     }
     if (!outcome.done) {
       return json({ error: "The last M-Pesa payment for this invoice is still being processed. Try again in a minute." }, 409);
     }
-    // paid: mpesa-callback credits it; never a second prompt on top
+    // paid: credited here exactly as the callback would (its result may never have been confirmed); never a second prompt on top
     if (outcome.resultCode === 0) {
-      return json({ error: "The last M-Pesa payment for this invoice went through and is being confirmed. Check the balance before paying again." }, 409);
+      const settled = await settleFromDaraja(admin, pending.id, 0, pending.mpesa_receipt ?? null, "mpesa-stk-push");
+      if (!settled.ok) return json({ error: "Could not check for a payment already in progress. Try again." }, 500);
+      return json({ error: "The last M-Pesa payment for this invoice went through. Check the balance before paying again." }, 409);
     }
     unpaid = unpaidOutcome(outcome.resultCode);
   }
@@ -252,6 +294,56 @@ async function promptInFlight(
     .eq("id", pending.id).eq("status", "pending");
   if (settleErr) return json({ error: "Could not check for a payment already in progress. Try again." }, 500);
   return null;
+}
+
+/**
+ * The "check" action: settle a payment left pending by asking Daraja, as the
+ * callback would. Answers { payment_id, status }: the payment's status after
+ * the check, "pending" when Daraja has no result yet, was not asked, or
+ * couldn't be reached. The app reads the row itself either way.
+ */
+async function checkPayment(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  // deno-lint-ignore no-explicit-any
+  asUser: any,
+  queryStk: QueryStk,
+  checkLimit: Limiter,
+  paymentId: unknown,
+): Promise<Response> {
+  if (typeof paymentId !== "string" || !paymentId) return json({ error: "Which payment is this?" }, 400);
+  // RLS on the user client proves this caller may see this payment (the learner's guardians, the learner, the school's fees staff)
+  const { data: seen, error: seenErr } = await asUser.from("payments").select("id").eq("id", paymentId).maybeSingle();
+  if (seenErr || !seen) return json({ error: "That payment is not yours to check." }, 403);
+
+  const { data: p, error } = await admin.from("payments")
+    .select("id, tenant_id, status, checkout_request_id, mpesa_receipt, created_at").eq("id", paymentId).maybeSingle();
+  if (error || !p) return json({ error: "Could not check the payment. Try again." }, 500);
+  const pending = () => json({ payment_id: p.id, status: "pending" });
+  if (p.status !== "pending") return json({ payment_id: p.id, status: p.status });
+  // an unlisted school's payment is never settled from here, nor Daraja asked about it
+  if (!tenantMayUseDaraja(p.tenant_id, darajaTenants())) return pending();
+  // no checkout id: still being raised. Too young (or an age that can't be read): the callback is still the usual answer.
+  if (!p.checkout_request_id || !(Date.now() - Date.parse(p.created_at) >= CHECK_AFTER_MS)) return pending();
+  if (!(await checkLimit(await userKey(p.id, "mpesa-stk-push:check")))) return pending();
+
+  let outcome: StkOutcome;
+  try {
+    // the customer may still be on the PIN screen: "still processing" is an answer here, and the app asks again later
+    outcome = await queryStk(p.checkout_request_id, { retryWhileProcessing: false });
+  } catch (err) {
+    console.error(`mpesa-stk-push: check of payment ${p.id}: could not confirm the result with Daraja:`, err instanceof Error ? err.message : err);
+    return pending();
+  }
+  if (!outcome.done) return pending();
+
+  const settled = await settleFromDaraja(admin, p.id, outcome.resultCode, p.mpesa_receipt ?? null, "mpesa-stk-push");
+  if (!settled.ok) {
+    console.error(`mpesa-stk-push: check of payment ${p.id}: could not ${settled.step}:`, settled.error);
+    return json({ error: "Could not check the payment. Try again." }, 500);
+  }
+  const { data: after } = await admin.from("payments").select("status").eq("id", p.id).maybeSingle();
+  return json({ payment_id: p.id, status: after?.status ?? "pending" });
 }
 
 const json = (body: unknown, status = 200) =>

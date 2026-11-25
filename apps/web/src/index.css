@@ -40,6 +40,9 @@
 @layer utilities {
   /* Minimum 44px touch target on anything tappable in the parent/student web views. */
   .hit { min-height: 44px; min-width: 44px; }
+  /* Still scrolls by wheel, touch and keyboard; just no visible bar (the console's nav column). */
+  .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 }
 
 /* ── Accessibility preferences (lib/a11y.ts) ──────────────────────────────

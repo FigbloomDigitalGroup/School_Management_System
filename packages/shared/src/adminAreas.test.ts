@@ -9,7 +9,7 @@ describe("admin areas", () => {
   it("are the eleven the database knows (is_admin_area in 20261031000000)", () => {
     expect([...ADMIN_AREAS]).toEqual([
       "people", "fees", "academics", "attendance", "transport", "communication",
-      "inventory", "activities", "visitors", "medical", "leave", "audit",
+      "inventory", "activities", "visitors", "medical", "leave", "audit", "discipline",
     ]);
     for (const a of ADMIN_AREAS) expect(ADMIN_AREA_INFO[a].allows.length).toBeGreaterThan(10);
   });
@@ -30,7 +30,7 @@ describe("presets", () => {
   it("are the jobs the user listed, each with known areas", () => {
     expect(ADMIN_PRESETS.map((p) => p.label)).toEqual([
       "Deputy principal", "Director of studies", "Secretary", "Bursar / accounts", "Operator / data clerk",
-      "Receptionist", "Nurse / matron", "Transport manager", "Storekeeper", "Games / clubs master",
+      "Receptionist", "Nurse / matron", "Transport manager", "Storekeeper", "Games / clubs master", "Discipline master",
     ]);
     for (const p of ADMIN_PRESETS) for (const a of p.areas) expect(isAdminArea(a)).toBe(true);
   });

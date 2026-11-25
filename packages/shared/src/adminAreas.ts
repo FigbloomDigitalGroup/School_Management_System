@@ -19,7 +19,7 @@ import type { Role } from "./types";
  */
 export const ADMIN_AREAS = [
   "people", "fees", "academics", "attendance", "transport", "communication",
-  "inventory", "activities", "visitors", "medical", "leave", "audit",
+  "inventory", "activities", "visitors", "medical", "leave", "audit", "discipline",
 ] as const;
 export type AdminArea = (typeof ADMIN_AREAS)[number];
 
@@ -37,6 +37,7 @@ export const ADMIN_AREA_INFO: Record<AdminArea, { label: string; allows: string 
   medical: { label: "Medical", allows: "The sick bay: visits, medication rounds, parents' medication requests and health reports, and learners' health records." },
   leave: { label: "Leave", allows: "Approve or decline staff leave requests." },
   audit: { label: "Audit log", allows: "Read the school's audit log: who changed what, and when, across every part of the console. Read only." },
+  discipline: { label: "Discipline", allows: "The whole school's behaviour log: merits, demerits and serious incidents, what was done about them, and the points settings and categories." },
 };
 
 export interface AdminPreset {
@@ -57,6 +58,7 @@ export const ADMIN_PRESETS: readonly AdminPreset[] = [
   { id: "transport", label: "Transport manager", areas: ["transport"] },
   { id: "storekeeper", label: "Storekeeper", areas: ["inventory"] },
   { id: "games", label: "Games / clubs master", areas: ["activities"] },
+  { id: "discipline", label: "Discipline master", areas: ["discipline"] },
 ];
 
 /** Shown beside the presets: the owner or board is not a preset. */
@@ -168,6 +170,7 @@ export const ADMIN_AREA_PAGES: Record<AdminArea, { to: string; label: string }[]
   medical: [{ to: "admin/medical", label: "Sick bay" }],
   leave: [{ to: "admin/leave", label: "Leave requests" }],
   audit: [{ to: "admin/audit", label: "Audit log" }],
+  discipline: [{ to: "admin/behaviour", label: "Behaviour" }],
 };
 
 /**
@@ -198,6 +201,7 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   "admin/medical": "medical",
   "admin/audit": "audit",
   "admin/inventory": "inventory",
+  "admin/behaviour": "discipline",
   "admin/fleet": "transport",
   "admin/reports": "full",
   "admin/settings": "full",
@@ -211,6 +215,8 @@ export const ADMIN_PAGE_AREA: Record<string, AdminArea | "full" | null> = {
   // leave applications waiting on this person in Figbloom HR (20261105800000): the shell shows it to approvers only
   // (the school's admins, the leave and fees areas) while the school's leave is HR's; HR decides who has items
   "admin/leave-to-approve": null,
+  // Figbloom HR & Payroll for the school (HR_CONNECT_SPEC.md): the same people who may open HR (hrHandoff.ts mayOfferHr)
+  "admin/hr": "fees",
 };
 
 /** Whether this access opens that admin page. A page not listed is full admins only. */

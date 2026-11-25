@@ -87,6 +87,8 @@ export interface PeopleCapabilities {
   learnerDocuments: boolean;
   learnerEarlySignOuts: boolean;
   learnerActivities: boolean;
+  /** A learner's behaviour entries on their record (the behaviour log is not on the API yet: slice S2 of docs/handoffs/WEB-ON-API-ROADMAP.md). */
+  learnerBehaviour: boolean;
   /** Photos: uploading one, and an admin's review of a changed staff photo. */
   photos: boolean;
   /** Password reset requests and resets. */
@@ -114,14 +116,14 @@ export interface PeopleCapabilities {
 
 const PEOPLE_ON_SUPABASE: PeopleCapabilities = {
   deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, guardianColumn: true, learnerFees: true, bulkChangeClass: true, bulkExport: true,
-  learnerHome: true, learnerHealth: true, bioData: true, learnerDocuments: true, learnerEarlySignOuts: true, learnerActivities: true,
+  learnerHome: true, learnerHealth: true, bioData: true, learnerDocuments: true, learnerEarlySignOuts: true, learnerActivities: true, learnerBehaviour: true,
   photos: true, passwordResets: true, staffAccounts: true, staffSubjects: true, staffCalls: true, staffArchive: false, guardianContactForm: false,
   importByAreaHolders: true, learnerWithoutClass: false, unassignClass: true,
 };
 
 const PEOPLE_ON_API: PeopleCapabilities = {
   deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
-  learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false,
+  learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false, learnerBehaviour: false,
   photos: false, passwordResets: false, staffAccounts: false, staffSubjects: false, staffCalls: false, staffArchive: true, guardianContactForm: true,
   importByAreaHolders: false, learnerWithoutClass: true, unassignClass: false,
 };
@@ -310,6 +312,11 @@ export interface InventoryCapabilities {
   issueNote: boolean;
   /** Charging a learner's fees for lost or damaged items (waits on closed-issue history and charge-by-issue lookup). */
   chargeToFees: boolean;
+  /**
+   * Consumables, stock in and out (received, used, wasted, adjusted), the unit and reorder level, the "Stock & kitchen" tab and its
+   * reports (no inventory movements on the API yet: slice S1 of docs/handoffs/WEB-ON-API-ROADMAP.md).
+   */
+  stockMovements: boolean;
 }
 
 const INVENTORY_ON_SUPABASE: InventoryCapabilities = {
@@ -319,6 +326,7 @@ const INVENTORY_ON_SUPABASE: InventoryCapabilities = {
   issueHistory: true,
   issueNote: true,
   chargeToFees: true,
+  stockMovements: true,
 };
 
 const INVENTORY_ON_API: InventoryCapabilities = {
@@ -328,6 +336,7 @@ const INVENTORY_ON_API: InventoryCapabilities = {
   issueHistory: false,
   issueNote: false,
   chargeToFees: false,
+  stockMovements: false,
 };
 
 export function inventoryCapabilities(): InventoryCapabilities {

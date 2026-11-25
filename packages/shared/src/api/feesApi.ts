@@ -3,7 +3,7 @@ import { rejectionReason, shapeFeesCollection } from "../adminFees";
 import type { BillTermResult, NewFeeItem } from "../feeStructure";
 import type { BillableStudent } from "../fees";
 import { yearGroupsOf, type YearGroup } from "../levels";
-import type { ClassLevel, FeeItem, Term } from "../types";
+import type { ClassLevel, FeeItem, InvoiceStatus, Term } from "../types";
 import { apiClient } from "./client";
 import { isApiError } from "./errors";
 import { API_PAGE_LIMIT, listAllPages } from "./paging";
@@ -230,11 +230,90 @@ export async function apiBillTerm(input: { termId: string; dueOn: string }, tena
     body: { term_id: input.termId, due_on: input.dueOn },
     tenantId: tid,
   });
+  forgetTermData();
   return {
     created: res.billing_run.created,
     totalCents: res.billing_run.total_minor,
     alreadyBilled: res.billing_run.already_billed,
   };
+}
+
+// ---------------------------------------------------------------- one read of a term's invoices, shared by the Fees page's parts
+
+interface TermData {
+  apiInvoices: ApiInvoice[];
+  learnerById: Map<string, ApiLearner>;
+  classByLearner: Map<string, { name: string; form_level: number; level: ClassLevel }>;
+}
+
+// The Fees page asks for the figures, the largest balances, the extras and each page of the list one after another, and they all
+// read the same invoices, learners and classes. One read serves them for a few seconds; a write below forgets it, so the next read
+// shows what was just done.
+const TERM_DATA_TTL_MS = 10_000;
+let termData: { key: string; at: number; data: Promise<TermData> } | null = null;
+
+export function forgetTermData(): void {
+  termData = null;
+}
+
+function loadTermData(tenantId: string, termId: string): Promise<TermData> {
+  const key = `${tenantId}:${termId}`;
+  if (termData && termData.key === key && Date.now() - termData.at < TERM_DATA_TTL_MS) return termData.data;
+  const data = (async (): Promise<TermData> => {
+    const [apiInvoices, learners, memberships, classes] = await Promise.all([
+      listInvoicesForTerm(tenantId, termId),
+      listLearnersOrEmpty(tenantId),
+      listMembershipsOrEmpty(tenantId),
+      listClassesOrEmpty(tenantId),
+    ]);
+    return { apiInvoices, ...learnerLookups(tenantId, learners, memberships, classes) };
+  })();
+  termData = { key, at: Date.now(), data };
+  data.catch(() => {
+    if (termData?.data === data) termData = null;
+  });
+  return data;
+}
+
+/** One invoice of the term with its learner and class: what the Fees page's figures, largest balances and paged list read. */
+export interface TermInvoiceRow {
+  id: string;
+  learnerId: string;
+  studentName: string;
+  admissionNo: string | null;
+  cls: string;
+  total: number;
+  charges: number;
+  paid: number;
+  dueOn: string | null;
+  status: InvoiceStatus;
+}
+
+export async function apiTermInvoiceRows(tenantId: string, termId: string): Promise<TermInvoiceRow[]> {
+  const { apiInvoices, learnerById, classByLearner } = await loadTermData(tenantId, termId);
+  return apiInvoices.map((i) => {
+    const learner = learnerById.get(i.learner_id);
+    return {
+      id: i.id,
+      learnerId: i.learner_id,
+      studentName: learner?.full_name ?? "Unknown learner",
+      admissionNo: learner?.admission_no ?? null,
+      cls: classByLearner.get(i.learner_id)?.name ?? "—",
+      total: i.total_minor,
+      charges: i.charges_minor,
+      paid: i.paid_minor,
+      dueOn: i.due_on,
+      // listInvoicesForTerm leaves out voided invoices, so this is one of the four the screens know
+      status: i.status as InvoiceStatus,
+    };
+  });
+}
+
+/** What the Fees page reads besides the invoices: proofs to review, overpayments and the payee numbers (the API has no payee numbers: null). */
+export async function apiFetchFeesExtras(tenantId: string, termId: string | null): Promise<Pick<FeesCollection, "overpaid" | "pendingProofs" | "school">> {
+  const current = termId ? await apiFetchTenantCurrentTerm(tenantId) : null;
+  const c = await apiFetchFeesCollection(tenantId, current && current.id === termId ? current : null);
+  return { overpaid: c.overpaid, pendingProofs: c.pendingProofs, school: c.school };
 }
 
 // ---------------------------------------------------------------- collection overview, payments & proofs
@@ -254,15 +333,8 @@ export async function apiFetchFeesCollection(tenantId: string, term?: Term | nul
     };
   }
 
-  const [apiInvoices, apiProofs, learners, memberships, classes] = await Promise.all([
-    listInvoicesForTerm(tenantId, termId),
-    listPendingProofs(tenantId),
-    listLearnersOrEmpty(tenantId),
-    listMembershipsOrEmpty(tenantId),
-    listClassesOrEmpty(tenantId),
-  ]);
-
-  const { learnerById, classByLearner } = learnerLookups(tenantId, learners, memberships, classes);
+  const [loaded, apiProofs] = await Promise.all([loadTermData(tenantId, termId), listPendingProofs(tenantId)]);
+  const { apiInvoices, learnerById, classByLearner } = loaded;
   const studentInfo = (learnerId: string) => {
     const l = learnerById.get(learnerId);
     const cls = classByLearner.get(learnerId);
@@ -372,6 +444,7 @@ export async function apiRecordPayment(
     },
     tenantId: tid,
   });
+  forgetTermData();
 }
 
 export async function apiRejectPaymentProof(input: { proofId: string; reason: string }, tenantId?: string): Promise<void> {
@@ -383,4 +456,5 @@ export async function apiRejectPaymentProof(input: { proofId: string; reason: st
     body: { reason },
     tenantId: tid,
   });
+  forgetTermData();
 }

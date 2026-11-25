@@ -285,7 +285,7 @@ describe("one prompt at a time per invoice (FIG-1321)", () => {
     assertEquals(old.failure_reason, "cancelled");
   });
 
-  it("never prompts again over a stale prompt Daraja says was paid", async () => {
+  it("never prompts again over a stale prompt Daraja says was paid, and credits it as the callback would", async () => {
     const { admin, asUser } = makeClients();
     admin.seed("payments", [{
       id: "old", invoice_id: INVOICE_ID, status: "pending", msisdn: validBody.msisdn, amount_cents: 50000,
@@ -296,7 +296,9 @@ describe("one prompt at a time per invoice (FIG-1321)", () => {
     const res = await handle(request(validBody), { admin, asUser, queryStk });
     assertEquals(res.status, 409);
     assertEquals(sent.length, 0);
-    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+    assertEquals(admin.rowsIn("payments").length, 1);
+    assertEquals(admin.rowsIn("payments")[0].status, "success");
+    assertEquals(admin.rowsIn("audit_events").length, 1);
   });
 
   it("waits while Daraja is still processing a stale prompt, or can't be reached", async () => {
@@ -541,4 +543,80 @@ describe("mpesa-stk-push: who can be prompted (FIG-1320)", () => {
   // Removed after merging main (2026-11-01): the 90-second window, the two-pending-rows case and the unlimited-stranger case no longer
   // exist. Main keeps a prompt for two minutes, allows one pending prompt per invoice (a unique index), prompts only the family, and limits
   // prompts per caller and per number: its groups "one prompt at a time per invoice" and "who can be prompted" cover those rules.
+});
+
+describe("DARAJA_TENANTS: only listed schools may use M-Pesa", () => {
+  afterEach(() => Deno.env.delete("DARAJA_TENANTS"));
+
+  it("raises the prompt for a listed school, as before", async () => {
+    Deno.env.set("DARAJA_TENANTS", "tenant-demo, tenant-1");
+    const { admin, asUser } = makeClients();
+    const sent = stubFetch(stkOk);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals(sent.length, 1);
+    assertEquals(sent[0].Amount, 500);
+    assertEquals(admin.rowsIn("payments").length, 1);
+    assertEquals(admin.rowsIn("payments")[0].tenant_id, "tenant-1");
+  });
+
+  it("answers an unlisted school as if M-Pesa weren't set up, without Daraja or a payment row", async () => {
+    Deno.env.set("DARAJA_TENANTS", "tenant-demo");
+    const { admin, asUser } = makeClients();
+    const sent = stubFetch(stkOk);
+    let calls = 0;
+    const queryStk = () => { calls++; return Promise.resolve({ done: true as const, resultCode: 0 }); };
+    const res = await handle(request(validBody), { admin, asUser, queryStk });
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).error, "M-Pesa payments aren't set up for this school yet.");
+    assertEquals(sent.length, 0);
+    assertEquals(calls, 0);
+    assertEquals(admin.rowsIn("payments").length, 0);
+  });
+
+  it("doesn't settle an old prompt of an unlisted school by asking Daraja", async () => {
+    Deno.env.set("DARAJA_TENANTS", "tenant-demo");
+    const { admin, asUser } = makeClients();
+    admin.seed("payments", [{
+      id: "old", tenant_id: "tenant-1", invoice_id: INVOICE_ID, status: "pending", msisdn: validBody.msisdn,
+      amount_cents: 50000, checkout_request_id: "ws_CO_old", created_at: minutesAgo(10),
+    }]);
+    const sent = stubFetch(stkOk);
+    let calls = 0;
+    const queryStk = () => { calls++; return Promise.resolve({ done: true as const, resultCode: 0 }); };
+    const res = await handle(request(validBody), { admin, asUser, queryStk });
+    assertEquals(res.status, 503);
+    assertEquals(calls, 0);
+    assertEquals(sent.length, 0);
+    assertEquals(admin.rowsIn("payments").length, 1);
+    assertEquals(admin.rowsIn("payments")[0].status, "pending");
+  });
+
+  it("set but empty: no school may", async () => {
+    Deno.env.set("DARAJA_TENANTS", " , ");
+    const { admin, asUser } = makeClients();
+    const sent = stubFetch(stkOk);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 503);
+    assertEquals(sent.length, 0);
+    assertEquals(admin.rowsIn("payments").length, 0);
+  });
+
+  it("unset: every school may, as before", async () => {
+    Deno.env.delete("DARAJA_TENANTS");
+    const { admin, asUser } = makeClients();
+    const sent = stubFetch(stkOk);
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 200);
+    assertEquals(sent.length, 1);
+  });
+
+  it("with Daraja not configured, an unlisted school still gets the same 503", async () => {
+    Deno.env.set("DARAJA_TENANTS", "tenant-demo");
+    Deno.env.delete("DARAJA_CALLBACK_SECRET");
+    const { admin, asUser } = makeClients();
+    const res = await handle(request(validBody), { admin, asUser });
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).error, "M-Pesa payments aren't set up for this school yet.");
+  });
 });

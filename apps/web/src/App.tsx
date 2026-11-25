@@ -51,6 +51,7 @@ import { AdminReports } from "./screens/admin/Reports";
 import { Performance } from "./screens/admin/Performance";
 import { AdminLeave } from "./screens/admin/Leave";
 import { AdminInventory } from "./screens/admin/Inventory";
+import { InventoryStockPage } from "./screens/admin/InventoryStockPages";
 import { Exams as AdminExams } from "./screens/admin/Exams";
 import { ReportCards } from "./screens/admin/ReportCards";
 import { AdminAccount } from "./screens/admin/Account";
@@ -109,9 +110,15 @@ import { StaffLoans } from "./screens/staff/Loans";
 import { MyHr } from "./screens/myhr/MyHr";
 import { HrLeave } from "./screens/leave/HrLeave";
 import { LeaveToApprove } from "./screens/leave/LeaveToApprove";
+import { HrPayroll } from "./screens/hr/HrPayroll";
+import { HrLaunch } from "./screens/hr/HrLaunch";
 import { AdminVisitors } from "./screens/admin/Visitors";
 import { AdminMedical } from "./screens/admin/Medical";
 import { AdminAuditLog } from "./screens/admin/AuditLog";
+import { AdminBehaviour } from "./screens/admin/Behaviour";
+import { TeacherBehaviour } from "./screens/teacher/Behaviour";
+import { ParentBehaviour } from "./screens/parent/Behaviour";
+import { StudentBehaviour } from "./screens/student/Behaviour";
 import { ParentHealth } from "./screens/parent/Health";
 import { useMedicalUnread } from "./lib/useMedicalUnread";
 import { TeacherVisitors } from "./screens/teacher/Visitors";
@@ -140,6 +147,8 @@ export function App() {
         <Route path="/org-picker" element={<OrgPicker />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        {/* Figbloom HR's launch tab: no console, the "Opening Figbloom HR" screen until HR takes over */}
+        <Route path="/hr/launch" element={<HrLaunch />} />
 
         <Route path="/platform" element={<Navigate to="/platform/tenants" replace />} />
         <Route path="/platform/:page" element={<PlatformShell />} />
@@ -259,7 +268,9 @@ function TenantRoutes() {
           <Route path="admin/performance" element={<AdminShell page="admin/performance"><Performance /></AdminShell>} />
           <Route path="admin/leave" element={<AdminShell page="admin/leave"><AdminLeave /></AdminShell>} />
           <Route path="admin/leave-to-approve" element={<AdminShell page="admin/leave-to-approve"><LeaveToApprove /></AdminShell>} />
+          <Route path="admin/hr" element={<AdminShell page="admin/hr"><HrPayroll /></AdminShell>} />
           <Route path="admin/inventory" element={<AdminShell page="admin/inventory"><AdminInventory /></AdminShell>} />
+          <Route path="admin/inventory/stock/:section" element={<AdminShell page="admin/inventory"><InventoryStockPage /></AdminShell>} />
           <Route path="admin/exams" element={<AdminShell page="admin/exams"><AdminExams /></AdminShell>} />
           <Route path="admin/papers" element={<AdminShell page="admin/papers"><ExamPapers admin /></AdminShell>} />
           <Route path="admin/materials" element={<AdminShell page="admin/materials"><LearningMaterials admin /></AdminShell>} />
@@ -273,12 +284,14 @@ function TenantRoutes() {
           <Route path="admin/bloom" element={<AdminShell page="admin/bloom"><BloomChat console="admin" /></AdminShell>} />
           <Route path="admin/access" element={<AdminShell page="admin/access"><AccessRoles /></AdminShell>} />
           <Route path="admin/audit" element={<AdminShell page="admin/audit"><AdminAuditLog /></AdminShell>} />
+          <Route path="admin/behaviour" element={<AdminShell page="admin/behaviour"><AdminBehaviour /></AdminShell>} />
 
           <Route path="teacher" element={<Navigate to="attendance" replace />} />
           <Route path="teacher/attendance" element={<TeacherShell allow={["teacher"]}><Attendance /></TeacherShell>} />
           <Route path="teacher/gradebook" element={<TeacherShell allow={["teacher"]}><GradebookRouter /></TeacherShell>} />
           <Route path="teacher/timetable" element={<TeacherShell allow={["teacher"]}><TeacherTimetable /></TeacherShell>} />
           <Route path="teacher/classes" element={<TeacherShell allow={["teacher"]}><TeacherClasses /></TeacherShell>} />
+          <Route path="teacher/behaviour" element={<TeacherShell allow={["teacher"]}><TeacherBehaviour /></TeacherShell>} />
           <Route path="teacher/sections" element={<TeacherShell allow={["teacher"]}><TeacherMySections /></TeacherShell>} />
           <Route path="teacher/messages" element={<TeacherShell allow={["teacher"]}><TeacherMessages /></TeacherShell>} />
           <Route path="teacher/notices" element={<TeacherShell allow={["teacher"]}><TeacherNotices /></TeacherShell>} />
@@ -310,6 +323,7 @@ function TenantRoutes() {
           <Route path="parent/settings" element={<ParentShell><ParentSettings /></ParentShell>} />
           <Route path="parent/activities" element={<ParentShell><ParentActivities /></ParentShell>} />
           <Route path="parent/health" element={<ParentShell><ParentHealth /></ParentShell>} />
+          <Route path="parent/behaviour" element={<ParentShell><ParentBehaviour /></ParentShell>} />
           <Route path="parent/study-helper" element={<ParentShell><ParentStudyHelper /></ParentShell>} />
 
           <Route path="student" element={<StudentShell><StudentToday /></StudentShell>} />
@@ -324,6 +338,7 @@ function TenantRoutes() {
           <Route path="student/notices" element={<StudentShell><StudentNotices /></StudentShell>} />
           <Route path="student/activities" element={<StudentShell><StudentActivities /></StudentShell>} />
           <Route path="student/items" element={<StudentShell><StudentItems /></StudentShell>} />
+          <Route path="student/behaviour" element={<StudentShell><StudentBehaviour /></StudentShell>} />
 
           {/* No ConsoleShell — a driver's screen is one full-screen start/end-trip page, not a console. */}
           <Route path="driver" element={<RoleGate allow={["driver"]}><DriverTrip /></RoleGate>} />

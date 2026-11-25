@@ -99,6 +99,36 @@ describe("payWithMpesa", () => {
     expect(await run({ intervalMs: 3000, timeoutMs: 90_000 }, 120)).toEqual({ kind: "unconfirmed" });
   });
 
+  it("while waiting, asks the function to check the payment with Daraja: from 25 s, every 15 s, never deciding from its answer", async () => {
+    invoke.mockResolvedValue({ data: { payment_id: "pay-1", status: "success" }, error: null });
+    maybeSingle.mockResolvedValue(row("pending"));
+    expect(await run({ intervalMs: 3000, timeoutMs: 60_000 }, 70)).toEqual({ kind: "unconfirmed" });
+    const checks = invoke.mock.calls.filter(([, opts]) => (opts as { body: { action?: string } }).body.action === "check");
+    expect(checks.length).toBe(3); // ~27 s, ~42 s, ~57 s
+    for (const [fn, opts] of checks) {
+      expect(fn).toBe("mpesa-stk-push");
+      expect((opts as { body: unknown }).body).toEqual({ action: "check", payment_id: "pay-1" });
+    }
+  });
+
+  it("reports success once a check has settled the row", async () => {
+    let checked = false;
+    invoke.mockImplementation((_fn: string, opts: { body: { action?: string } }) => {
+      if (opts.body.action === "check") checked = true;
+      return Promise.resolve({ data: { payment_id: "pay-1" }, error: null });
+    });
+    maybeSingle.mockImplementation(() => Promise.resolve(checked ? row("success", { mpesa_receipt: "SFC1" }) : row("pending")));
+    expect(await run({ intervalMs: 3000 })).toEqual({ kind: "success", receipt: "SFC1" });
+  });
+
+  it("keeps waiting when a check fails", async () => {
+    invoke.mockImplementation((_fn: string, opts: { body: { action?: string } }) =>
+      Promise.resolve(opts.body.action === "check" ? httpError(500, { error: "Could not check the payment. Try again." }) : { data: { payment_id: "pay-1" }, error: null }));
+    let reads = 0;
+    maybeSingle.mockImplementation(() => Promise.resolve(++reads >= 12 ? row("success", { mpesa_receipt: "SFC2" }) : row("pending")));
+    expect(await run({ intervalMs: 3000 })).toEqual({ kind: "success", receipt: "SFC2" });
+  });
+
   it("is 'unavailable' when the function answers 503 (M-Pesa not set up, or nothing behind the gateway)", async () => {
     invoke.mockResolvedValue(httpError(503, { error: "M-Pesa payments aren't set up for this school yet." }));
     expect(await run()).toEqual({ kind: "unavailable" });

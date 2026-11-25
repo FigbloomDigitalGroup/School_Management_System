@@ -7,7 +7,7 @@ import { StatRow } from "../../components/ui/StatCard";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/DataTable";
 import { Button } from "../../components/ui/Button";
-import { formatShortDate } from "@figbloom/shared";
+import { fetchBehaviourPoints, fetchBehaviourSettings, formatShortDate } from "@figbloom/shared";
 import { useAsync } from "../../lib/useAsync";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -47,6 +47,12 @@ export function ParentHome() {
     [child?.id],
   );
   const cbe = cbeLearner && rubric ? cbeOverall((child && cbeByStudent?.get(child.id)) || [], rubric) : null;
+  // behaviour: the points total (or the merits, when the school keeps no points), linking to the Behaviour page
+  const { data: behaviour, loading: behaviourLoading } = useAsync(async () => {
+    if (!child) return null;
+    const [settings, points] = await Promise.all([fetchBehaviourSettings(tenant.id), fetchBehaviourPoints([child.id])]);
+    return { settings, points: points.get(child.id) ?? null };
+  }, [child?.id, tenant.id]);
 
   const statCards = child
     ? [
@@ -69,6 +75,12 @@ export function ParentHome() {
               value: child.mean === null ? "—" : gradeFor(child.mean, gradingSchemeFor(tenant.country, child.classLevel)),
               sub: child.mean === null ? "Not published yet" : `${child.mean} marks${child.examName ? `, ${child.examName}${newestExamNote(child.exams)}` : ""}`,
             },
+        {
+          label: behaviour?.settings.points_enabled === false ? "Merits" : "Behaviour points",
+          value: !behaviour?.points ? "—" : String(behaviour.points.balance ?? `+${behaviour.points.merit_points}`),
+          sub: behaviour?.points ? (behaviour.settings.reset === "never" ? "so far" : `this ${behaviour.settings.reset}`) + ` · ${behaviour.points.merit_points} merit points` : "Nothing recorded yet",
+          loading: behaviourLoading,
+        },
       ]
     : [];
 

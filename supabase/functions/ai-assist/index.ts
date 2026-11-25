@@ -30,6 +30,11 @@
  *    files in the request (text, or a PDF or Word file), read like a paper
  *    import (documents.ts chatAttachmentParts) and never stored; metered and
  *    refused like any chat request. The study helper refuses any file.
+ *  - stock insights: the office or a storekeeper sends only a period. The
+ *    flags and stock levels are read here, with the caller's own rights
+ *    (inventory_consumption_flags and inventory_stock_levels in
+ *    20261124200000, which refuse anyone who may not read the school's
+ *    stock); they hold item names and numbers, never a person.
  *
  * Staff drafting tasks answer in JSON fixed by a schema; the app shows the
  * draft for a person to edit, and nothing is saved or sent from here. Bloom
@@ -49,7 +54,8 @@ import { chatAttachmentParts, paperImportContent, readStaged } from "./documents
 import { aiFromEnv, type AiCall, type AiReply, type AiRequest, type WebSearch } from "./providers.ts";
 import {
   ALLOWED, BadInput, CHAT_MAX_SEARCHES, chatAttachments, chatMessages, chatSystem, EFFORT, GUIDE_MAX_ACTIONS, GUIDE_SCHEMA, GUIDE_SETUP_SCHEMA, guideMessages, guidePages,
-  guideSystem, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, TASKS, tutorMessages, tutorSystem,
+  guideSystem, PAPER_IMPORT_SCHEMA, paperImportRequest, paperImportSystem, prepare, STOCK_INSIGHTS_SCHEMA, stockFlagsForAi, stockInsightsRange,
+  stockInsightsSystem, stockInsightsUser, stockLevelsForAi, TASKS, tutorMessages, tutorSystem,
   type GuidePage, type Role, type SetupSnapshot, type Task,
 } from "./tasks.ts";
 
@@ -177,6 +183,21 @@ export async function handle(req: Request, { admin, asUser, ai }: Deps): Promise
         messages[messages.length - 1] = { role: "user", content: [...chatAttachmentParts(files), { type: "text", text: question.content as string }] };
       }
       system = chatSystem(tenant.name ?? "", role === "teacher" ? "teacher" : "school_admin", today, webSearch !== null, files.length > 0);
+    } else if (task === "stock_insights") {
+      const range = stockInsightsRange(body.payload);
+      const [flags, levels] = await Promise.all([
+        asUser.rpc("inventory_consumption_flags", { p_tenant_id: tenant.id, p_from: range.from, p_to: range.to }),
+        asUser.rpc("inventory_stock_levels", { p_tenant_id: tenant.id }),
+      ]);
+      const failed = flags.error ?? levels.error;
+      if (failed) {
+        console.error("ai-assist: stock figures failed", failed.message);
+        return json({ error: "Bloom couldn't read the school's stock figures." }, 403);
+      }
+      const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Nairobi" });
+      system = stockInsightsSystem(tenant.name ?? "", today);
+      schema = STOCK_INSIGHTS_SCHEMA;
+      messages = [{ role: "user", content: stockInsightsUser(range, stockFlagsForAi(flags.data ?? []), stockLevelsForAi(levels.data ?? [])) }];
     } else {
       const prepared = prepare(task, body.payload);
       system = prepared.system;

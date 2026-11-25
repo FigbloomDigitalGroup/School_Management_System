@@ -936,6 +936,8 @@ export class FakeSupabaseClient {
           teachers: people.filter((p) => p.role === "teacher").length,
           parents: people.filter((p) => p.role === "parent").length,
           last_activity_at: iso(signIns.at(-1)),
+          // 20261124100000
+          hr_requested_at: iso(t.hr_requested_at),
         };
       });
   }

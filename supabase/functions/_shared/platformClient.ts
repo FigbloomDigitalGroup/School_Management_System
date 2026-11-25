@@ -92,6 +92,13 @@ export interface HandoffAnswer {
   expires_at: string;
 }
 
+/** GET /tenants/{id}/modules/{module}: the parts Schools reads. */
+export interface TenantModuleAnswer {
+  /** "active", "trial", "suspended", ... or null when the product was never switched on. */
+  module_status?: string | null;
+  cache_seconds?: number;
+}
+
 export interface TenantAnswer {
   tenant_id?: string;
   id?: string;
@@ -159,6 +166,16 @@ export class PlatformClient {
   /** 409 target_not_enabled / target_not_linked / target_no_handoff_url when the target can't take the person; 404 for a school the platform doesn't know. */
   createHandoff(body: HandoffBody): Promise<HandoffAnswer> {
     return this.call("POST", "/handoffs", body);
+  }
+
+  /** GET /tenants/{id}/modules/{module} (5.3): whether a product is on for a customer. `platformTenantId` is the platform's id (platform_links.platform_id). */
+  getTenantModule(platformTenantId: string, module: string): Promise<TenantModuleAnswer> {
+    return this.call("GET", `/tenants/${encodeURIComponent(platformTenantId)}/modules/${encodeURIComponent(module)}`);
+  }
+
+  /** GET /tenants/{id}/links/{module} (5.5): the product's own record for the customer; 404 not_linked while it has none. */
+  getTenantLink(platformTenantId: string, module: string): Promise<unknown> {
+    return this.call("GET", `/tenants/${encodeURIComponent(platformTenantId)}/links/${encodeURIComponent(module)}`);
   }
 
   putEventWebhook(url: string | null): Promise<unknown> {
