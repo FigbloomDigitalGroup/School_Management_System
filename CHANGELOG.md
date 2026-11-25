@@ -25,10 +25,16 @@ rename it or change how it behaves without a PR that Mike approves.
    onto it.** [Missing from apps/api](#missing-from-appsapi-on-dev-joe) lists what it doesn't cover yet.
 7. **Every change to live behaviour adds an entry to this file** in the same PR, under
    [Unreleased](#unreleased). Mike moves it to a dated section when it goes live.
+8. **Run `sh scripts/pre-pr-check.sh` before every PR into `dev-staging` or `main`, and only open the PR once it
+   passes.** It checks rules 1, 3, 4 and 7, that no migration or edge function already on `main` was edited or
+   deleted, and the security scan. Put its output in the PR description.
 
 ## Unreleased
 
 On `main` or in an open PR, not live in production yet.
+
+- **Pre-PR check and agent instructions**: `scripts/pre-pr-check.sh`, plus a "Before opening a PR into dev-staging
+  or main" section in `CLAUDE.md` and `AGENTS.md`. Docs and tooling only.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:
@@ -206,6 +212,11 @@ Before you merge, check these things your branch has that clash with `main`:
   `20261106060000`) are dated **before** migrations that are already live. Rename them to a timestamp after the
   newest on `main` (see rule 4) before they go to `main`.
 - **New attendance policies** (`attendance_settings_*`, `attendance_afternoon_*`) should use the helpers from #374.
+- **`20261110160000_group_present_today_counts_late.sql` was edited on your branch** (commit `99e7ccf`, 2026-11-21)
+  so that it uses `attendance_afternoon` and `attendance_percentage_mode`. Once the `20261106*` migrations are
+  renamed to later dates, that file runs **before** those tables exist and the deploy fails. Undo the edit (bring
+  the file back exactly as it is on `main`), and put the reconciled `refresh_organization_tenant_summary` in a new
+  migration dated after the renamed ones.
 - **`term_class_figures`** is re-created by your migrations. Make sure it still works with the four pending
   attendance migrations above, both with and without them.
 
