@@ -1,6 +1,8 @@
+import { accountCapabilities, parentCapabilities } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { MyAccountFields } from "../../components/MyAccountFields";
 import { ChildPasswordResets } from "../../components/PasswordReset";
+import { AccountSections, accountBlurb } from "../../components/account/AccountSections";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useParentData } from "../../lib/parentContext";
 import { useTenantSession } from "../../lib/sessionContext";
@@ -13,13 +15,41 @@ const CHANNELS: { label: string; note: string; on: boolean }[] = [
 ];
 
 /**
- * Account details plus "how we reach you". The channel toggles are visual
- * only — there is no notification-preferences table behind them yet, exactly
- * as in the phone preview.
+ * A parent's own account page (`parent/settings`). On the new API it reuses `AccountSections` (read-only profile details,
+ * password change, two-step verification status, and persisted notification switches) plus the linked children summary.
+ * On Supabase it keeps the editable profile fields, child learner password resets, and channel preview.
  */
 export function ParentSettings() {
   const { tenant } = useTenantSession();
   const { loading, error, children } = useParentData();
+  const accountSections = accountCapabilities().security;
+  const canChildLogins = parentCapabilities().childLogins;
+
+  const childrenSummary = error ? (
+    <p className="mt-3 flex items-center gap-1.5 text-[12.5px] text-warn-ink">
+      <span aria-hidden>✕</span>Could not load your children: {error.message}
+    </p>
+  ) : loading ? (
+    <Skeleton className="mt-3 h-3 w-2/3 max-w-[320px]" />
+  ) : (
+    <p className="mt-3 max-w-[480px] text-[12.5px] leading-relaxed text-ink-muted">
+      {children.length === 0
+        ? `No child is linked to this account at ${tenant.name} yet. Contact the school office.`
+        : `${children.length} ${children.length === 1 ? "child" : "children"} at ${tenant.name}. To add or remove a child, the school office has to do it — that is deliberate.`}
+    </p>
+  );
+
+  if (accountSections) {
+    return (
+      <>
+        <PageHead eyebrow="Account" title="My account" blurb={accountBlurb()} />
+        <div className="px-7 py-6">
+          <AccountSections />
+          {childrenSummary}
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -29,19 +59,8 @@ export function ParentSettings() {
         <div className="grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}>
           <div>
             <MyAccountFields />
-            {error ? (
-              <p className="mt-3 flex items-center gap-1.5 text-[12.5px] text-warn-ink">
-                <span aria-hidden>✕</span>Could not load your children: {error.message}
-              </p>
-            ) : loading ? (
-              <Skeleton className="mt-3 h-3 w-2/3" />
-            ) : (
-              <p className="mt-3 max-w-[480px] text-[12.5px] leading-relaxed text-ink-muted">
-                {children.length} {children.length === 1 ? "child" : "children"} at {tenant.name}. To add or remove a
-                child, the school office has to do it — that is deliberate.
-              </p>
-            )}
-            {!loading && !error && <ChildPasswordResets kids={children} schoolName={tenant.name} />}
+            {childrenSummary}
+            {canChildLogins && !loading && !error && <ChildPasswordResets kids={children} schoolName={tenant.name} />}
           </div>
 
           <section className="overflow-hidden rounded-lg border border-line bg-white">

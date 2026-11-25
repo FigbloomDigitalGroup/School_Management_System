@@ -4,8 +4,7 @@ Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md), which explains w
 
 
 Opened from the menu on an API build: **My account** (the avatar menu, and the sidebar's "My account" / "Account" entry) for school
-admins and teachers, and **Access & roles** for full admins. The shared account code is built to be reused by `staff/account` and
-`parent/settings` (`AccountSections`, `apps/web/src/components/account/`).
+admins and teachers, and **Access & roles** for full admins. The shared account code is reused by `staff/account`, `driver/profile` and `parent/settings` (`AccountSections`, `apps/web/src/components/account/`).
 
 ## My account
 

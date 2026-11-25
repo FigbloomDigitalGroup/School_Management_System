@@ -10,6 +10,7 @@ import { fetchLearnerInventory } from "../inventory";
 import { fetchChildMedical } from "../medical";
 import { payWithMpesa } from "../mpesaPay";
 import { fetchParentUnreadCount, loadParentData, markMessageRead } from "../parentData";
+import { fetchChildLogins, fetchOpenPasswordResetRequests } from "../passwordReset";
 import { fetchSignableAttachmentIds } from "../signatures";
 import { BASE, createFakeApi, type FakeApi, type FakeReply, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
@@ -494,12 +495,19 @@ describe("what a parent can do on each backend", () => {
   it("hides on the API what its family reads do not carry", () => {
     initBackend({ kind: "supabase" });
     const sb = parentCapabilities();
-    expect(sb).toMatchObject({ homeworkDone: true, paymentProofSubmit: true, signatures: true, calls: true, familyReportCards: false, medicationConsent: false });
+    expect(sb).toMatchObject({ homeworkDone: true, paymentProofSubmit: true, signatures: true, calls: true, childLogins: true, familyReportCards: false, medicationConsent: false });
     initBackend({ kind: "api", apiUrl: BASE });
     const on = parentCapabilities();
-    expect(on).toMatchObject({ inbox: true, homeworkDone: false, paymentProofSubmit: false, signatures: false, calls: false, childProfile: false, examPapers: false, reportCardPdf: false, familyReportCards: true, medicationConsent: true });
+    expect(on).toMatchObject({ inbox: true, homeworkDone: false, paymentProofSubmit: false, signatures: false, calls: false, childProfile: false, childLogins: false, examPapers: false, reportCardPdf: false, familyReportCards: true, medicationConsent: true });
     // Every flag the API turns on is supported on the API build.
     expect(Object.entries(on).filter(([, v]) => v).map(([k]) => k).sort()).toEqual(["familyReportCards", "inbox", "medicationConsent"]);
+  });
+
+  it("refuses Supabase-only learner login and password-reset queries on the API build", async () => {
+    boot({});
+    await expect(fetchChildLogins([K1])).rejects.toBeInstanceOf(NotOnApiError);
+    await expect(fetchOpenPasswordResetRequests(T)).rejects.toBeInstanceOf(NotOnApiError);
+    expect(api.calls).toHaveLength(0);
   });
 
   it("acknowledges read inbox messages and short-circuits unread/signature reads on API", async () => {

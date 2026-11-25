@@ -476,18 +476,22 @@ export interface ParentCapabilities {
   paymentProofSubmit: boolean;
   /** The school's own paybill, till and bank details under "How to pay" (a parent cannot read the school profile). */
   schoolPaymentDetails: boolean;
+  /** Reset a child's learner login password from the parent's account page (learners have no sign-in accounts on the API yet: A4). */
+  childLogins: boolean;
 }
 
 const PARENT_ON_SUPABASE: ParentCapabilities = {
   inbox: true, homeworkDone: true, homeworkFiles: true, materialFiles: true, liveClasses: true, signatures: true, calls: true, childProfile: true,
   progressOverTime: true, examPapers: true, examAbsences: true, reportCardPdf: true, familyReportCards: false, activityEvents: true,
   medicationRequests: true, sickBayNotices: true, medicationConsent: false, busUpdates: true, paymentProofSubmit: true, schoolPaymentDetails: true,
+  childLogins: true,
 };
 
 const PARENT_ON_API: ParentCapabilities = {
   inbox: true, homeworkDone: false, homeworkFiles: false, materialFiles: false, liveClasses: false, signatures: false, calls: false, childProfile: false,
   progressOverTime: false, examPapers: false, examAbsences: false, reportCardPdf: false, familyReportCards: true, activityEvents: false,
   medicationRequests: false, sickBayNotices: false, medicationConsent: true, busUpdates: false, paymentProofSubmit: false, schoolPaymentDetails: false,
+  childLogins: false,
 };
 
 export function parentCapabilities(): ParentCapabilities {

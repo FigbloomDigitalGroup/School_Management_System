@@ -12,11 +12,12 @@ const ParentInbox = lazy(() => import("../../screens/parent/Inbox").then((m) => 
 const ParentItems = lazy(() => import("../../screens/parent/Items").then((m) => ({ default: m.ParentItems })));
 const ParentMaterials = lazy(() => import("../../screens/parent/Materials").then((m) => ({ default: m.ParentMaterials })));
 const ParentResults = lazy(() => import("../../screens/parent/Results").then((m) => ({ default: m.ParentResults })));
+const ParentSettings = lazy(() => import("../../screens/parent/Settings").then((m) => ({ default: m.ParentSettings })));
+const ParentStudyHelper = lazy(() => import("../../screens/parent/StudyHelper").then((m) => ({ default: m.ParentStudyHelper })));
 
 /**
- * Parent pages (Home, Fees, Results, Homework, Learning materials, Sports & activities, Bus, Health, Issued items, Inbox, Chats). They are
- * served by the parent console (ApiParent.tsx). Home is that console's own page and is not listed here; Account and the
- * Bloom study helper follow next. Every parent menu entry that is not here is hidden.
+ * Every parent page on the new API (Home, Fees, Results, Homework, Learning materials, Sports & activities, Bus, Health,
+ * Issued items, Inbox, Chats, Account, Bloom study helper), served by `ApiParent.tsx` (which also holds the Home route).
  */
 export const pages: AreaPages = {
   parent: [
@@ -30,5 +31,7 @@ export const pages: AreaPages = {
     { path: "parent/items", element: <Lazy><ParentItems /></Lazy> },
     { path: "parent/inbox", element: <Lazy><ParentInbox /></Lazy> },
     { path: "parent/chats", element: <Lazy><MyChats role="parent" /></Lazy> },
+    { path: "parent/settings", element: <Lazy><ParentSettings /></Lazy> },
+    { path: "parent/study-helper", element: <Lazy><ParentStudyHelper /></Lazy> },
   ],
 };

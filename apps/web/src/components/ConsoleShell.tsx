@@ -43,8 +43,8 @@ function writeCollapsed(key: string, labels: string[]) {
   }
 }
 
-/** The roles whose "My account" page runs on the new API build (admin/account, teacher/account and staff/account). */
-const API_ACCOUNT_ROLES: readonly Role[] = ["school_admin", "teacher", "staff"];
+/** The roles whose "My account" page runs on the new API build (admin/account, teacher/account, staff/account and parent/settings). */
+const API_ACCOUNT_ROLES: readonly Role[] = ["school_admin", "teacher", "staff", "parent"];
 
 /** A sidebar entry that does something rather than going to a page: "HR & Payroll" opens another Figbloom product. */
 export interface ShellAction {
@@ -137,9 +137,9 @@ export function ConsoleShell({ role, user, aside, children, badges = {}, workspa
     }
     if (pageIsNotForInstitution(item.to, institutionType)) return false;
     if (item.to === "admin/fleet" || item.to === "parent/bus" || item.to === "teacher/buses") return !online;
-    // Only where the school has turned the study helper on (School settings -> AI). On the API build, admin/study-helper is gated by API_ADMIN_PAGES and reads its settings from /finance/ai-helper/settings.
+    // Only where the school has turned the study helper on (School settings -> AI). On the API build, admin/study-helper and parent/study-helper are gated by their page registries and read settings from the API.
     if (item.to === "student/study-helper" || item.to === "parent/study-helper" || item.to === "admin/study-helper") {
-      return onApi() ? item.to === "admin/study-helper" : !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
+      return onApi() ? item.to === "admin/study-helper" || item.to === "parent/study-helper" : !!tenant?.ai_enabled && !!tenant?.ai_tutor_enabled;
     }
     return true;
   });

@@ -11,7 +11,7 @@ import {
   childResults,
   childTimetable,
 } from "../../modules/family/academics.js";
-import { childFees } from "../../modules/family/fees.js";
+import { childAiHelper, childFees } from "../../modules/family/fees.js";
 import { childActivities, childHealth, childItems } from "../../modules/family/life.js";
 import { myChatContacts } from "../../modules/family/contacts.js";
 import { validationError } from "../errors.js";
@@ -118,6 +118,12 @@ export async function registerFamilyRoutes(app: FastifyInstance, pool: AppPool):
   app.get(`${C}/health`, async (request) =>
     inChild(app, pool, request, async ({ tx, tenantId, learnerId }) => ({
       health: await childHealth(tx, { tenantId, learnerId }),
+    })),
+  );
+
+  app.get(`${C}/ai-helper`, async (request) =>
+    inChild(app, pool, request, async ({ tx, tenantId, learnerId }) => ({
+      ai_helper: await childAiHelper(tx, { tenantId, learnerId }),
     })),
   );
 

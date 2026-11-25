@@ -3,14 +3,15 @@
 Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md), which explains why each area has its own file.
 
 Opened from the menu on an API build for a person with a `parent` membership: **Home**, **Fees**, **Results**, **Homework**,
-**Learning materials**, **Sports & activities**, **Bus**, **Health**, **Issued items**, **Inbox** and **Chats**. Account and the
-Bloom study helper come in the next parent slices. The pages are registered in `apps/web/src/api/pages/parent.pages.tsx`, under a new
-`parent` kind (`ParentPageDef` in `pages/types.ts`, `parentPageDefs` and `API_PARENT_PAGES` in `pages/index.ts`: the one addition to
-the registry). The shell is the parent's own console, `ApiParent.tsx` (it also holds the Home route), picked by role in `ApiConsole.tsx`. Every read is `GET /v1/tenants/{id}/me/children...` (`resource.family.read`);
-the server decides which learners are the caller's own on every call (`apps/api/docs/FAMILY-READS.md`), so a parent whose link was
-removed sees "No child linked" on every page and a child of another family is never reachable. The code is
-`packages/shared/src/api/parentApi.ts` (children, results, fees, homework, materials, activities, items, report cards, early sign-outs),
-`parentHealthApi.ts`, `parentBusApi.ts` and `parentPayApi.ts`.
+**Learning materials**, **Sports & activities**, **Bus**, **Health**, **Issued items**, **Inbox**, **Chats**, **Account** and
+**Bloom study helper** (all 13 parent pages). The pages are registered in `apps/web/src/api/pages/parent.pages.tsx`, under the
+`parent` kind (`ParentPageDef` in `pages/types.ts`, `parentPageDefs` and `API_PARENT_PAGES` in `pages/index.ts`). The shell is the
+parent's own console, `ApiParent.tsx` (it also holds the Home route), picked by role in `ApiConsole.tsx`. Every per-child read is
+`GET /v1/tenants/{id}/me/children...` (`resource.family.read`); the server decides which learners are the caller's own on every call
+(`apps/api/docs/FAMILY-READS.md`), so a parent whose link was removed sees "No child linked" on every page and a child of another
+family is never reachable. The code is `packages/shared/src/api/parentApi.ts` (children, results, fees, homework, materials,
+activities, items, report cards, early sign-outs), `parentHealthApi.ts`, `parentBusApi.ts`, `parentPayApi.ts`, `accountApi.ts` and
+`aiApi.ts`.
 
 ## What works
 
@@ -35,6 +36,13 @@ removed sees "No child linked" on every page and a child of another family is ne
 - **Chats (`parent/chats`):** 1-on-1 text chats with school administrators and the parent's children's teachers from
   `GET /v1/tenants/{tenantId}/me/chat-contacts` and `/v1/tenants/{tenantId}/chat/conversations`, with 4–10 second polling via
   `subscribeChatMessages`.
+- **Account (`parent/settings`):** the shared `AccountSections` view (read-only profile details from `GET /v1/auth/me`, password
+  change via `POST /v1/auth/password/change`, two-step verification status from `/v1/auth/mfa/status`, and all five parent
+  notification switches saved via `GET`/`PATCH /v1/me/notification-preferences`), the avatar menu's "My account" shortcut, and the
+  linked-children count for this school.
+- **Bloom study helper (`parent/study-helper`):** reads the school's study-helper state, access mode, current term and the selected
+  child's opt-in choice from `GET /v1/tenants/{tenantId}/me/children/{learnerId}/ai-helper`, and turns the study helper on or off for
+  the current term via `PUT /v1/tenants/{tenantId}/finance/ai-helper/optins`.
 
 ## What is hidden on the API build, and why (`parentCapabilities()` in `capabilities.ts`)
 
@@ -54,7 +62,8 @@ removed sees "No child linked" on every page and a child of another family is ne
 | Today's bus updates and the notify button; arrival time on the map | the API sends no stop coordinates and no route line (finding `parent-2`); bus notifications are not ported here |
 | Inbox attachments, signature requests, and unread dots/badges | files wait on A5, signatures on C12, and `/communications/announcements/inbox` does not report per-recipient read state |
 | Chat file attachments, voice/video calls, unread badges, and chatting with learners | files wait on A5, calls on C13, unread counts are not reported, and learners have no accounts on the API yet |
-| Account settings and Study helper | ported in the next parent slices |
+| Editing own name, phone or photo, and resetting a child's learner password (`parent/settings`) | `PATCH /v1/auth/me` and file storage (A5) do not exist yet, and learners have no sign-in accounts on the API yet (A4) |
+| Study helper monthly question counts and co-guardian names (`parent/study-helper`) | per-learner AI usage is not tracked yet, and the family read omits co-guardian user IDs (`aiCapabilities().studyHelperUsage`) |
 
 ## How the model is mapped
 
@@ -67,6 +76,9 @@ removed sees "No child linked" on every page and a child of another family is ne
 - Attendance is the percentage of sessions with a mark that were present or late, leaving out an afternoon absence after an early
   sign-out (the school's own counting mode is not readable by a parent: per session is used).
 - A guardian answers a medicine through `POST /health/medications/authorizations/{id}/consent`; the school makes the authorization.
+- Study-helper status comes from `GET /me/children/{learnerId}/ai-helper` (`school_on` true when the school has a row in
+  `finance_ai_helper_settings`, `current_term` from `academic_terms.is_current`), and turning it on or off sends `current_term.id` to
+  `PUT /finance/ai-helper/optins`.
 
 ## Checked on a real API (lighter checks)
 
@@ -74,7 +86,7 @@ A school with three parents: one with two children (the switcher, every page abo
 link was revoked. Not tried: a real M-Pesa prompt (it needs provider keys; locally the API answers 503 and the dialog says so), CBE
 results in a browser (unit tests only), two academic years, and the phone apps.
 
-## Things found in the API while doing this (numbered `parent-1` to `parent-7` so that no other area shares a number)
+## Things found in the API while doing this (numbered `parent-1` to `parent-8` so that no other area shares a number)
 
 parent-1. **A child's class carries no education level.** `FamilyChildClass` has `id, name, form_level, stream, academic_year_id`; the
     level picks the grading scheme and whether the child is on the CBE rubric, so the web guesses it from the name and year. Adding
@@ -96,3 +108,8 @@ parent-6. **Paying reads the payment back through the child's fees.** A parent m
 parent-7. **Parents cannot ask for medicine or hear from the sick bay.** The consent endpoint answers a medicine the school started; the
     old "ask the nurse to give a medicine" has no write, and `medical_notices` is never written (finding 15), so the Health page shows
     visits and doses instead of notices.
+parent-8. **Study-helper opt-in write needed a family read.** `PUT /finance/ai-helper/optins` authorizes linked parents only
+    (`assertMayPayFor`) and requires `term_id`, whereas `GET /finance/ai-helper/settings`, `GET /finance/ai-helper/optins` and
+    `GET /academic-terms` all require staff permissions (403 for parents). Added `GET /me/children/{learnerId}/ai-helper` (`inChild` /
+    `resource.family.read`, no migration or grant change) so a parent can read the school's study-helper settings, the current term and
+    their own child's choice without exposing co-guardian user IDs.

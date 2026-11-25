@@ -18455,6 +18455,54 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/me/children/{learnerId}/ai-helper:
+    get:
+      tags:
+        - family
+      summary: "The school's study-helper settings, the current term and this child's opt-in choice"
+      description: "A parent records a choice through PUT /finance/ai-helper/optins using current_term.id. No co-guardian user id is returned."
+      operationId: familyChildAiHelper
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.family.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          description: One of the caller's own children (GET /me/children); any other id answers 404
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Study-helper status of the child"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ai_helper]
+                additionalProperties: false
+                properties:
+                  ai_helper:
+                    $ref: "#/components/schemas/FamilyAiHelper"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/me/teaching/learners:
     get:
       tags:
@@ -28593,3 +28641,41 @@ components:
                 type: string
               subject:
                 type: [string, "null"]
+    FamilyAiHelper:
+      type: object
+      required: [school_on, access_mode, price_minor, currency, cancel_days, billing_enabled, current_term, optin]
+      additionalProperties: false
+      properties:
+        school_on:
+          type: boolean
+        access_mode:
+          type: string
+          enum: [all, opt_in]
+        price_minor:
+          type: integer
+          minimum: 0
+        currency:
+          type: string
+          const: KES
+        cancel_days:
+          type: integer
+          minimum: 0
+        billing_enabled:
+          type: boolean
+          const: false
+        current_term:
+          anyOf:
+            - $ref: "#/components/schemas/FamilyTermRef"
+            - type: "null"
+        optin:
+          anyOf:
+            - type: object
+              required: [opted_in, changed_at]
+              additionalProperties: false
+              properties:
+                opted_in:
+                  type: boolean
+                changed_at:
+                  type: string
+                  format: date-time
+            - type: "null"

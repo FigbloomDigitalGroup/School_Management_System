@@ -77,6 +77,7 @@ times are ISO 8601.
 | `/me/children/{learnerId}/activities` | the child's clubs and teams: `name, category, meeting_schedule, active, role, joined_on, patrons (names)` | inactive activities are shown with `active: false` |
 | `/me/children/{learnerId}/items` | items issued to the child: `item name, category, asset_tag, quantity, issued_at, due_on, status, closed_at, returned_condition` | none |
 | `/me/children/{learnerId}/health` | the health profile (`blood_group, allergies, chronic_conditions, dietary_notes, emergency_notes`), medication authorizations (with consent status, so the parent can consent through the existing consent endpoint), active schedules, administrations of the last 60 days, sick-bay visits (newest 100) | none |
+| `/me/children/{learnerId}/ai-helper` | the school's study-helper settings (`school_on, access_mode, price_minor, currency, cancel_days, billing_enabled`), `current_term` (`id, label` or `null`, so the parent can call `PUT /finance/ai-helper/optins`), and this child's opt-in choice in that term (`opted_in, changed_at` or `null`; no co-guardian user id) | none |
 | `/me/chat-contacts` | who the parent may start a chat with: the school's administrators and the teachers of their children's current classes (`user_id, full_name, role, reason`) | none |
 
 Bus: `/me/transport` and `/me/transport/notifications` (migration 086) already serve the bus page and are not changed.
