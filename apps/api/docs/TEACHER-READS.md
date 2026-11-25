@@ -89,6 +89,59 @@ another teacher. Chat: contacts never list parents or students, drop disabled an
 parent or a student; a conversation names its peer, with `peer_role` null once they leave. The permission registry, the RBAC matrix (through the OpenAPI annotations), the grants matrix and the
 RLS catalogue tests run unchanged.
 
+## Part 2: content of the classes I teach, and my items
+
+Written 2026-11-25. Found while putting the homework, learning materials, exam papers and "My items" pages on the web build
+(findings `homework-1`, `materials-2`, `papers-4`, `inventory-1`): each of those lists needs an admin permission
+(`resource.academics.read`, `resource.inventory.read`) that a plain teacher does not hold, so the page opens for an
+administrator and for a teacher who also holds the Academics or Inventory area, and is refused to everyone else.
+
+Four more reads, all `GET`, no migration (the permission `resource.teaching.read` of migration 103 is reused, and the rule
+that decides "a class I teach" is the one above, `teachingClassIds()`). The first three return the **same rows and shape** as
+the admin reads, so a client maps them the same way.
+
+| Path | Who | Returns |
+|---|---|---|
+| `/me/teaching/homework-items?classId` | `resource.teaching.read` | `{ homework, page }`: homework items of the classes the caller teaches, all subjects of those classes (the scope is the class, as for every teacher read). By due date |
+| `/me/teaching/learning-materials?classId` | `resource.teaching.read` | `{ materials, page }`: materials of those classes, **plus** the materials that name no class (shared with every class) when the caller teaches at least one class and `classId` is not given. Newest first |
+| `/me/teaching/online-exam-papers?classId` | `resource.teaching.read` | `{ papers, page }`: papers of those classes. The list carries no questions, as `GET /online-exam-papers` (finding `papers-1` stays open). Newest first |
+| `/me/inventory/issues` | any active member of the school (as `GET /staff/me`) | `{ issues, page }`: the caller's own OPEN issues (`holder_user_id` is the caller), each with `item_name`, `item_category` and `asset_tag`. No stock counts, location, cost or notes; nothing about another holder or a learner's issue. Newest first |
+
+`classId` narrows to one class; a class the caller does not teach (another teacher's, another school's, unknown) gives an
+empty list, not an error. A teacher who teaches nothing, or whose staff record is not linked, gets an empty list (200) and
+no school-wide materials. A parent, a student and a driver get the same audited 403 as from `/me/teaching/learners`. Every
+list is paged on the FIG-1621 convention; a cursor is bound to the caller's classes (or to the caller), so another teacher
+cannot replay it.
+
+How it is built: `listHomework`, `listLearningMaterials` and `listOnlinePapers` take an optional `classIds` filter (bound as a
+parameter, so it is part of the cursor fingerprint); the teaching wrappers in `src/modules/academics/teaching.ts` narrow the
+caller's classes and short-circuit to an empty page. `listMyOpenIssues` (`src/modules/inventory/inventory.ts`) joins
+`inventory_issues` to `inventory_items` for the item's name only. No table, grant, policy or definer function is added or
+widened: every statement reads tables the runtime role already `SELECT`s under the forced tenant policy.
+
+Not opened, and why:
+
+- **Any write.** A teacher still cannot set homework, add a material or create a paper without the Academics area. Whether
+  a teacher may do so for the classes and subjects they are assigned (a teaching assignment names the subject) is the
+  owner's decision (item 5 below).
+- **A subject filter.** The scope is the class: a teacher of Mathematics in a class also reads that class's English
+  homework. The write decision above is where a per-subject rule would matter.
+- **Question text and answers of a paper**, and who sat it (attempts): not in the list today for anyone.
+- **The register.** `GET /inventory/items` and `/inventory/issues` still need `resource.inventory.read`; "My items" shows the
+  caller's own rows only.
+
+What the web build needs next (not part of this change): the capability flags `canManageHomework`, `canManageMaterials`,
+`canManageExamPapers` and `canReadMyItems` open the pages only for administrators and Academics or Inventory holders. They
+can read through these endpoints for everyone else, with the create controls hidden until the owner decides item 5.
+
+Tests: `test/teacher.scopedContent.test.ts` runs every case of "Tests (negative first)" above for each of the three content
+reads (another class's teacher, no assignment, no linked or an archived staff record, an ended assignment, an archived
+class, another school by path and header, an archived membership, a suspended school, a disabled account, a parent, a
+student, a driver, a wrongly linked parent, a cursor replayed by another teacher, an unknown or malformed `classId`), the
+school-wide materials rules, and for "My items" the own-rows-only rule (another holder, a learner's issue, a returned issue,
+another school). Responses are validated against the OpenAPI schemas. A mutation check (eight guards removed one at a time)
+was caught every time.
+
 ## Open decisions for the owner (not decided here)
 
 1. Should a teacher publish (and close) their own marks? Today `publish` and `close` need `resource.academics.write`; the
@@ -97,3 +150,5 @@ RLS catalogue tests run unchanged.
    (`resource.announcement.write`).
 3. Should a covering teacher read the names of the class they cover that day?
 4. Should a teacher see the parents of their learners as chat contacts?
+5. Should a teacher set homework, add learning materials and create online exam papers for the classes and subjects they
+   are assigned to teach? Today each needs `resource.academics.write`. This change only lets them read.

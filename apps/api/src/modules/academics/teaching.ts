@@ -1,4 +1,6 @@
 import type { Tx } from "../../db/sql.js";
+import { listHomework, listLearningMaterials, type PublicHomework, type PublicMaterial } from "./assessments.js";
+import { listOnlinePapers } from "./higherEd.js";
 import { pageQuery, type Page, type PageInput } from "./pagination.js";
 
 /**
@@ -103,4 +105,51 @@ export async function listTeachingColleagues(
     input.page,
   );
   return { items: res.rows.map((r) => ({ staff_member_id: r.id, full_name: r.full_name })), page: res.page };
+}
+
+/** `classId` narrows the scope to that class when the caller teaches it (otherwise nothing); no `classId` keeps every class they teach. */
+function narrowToClass(classIds: readonly string[], classId: string | undefined): string[] {
+  return classId === undefined ? [...classIds] : classIds.filter((id) => id === classId);
+}
+
+/**
+ * Homework set for the classes the caller teaches (all subjects of those classes, not only the caller's own: the scope is the
+ * class, as for every other teacher read). The same rows and shape as `GET /homework-items`.
+ */
+export async function listTeachingHomework(
+  tx: Tx,
+  input: { tenantId: string; classIds: readonly string[]; classId?: string; page: PageInput },
+): Promise<Page<PublicHomework>> {
+  const scope = narrowToClass(input.classIds, input.classId);
+  if (scope.length === 0) return emptyPage(input.page);
+  return listHomework(tx, { tenantId: input.tenantId, classIds: scope, page: input.page });
+}
+
+/**
+ * Learning materials of the classes the caller teaches. A material that names no class is shared with every class, so a
+ * teacher of at least one class reads those too, unless the list is narrowed to one class. The same rows and shape as
+ * `GET /learning-materials`.
+ */
+export async function listTeachingMaterials(
+  tx: Tx,
+  input: { tenantId: string; classIds: readonly string[]; classId?: string; page: PageInput },
+): Promise<Page<PublicMaterial>> {
+  const scope = narrowToClass(input.classIds, input.classId);
+  if (scope.length === 0) return emptyPage(input.page);
+  return listLearningMaterials(tx, {
+    tenantId: input.tenantId,
+    classIds: scope,
+    includeSchoolWide: input.classId === undefined,
+    page: input.page,
+  });
+}
+
+/** Online exam papers of the classes the caller teaches. The same rows and shape as `GET /online-exam-papers`. */
+export async function listTeachingPapers(
+  tx: Tx,
+  input: { tenantId: string; classIds: readonly string[]; classId?: string; page: PageInput },
+) {
+  const scope = narrowToClass(input.classIds, input.classId);
+  if (scope.length === 0) return emptyPage<Awaited<ReturnType<typeof listOnlinePapers>>["items"][number]>(input.page);
+  return listOnlinePapers(tx, { tenantId: input.tenantId, classIds: scope, page: input.page });
 }

@@ -18492,6 +18492,232 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/me/teaching/homework-items:
+    get:
+      tags:
+        - teaching
+      summary: Homework set for the classes the caller teaches
+      description: "Teacher reads (docs/TEACHER-READS.md, \"Content of the classes I teach\"). The same rows and shape as
+        `GET /homework-items`, limited to the classes the caller teaches now: an active class whose class teacher, or an
+        active teaching assignment, is the caller's linked active staff record. All subjects of those classes, not only the
+        caller's own. `classId` narrows to one class (a class they do not teach gives an empty list). Empty for a caller who
+        teaches nothing or has no linked staff record. By due date. Paged (FIG-1621): `limit` 1-200 (default 50), opaque
+        `cursor` from `page.next_cursor`, fixed sort (`sort` is refused); a cursor is bound to the caller's classes."
+      operationId: teachingMyHomeworkItems
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.teaching.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The homework
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - homework
+                  - page
+                properties:
+                  homework:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Homework"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/me/teaching/learning-materials:
+    get:
+      tags:
+        - teaching
+      summary: Learning materials of the classes the caller teaches
+      description: "Teacher reads (docs/TEACHER-READS.md, \"Content of the classes I teach\"). The same rows and shape as
+        `GET /learning-materials`, limited to the classes the caller teaches now. A material that names no class is shared
+        with every class, so a teacher of at least one class reads those too, unless `classId` narrows the list to one
+        class (then only that class's materials, and an empty list for a class they do not teach). Empty for a caller who
+        teaches nothing or has no linked staff record. Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque
+        `cursor` from `page.next_cursor`, fixed sort (`sort` is refused); a cursor is bound to the caller's classes."
+      operationId: teachingMyLearningMaterials
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.teaching.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The materials
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - materials
+                  - page
+                properties:
+                  materials:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LearningMaterial"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/me/teaching/online-exam-papers:
+    get:
+      tags:
+        - teaching
+      summary: Online exam papers of the classes the caller teaches
+      description: "Teacher reads (docs/TEACHER-READS.md, \"Content of the classes I teach\"). The same rows and shape as
+        `GET /online-exam-papers` (the list does not carry the questions), limited to the classes the caller teaches now.
+        `classId` narrows to one class (a class they do not teach gives an empty list). Empty for a caller who teaches
+        nothing or has no linked staff record. Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor`
+        from `page.next_cursor`, fixed sort (`sort` is refused); a cursor is bound to the caller's classes."
+      operationId: teachingMyOnlineExamPapers
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.teaching.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: classId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The papers
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - papers
+                  - page
+                properties:
+                  papers:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OnlineExamPaper"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/me/inventory/issues:
+    get:
+      tags:
+        - inventory
+      summary: The items issued to the caller
+      description: "Teacher reads (docs/TEACHER-READS.md, \"My items\"). The caller's own OPEN inventory issues (`holder_user_id`
+        is the caller), newest first, each with the item's name, category and asset tag. Any active member of the school may
+        read their own; no inventory permission is needed, so a teacher or staff member who cannot read the register can
+        still see what they hold. Nothing about another holder, a learner's issue, stock counts, location, cost or notes. An
+        empty list when nothing is issued to the caller. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from
+        `page.next_cursor`, fixed sort; a cursor is bound to the caller."
+      operationId: inventoryMyIssues
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: The caller's open issues
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - issues
+                  - page
+                properties:
+                  issues:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MyInventoryIssue"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/me/chat-contacts:
     get:
       tags:
@@ -25711,6 +25937,63 @@ components:
             - string
             - "null"
           maxLength: 120
+    MyInventoryIssue:
+      type: object
+      additionalProperties: false
+      description: One open issue held by the caller, with the item's name. No stock counts, location, cost or notes.
+      required:
+        - id
+        - item_id
+        - item_name
+        - item_category
+        - asset_tag
+        - quantity
+        - status
+        - issued_at
+        - due_on
+      properties:
+        id:
+          type: string
+          format: uuid
+        item_id:
+          type: string
+          format: uuid
+        item_name:
+          type: string
+        item_category:
+          type: string
+          enum:
+            - textbooks
+            - furniture
+            - lab_equipment
+            - sports
+            - ict
+            - uniforms
+            - music
+            - kitchen
+            - stationery
+            - tools
+            - medical
+            - other
+        asset_tag:
+          type:
+            - string
+            - "null"
+        quantity:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum:
+            - out
+        issued_at:
+          type: string
+          format: date-time
+        due_on:
+          type:
+            - string
+            - "null"
+          format: date
     InventoryIssue:
       type: object
       additionalProperties: false

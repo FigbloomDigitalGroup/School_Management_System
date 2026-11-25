@@ -274,3 +274,39 @@ export async function listOpenIssues(
   const issues = res.rows.map(({ page_key: _pk, ...rest }) => rest);
   return { issues, page: res.page };
 }
+
+/** One open issue held by the caller, with the name of the item (no stock counts, location, cost or notes). */
+export interface MyInventoryIssue {
+  id: string;
+  item_id: string;
+  item_name: string;
+  item_category: string;
+  asset_tag: string | null;
+  quantity: number;
+  status: string;
+  issued_at: string;
+  due_on: string | null;
+}
+
+/**
+ * The OPEN issues whose holder is the caller (`holder_user_id`), newest first, with the item's name, category and asset tag.
+ * Reads only the caller's own rows: nothing about another holder, a learner's issue or the register itself. No permission
+ * is needed to read your own (as `GET /staff/me`); the caller must be an active member of the school, which the route checks.
+ */
+export async function listMyOpenIssues(
+  tx: Tx,
+  input: { tenantId: string; userId: string; page: PageInput },
+): Promise<{ issues: MyInventoryIssue[]; page: PageInfo }> {
+  const res = await pageQuery<MyInventoryIssue>(
+    tx,
+    `SELECT i.id, i.item_id, it.name AS item_name, it.category AS item_category, it.asset_tag,
+            i.quantity, i.status, i.issued_at, i.due_on::text AS due_on
+       FROM inventory_issues i
+       JOIN inventory_items it ON it.tenant_id = i.tenant_id AND it.id = i.item_id
+      WHERE i.tenant_id = $1 AND i.holder_user_id = $2 AND i.status = 'out'`,
+    [input.tenantId, input.userId],
+    { name: "my_inventory_open_issues_issued_desc", expr: "q.issued_at", type: "timestamptz", dir: "desc" },
+    input.page,
+  );
+  return { issues: res.rows.map(({ page_key: _pk, ...rest }) => rest), page: res.page };
+}
