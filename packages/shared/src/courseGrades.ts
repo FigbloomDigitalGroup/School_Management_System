@@ -1,3 +1,5 @@
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { letterAndPoints, weightedScore } from "./gpa";
 import { supabase } from "./supabase";
 import type { CourseAssessment, CourseGrade, LetterGrade } from "./types";
@@ -113,6 +115,8 @@ export interface StudentCourseResult {
 
 /** Everything a student's "My results" screen needs: one row per enrolled section, with published marks and (once closed out) the finalized grade. */
 export async function fetchStudentCourseResults(studentId: string): Promise<StudentCourseResult[]> {
+  // No read of a learner's own course results on the API (finding student-10): the page says so instead of asking (studentCapabilities().courseResults).
+  if (onApi()) throw new NotOnApiError("A higher-education learner's course results");
   const { data: enrollments, error } = await supabase()
     .from("enrollments")
     .select("course_section_id, course_sections(section_label, courses(code, name, credits), semesters(name))")

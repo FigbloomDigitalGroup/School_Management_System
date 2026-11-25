@@ -13,6 +13,7 @@ import type { PaymentProof } from "../paymentProofs";
 import type { ClassLevel } from "../types";
 import { apiClient } from "./client";
 import { apiListInbox } from "./noticesApi";
+import { apiActiveRole, apiFetchOwnLearner } from "./ownLearner";
 import type { components } from "./schema";
 
 /**
@@ -49,6 +50,12 @@ export function familyTenantId(): string {
 // ---------------------------------------------------------------- reads, one call each
 
 export async function apiFetchChildren(): Promise<FamilyChild[]> {
+  // A learner has no children: the one learner they may read is their own (GET /me/learner; the list is a parent's, a 403 for them), so
+  // the reads that look a child up here (CBE results, issued items) serve the student pages with no change.
+  if (apiActiveRole() === "student") {
+    const l = await apiFetchOwnLearner();
+    return [{ learner_id: l.learner_id, full_name: l.full_name, admission_no: l.admission_no, boarding: l.boarding, relationship: "guardian", is_primary_payer: false, class: l.class }];
+  }
   const tenantId = familyTenantId();
   const res = await apiClient().get("/v1/tenants/{tenantId}/me/children", { path: { tenantId }, tenantId });
   return res.children;

@@ -1,3 +1,4 @@
+import { apiFetchOwnTimetable } from "./api/studentApi";
 import { apiAddClassPeriod, apiFetchClassPeriods, type ClassPeriod, type NewClassPeriod } from "./api/timetableApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
@@ -29,6 +30,8 @@ export async function fetchClassTimetableSlots(classId: string): Promise<Timetab
  * only, teachers only, same tenant only) that a non-staff caller can use.
  */
 export async function fetchClassTimetable(classId: string): Promise<Record<Weekday, TimetableRow[]>> {
+  // On the API this is the signed-in learner's own class: the newest published timetable of it, whatever `classId` says (api/studentApi.ts).
+  if (onApi()) return apiFetchOwnTimetable();
   const [slots, { data: assignmentRows, error }] = await Promise.all([
     fetchClassTimetableSlots(classId),
     supabase().from("teaching_assignments").select("subject_id, teacher_id").eq("class_id", classId)

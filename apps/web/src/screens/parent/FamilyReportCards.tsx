@@ -8,7 +8,7 @@ import { useAsync } from "../../lib/useAsync";
  * card, so there is no PDF here (parentCapabilities().reportCardPdf) and nothing of another learner's is in it. Says nothing at all
  * until there is a card, as the Supabase page does.
  */
-export function FamilyReportCards({ studentId, first }: { studentId: string; first: string }) {
+export function FamilyReportCards({ studentId, first }: { studentId: string; first: string | null }) {
   const { data, loading, error } = useAsync(() => apiFetchChildReportCards(studentId), [studentId]);
 
   if (error) {
@@ -26,7 +26,7 @@ export function FamilyReportCards({ studentId, first }: { studentId: string; fir
       <header className="border-b border-line px-4 py-3">
         <h2 className="text-[14px] font-semibold">Report cards</h2>
         <p className="mt-0.5 text-[12px] text-ink-faint">
-          What the school published for {first}. The downloadable PDF is not on the new system yet.
+          What the school published for {first ?? "you"}. The downloadable PDF is not on the new system yet.
         </p>
       </header>
       <ul>
@@ -36,7 +36,7 @@ export function FamilyReportCards({ studentId, first }: { studentId: string; fir
   );
 }
 
-function Card({ card, first }: { card: FamilyReportCardView; first: string }) {
+function Card({ card, first }: { card: FamilyReportCardView; first: string | null }) {
   const s = card.summary;
   return (
     <li className="border-b border-line px-4 py-3 last:border-b-0">
@@ -52,7 +52,7 @@ function Card({ card, first }: { card: FamilyReportCardView; first: string }) {
           {card.gradingSchemeName ? ` · ${card.gradingSchemeName}` : ""}
         </div>
       ) : (
-        <div className="mt-1 text-[12.5px] text-ink-faint">{first} had no marks on this report card.</div>
+        <div className="mt-1 text-[12.5px] text-ink-faint">{first ? `${first} had` : "You had"} no marks on this report card.</div>
       )}
       {card.cbe.length > 0 && (
         <ul className="mt-2 grid gap-1">

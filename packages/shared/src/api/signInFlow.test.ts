@@ -63,6 +63,21 @@ describe("continueSignIn", () => {
     const api = boot({ "GET /v1/auth/me": me({ user: user({ must_change_password: true }) }), "GET /v1/auth/mfa/status": mfa("enroll") });
     expect(await continueSignIn()).toEqual({ kind: "step", step: "change-password" });
     expect(api.callsTo(`GET /v1/tenants/${SCHOOL}`)).toHaveLength(0);
+    // The real server answers 403 "Password change required" to the two-step status while the password is still the handed-out one.
+    expect(api.callsTo("GET /v1/auth/mfa/status")).toHaveLength(0);
+  });
+
+  it("goes on to the school after a learner changes the office's one-time password (no two-step for a learner)", async () => {
+    const asLearner = (mustChange: boolean) => me({
+      user: user({ full_name: "Amina", email: "", must_change_password: mustChange }),
+      memberships: [{ tenantId: SCHOOL, role: "student", loginId: "ST-0001", tenantStatus: "active" }],
+      authz: { role: "student", tenantId: SCHOOL, isSuperAdmin: false },
+    });
+    const api = boot({ "GET /v1/auth/me": asLearner(true), ...school });
+    expect(await continueSignIn()).toEqual({ kind: "step", step: "change-password" });
+    api.on("GET /v1/auth/me", asLearner(false));
+    api.on("GET /v1/auth/mfa/status", mfa("none"));
+    expect(await continueSignIn()).toEqual({ kind: "open", path: "/s/alliance" });
   });
 
   it("asks to enrol, or to answer the challenge", async () => {

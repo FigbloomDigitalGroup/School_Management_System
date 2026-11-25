@@ -11,6 +11,7 @@ import {
   apiSetItemRetired,
 } from "./api/inventoryApi";
 import { apiFetchLearnerInventory } from "./api/parentApi";
+import { apiFetchOwnLearnerInventory } from "./api/studentApi";
 import { supabase } from "./supabase";
 import { toCsv } from "./csv";
 
@@ -295,6 +296,8 @@ export async function fetchLearnerInventory(studentIds: string[]): Promise<Inven
 
 /** A learner's own issues; RLS narrows the query to the signed-in learner's record. */
 export async function fetchOwnLearnerInventory(profileId: string): Promise<InventoryIssueRow[]> {
+  // The API knows who is asking: the learner's own issues, read with the learner id of `GET /me/learner` (api/studentApi.ts).
+  if (onApi()) return apiFetchOwnLearnerInventory();
   const { data, error } = await supabase().from("students").select("id").eq("profile_id", profileId).returns<{ id: string }[]>();
   if (error) throw new Error(error.message);
   return fetchLearnerInventory((data ?? []).map((s) => s.id));

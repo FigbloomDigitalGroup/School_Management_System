@@ -11,6 +11,9 @@ export * from "./qrCode";
 export { apiLoadSchoolSession, adminAreasFromPermissions, accentFromApi, tenantFromApi, profileFromApi, roleOutsideSchools, viewOfMe, isRole, forgetApiSchools, type ApiSchoolSession, type MeView, type MembershipView } from "./sessionApi";
 export * from "./sessionEvents";
 export * from "./signInFlow";
+export { apiLookupSchool, apiLoginWithSchool, schoolFromInput, parseSchoolLookup, SchoolNotFoundError, type SchoolLookup } from "./schoolLookupApi";
+export { apiActiveRole, apiFetchOwnLearner, isNoLearnerError, type OwnLearner } from "./ownLearner";
+export { weekFromFamilyTimetable, workItemFromFamily } from "./studentApi";
 export { classGroupFromApi, termFromApi, subjectFromApi, yearNumberOf, listAcademicYears, listAcademicTerms, currentAcademicYear } from "./setupApi";
 export {
   LearnerPlacementError, apiAddStaff, apiArchiveStaff, apiRestoreStaff, apiFetchArchivedStaff, apiAddGuardian, ImportRejectedError, apiImportLearners,

@@ -3,6 +3,7 @@ import type { Profile, Role, Tenant, TenantStatus } from "../types";
 import { apiMe, type ApiMe, type ApiUser } from "./authApi";
 import { apiClient, setApiActiveTenant } from "./client";
 import { isApiError } from "./errors";
+import { forgetOwnLearner, setApiActiveRole } from "./ownLearner";
 import { API_PAGE_LIMIT, listAllPages } from "./paging";
 import type { components } from "./schema";
 
@@ -234,6 +235,7 @@ export async function apiLoadSchoolSession(slug: string | null): Promise<ApiScho
 
   if (!slug) {
     setApiActiveTenant(null);
+    setApiActiveRole(null);
     if (outside) return { ...noSchool(), profile: profileFromApi(me, null, outside) };
     return { ...noSchool(), profile: first && isRole(first.role) ? profileFromApi(me, first, first.role) : null };
   }
@@ -241,6 +243,7 @@ export async function apiLoadSchoolSession(slug: string | null): Promise<ApiScho
   const found = await findMemberSchool(me, slug);
   if (!found) {
     setApiActiveTenant(null);
+    setApiActiveRole(null);
     return { ...noSchool(), profile: outside ? profileFromApi(me, null, outside) : null };
   }
   const { record, membership } = found;
@@ -248,6 +251,7 @@ export async function apiLoadSchoolSession(slug: string | null): Promise<ApiScho
 
   const profile = profileFromApi(me, membership, membership.role);
   setApiActiveTenant(membership.tenantId);
+  setApiActiveRole(membership.role);
 
   // A suspended school refuses every call but the sign-in ones; say so instead of failing three requests.
   if (membership.tenantStatus === "suspended") return { ...noSchool(), profile, schoolSuspended: true };
@@ -292,4 +296,6 @@ export async function apiHomeDestination(tenantId: string): Promise<{ slug: stri
 export function forgetApiSchools(): void {
   tenantRecords.clear();
   setApiActiveTenant(null);
+  setApiActiveRole(null);
+  forgetOwnLearner();
 }

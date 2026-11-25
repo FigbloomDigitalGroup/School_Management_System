@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { formatDueLabel, markAssignmentHandedIn, minutesWords, type WorkItem } from "@figbloom/shared";
+import { daysUntil, formatDueLabel, formatShortDate, markAssignmentHandedIn, minutesWords, studentCapabilities, type WorkItem } from "@figbloom/shared";
 import { useStudentData } from "../../lib/studentContext";
 import { useTenantSession } from "../../lib/sessionContext";
 import { uploadAssignmentSubmission } from "../../lib/uploads";
@@ -27,6 +27,7 @@ const STATE_LABEL: Record<WorkItem["state"], string> = { open: "Open", late: "Ov
 export function StudentWork() {
   const { data, loading, error } = useStudentData();
   const { tenant } = useTenantSession();
+  const can = studentCapabilities();
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<Tab>("To do");
@@ -70,8 +71,10 @@ export function StudentWork() {
   }
 
   const work: WorkItem[] = data.work.map((w) => (done[w.id] ? { ...w, state: "done" } : w));
-  const open = work.filter((w) => w.state !== "done").slice().sort((a, b) => a.dueOn.localeCompare(b.dueOn));
-  const finished = work.filter((w) => w.state === "done");
+  // Where nothing records what was handed in there is no "done": the first tab is the work due from today on, the second what is past its due date.
+  const open = work.filter((w) => (can.homeworkDone ? w.state !== "done" : daysUntil(w.dueOn) >= 0)).slice().sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+  const finished = work.filter((w) => (can.homeworkDone ? w.state === "done" : daysUntil(w.dueOn) < 0)).slice().sort((a, b) => (can.homeworkDone ? 0 : b.dueOn.localeCompare(a.dueOn)));
+  const tabLabel: Record<Tab, string> = can.homeworkDone ? { "To do": "To do", Done: "Done" } : { "To do": "Coming up", Done: "Past due date" };
   const rows = tab === "Done" ? finished : open;
 
   const selected = rows.find((w) => w.id === selectedId) ?? rows[0] ?? null;
@@ -108,9 +111,14 @@ export function StudentWork() {
 
   return (
     <>
-      <PageHead eyebrow="Work" title="Work" blurb={`${open.length} to hand in.`} />
+      <PageHead eyebrow="Work" title="Work" blurb={can.homeworkDone ? `${open.length} to hand in.` : `${open.length} coming up.`} />
 
       <div className="px-7 py-6">
+        {!can.homeworkDone && (
+          <p role="note" className="mb-4 rounded-lg border border-line bg-page px-4 py-3 text-[12.5px] leading-relaxed text-ink-muted">
+            Hand your work in the way your teacher asked. The school does not record here what you have handed in, so nothing is marked done or late.
+          </p>
+        )}
         <div className="grid gap-4" style={{ gridTemplateColumns: "minmax(0,1.5fr) minmax(0,1fr)" }}>
           <DataTable
             filters={
@@ -122,29 +130,40 @@ export function StudentWork() {
                     className="rounded-full px-2.5 py-1 text-[11.5px]"
                     style={tab === t ? { background: "#17402A", color: "#fff", fontWeight: 600 } : { background: "#EEF1EE", color: "#5F6B62" }}
                   >
-                    {t} {t === "Done" ? finished.length : open.length}
+                    {tabLabel[t]} {t === "Done" ? finished.length : open.length}
                   </button>
                 ))}
               </div>
             }
             columns={[
-              { key: "title", header: "Work", width: "1.8fr", render: (w: WorkItem) => <Cell sub={`${w.subject} · ${w.teacher}`}>{w.title}</Cell> },
+              { key: "title", header: "Work", width: "1.8fr", render: (w: WorkItem) => <Cell sub={[w.subject, w.teacher].filter(Boolean).join(" · ")}>{w.title}</Cell> },
               {
                 key: "due", header: "Due", width: "1fr",
                 render: (w: WorkItem) => (
-                  <Mono>{w.state === "done" ? "Handed in" : w.state === "late" ? `Overdue · ${formatDueLabel(w.dueOn, true)}` : formatDueLabel(w.dueOn, false)}</Mono>
+                  <Mono>
+                    {w.state === "done" ? "Handed in"
+                      : w.state === "late" ? `Overdue · ${formatDueLabel(w.dueOn, true)}`
+                      : can.homeworkDone || daysUntil(w.dueOn) >= 0 ? formatDueLabel(w.dueOn, false)
+                      : `Was due ${formatShortDate(w.dueOn)}`}
+                  </Mono>
                 ),
               },
-              { key: "state", header: "", align: "right", width: "0.7fr", render: (w: WorkItem) => <Badge tone={STATE_TONE[w.state]}>{STATE_LABEL[w.state]}</Badge> },
+              ...(can.homeworkDone
+                ? [{ key: "state", header: "", align: "right" as const, width: "0.7fr", render: (w: WorkItem) => <Badge tone={STATE_TONE[w.state]}>{STATE_LABEL[w.state]}</Badge> }]
+                : []),
             ]}
             rows={rows}
             rowKey={(w) => w.id}
             onRowClick={(w) => setSelectedId(w.id)}
             minWidth="520px"
             empty={
-              tab === "Done"
-                ? { title: "Nothing done yet", body: "Work you mark as handed in will appear here." }
-                : { title: "Nothing here", body: "Handed in work moves to Done. Anything new your teachers set appears the moment they set it." }
+              !can.homeworkDone
+                ? tab === "Done"
+                  ? { title: "Nothing past its due date", body: "Work from the last three weeks that is past its due date will appear here." }
+                  : { title: "Nothing coming up", body: "Anything new your teachers set appears here as soon as they set it." }
+                : tab === "Done"
+                  ? { title: "Nothing done yet", body: "Work you mark as handed in will appear here." }
+                  : { title: "Nothing here", body: "Handed in work moves to Done. Anything new your teachers set appears the moment they set it." }
             }
           />
 
@@ -154,7 +173,7 @@ export function StudentWork() {
             ) : (
               <>
                 <h2 className="text-[16px] font-semibold leading-snug tracking-tight">{selected.title}</h2>
-                <div className="mt-1 text-[12.5px] text-ink-faint">{selected.subject} · set by {selected.teacher}</div>
+                <div className="mt-1 text-[12.5px] text-ink-faint">{selected.teacher ? `${selected.subject} · set by ${selected.teacher}` : selected.subject}</div>
 
                 <div className="mt-4 flex gap-4 rounded-lg border border-line-soft bg-page px-3.5 py-3">
                   <div className="flex-1">
@@ -163,10 +182,12 @@ export function StudentWork() {
                       {selected.state === "done" ? "Handed in" : formatDueLabel(selected.dueOn, selected.state === "late")}
                     </div>
                   </div>
-                  <div className="flex-1">
-                    <div className="font-mono text-micro tracking-[0.1em] text-ink-faint">HAND IN</div>
-                    <div className="mt-1 text-[13px] font-semibold">{selected.how}</div>
-                  </div>
+                  {can.homeworkDetails && (
+                    <div className="flex-1">
+                      <div className="font-mono text-micro tracking-[0.1em] text-ink-faint">HAND IN</div>
+                      <div className="mt-1 text-[13px] font-semibold">{selected.how}</div>
+                    </div>
+                  )}
                 </div>
 
                 {(!!selected.needs?.length || !!minutesWords(selected.minutes)) && (
@@ -188,9 +209,9 @@ export function StudentWork() {
 
                 <p className="mt-4 whitespace-pre-line text-[13.5px] leading-relaxed text-ink">{selected.body}</p>
 
-                <div className="mt-4"><OwnerAttachments owner="homework" id={selected.id} heading="From your teacher" /></div>
+                {can.homeworkFiles && <div className="mt-4"><OwnerAttachments owner="homework" id={selected.id} heading="From your teacher" /></div>}
 
-                {selected.state === "done" ? (
+                {!can.homeworkDone ? null : selected.state === "done" ? (
                   <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-ok-bg px-3.5 py-3">
                     <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ok-ink text-[11px] text-white">✓</span>
                     <span className="text-small leading-relaxed text-ok-ink">Handed in. {selected.teacher} has been told.</span>
