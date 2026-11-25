@@ -103,3 +103,21 @@ Grants (catalog-verified by `grants.matrix`): `jobs` has no table-level grant fo
 | Function | Owner / mode | Execute | Notes |
 |---|---|---|---|
 | `org_my_audit_events(uuid, timestamptz, uuid, integer)` | DEFINER (105), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | the only read of `security_audit_events` (still no `SELECT` grant). No actor argument: the actor is `app_current_user_id()`, set by `withIdentityUserScope` from the verified session. Raises 42501 unless the actor is an `org_admin` of the given organisation and it is `active`. Returns only the actor's own events in that organisation's schools or naming it in `detail.organizationId`; never the `ip` column; newest first, keyset `(occurred_at, id)`, at most 201 rows |
+
+## Addendum 2026-11-25 — migration 110 (student accounts, `docs/STUDENT-ACCOUNTS.md`)
+
+All `search_path = pg_catalog, pg_temp`; `learner_accounts` is owner-only, so these are its only paths.
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `student_my_learner()` | DEFINER (110), `STABLE` | `figbloom_app` | no argument: the caller's own learner (and login id) in `app_current_tenant_id()` while the link is live, the account active, the caller a non-archived `student` member of a school that is not suspended and the learner active. The single source of "my learner" for every learner read, the payer rule and the learner exam branch |
+| `student_account_actor_may_manage(uuid)` | DEFINER (110), `STABLE` | none (internal) | the GUC actor is the school office of the tenant in context: super administrator, school administrator, or a teacher/staff member holding `people` (direct grant or school role). Organisation administrators are not |
+| `student_account_create(uuid, uuid, text)` | DEFINER (110) | `figbloom_app` | office only; Argon2id hash format-checked; learner row locked; 23505 when a live login exists; `ST-NNNN` under the per-school login-id advisory lock; user (no e-mail, `must_change_password`), `student` membership, link; audited without password material |
+| `student_account_reset_password(uuid, uuid, text)` | DEFINER (110) | `figbloom_app` | office only; new hash on a live, active login; `must_change_password`; every session revoked; open reset tokens voided; audited |
+| `student_account_revoke(uuid, uuid, text)` | DEFINER (110) | `figbloom_app` | office only; reason required; link revoked, `student` membership archived, every session revoked; audited |
+| `student_account_status(uuid, uuid)` | DEFINER (110), `STABLE` | `figbloom_app` | office only; has-login, login id, account status, forced-change flag, created / password-set / last sign-in times, revoked count; no password material |
+| `learner_accounts_on_membership_archive()` | DEFINER trigger (110) on `school_memberships` | none | archiving a membership revokes the person's learner link in that school (`membership deactivated`), audited |
+
+Replaced in 110 (same signature and grants): `auth_session_idle_seconds` (a student gets the guardian 30 minutes),
+`communications_audience_reaches` (class and form-level reach for a learner) and `may_talk` (learner and class teacher, or
+school administrator).

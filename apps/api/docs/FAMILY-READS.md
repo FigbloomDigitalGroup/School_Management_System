@@ -117,25 +117,13 @@ administrations 500 (last 60 days), sick-bay visits 100. There is no paging on t
 The function inventory (`securityDefiner.test.ts`), the permission registry, the RBAC matrix (via the OpenAPI
 annotations), and the RLS catalogue are updated in the same change.
 
-## Student accounts (A4): not built, needs a decision
+## Student accounts (A4)
 
-The API has a `student` role in its enum and a login-id sign-in, but **no link from a sign-in to a learner record**:
-`learners` has no `user_id`, there is no `learner_accounts` table, and no flow creates a `student` membership (staff
-invitations allow only `school_admin, teacher, staff, driver`; guardian invitations make `parent`). In the legacy app the
-`provision-student` edge function creates a `role='student'` profile and sets `students.profile_id`.
-
-What a student account needs, which is larger than this slice and has owner decisions in it:
-
-1. A link table like `guardian_accounts` (owner-only, one live login per learner, revocable, revoked when the learner or
-   the membership is archived) and a definer `student_my_learner()`.
-2. A provisioning flow: who creates the login (school administrator), how the first password reaches a child with no
-   e-mail (login id `ST-0001` plus a handed-out password with `must_change_password`), and resets by the school.
-3. Policy: session length and idle timeout for children, MFA (off for children?), whether a student may chat and with
-   whom, what a student may see that a parent may not (online exam papers and attempts), and whether students pay.
-4. Then the student pages reuse the same per-learner reads as above, through `student_my_learner()` instead of
-   `family_my_children()`.
-
-Decision needed from the owner on point 2 and 3 before building. Until then the student pages stay on Supabase.
+Built in migration 110 after the owner's decisions of 2026-11-25: see [STUDENT-ACCOUNTS.md](STUDENT-ACCOUNTS.md). In short,
+the school office makes a learner's login (`ST-0001`, a one-time password shown once), `student_my_learner()` decides a
+learner's own learner, and a learner uses the per-child reads above for their OWN learner through a student branch of the
+same resolver (`resource.student.self.read`, never `resource.family.read`); `/me/children` (the list) and `/health` stay
+parent-only. `assertMayPayFor` also allows a learner for their own learner.
 
 ## Not in this change
 
