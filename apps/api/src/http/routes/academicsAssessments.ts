@@ -3,6 +3,7 @@ import { calendarDateString } from "../schemas.js";
 import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
 import {
+  archiveHomework,
   correctMark,
   createAssessment,
   createGradingScheme,
@@ -26,7 +27,9 @@ import {
   publishAssessment,
   publishReportCard,
   registerLearningMaterial,
+  updateHomework,
   upsertMark,
+  HOMEWORK_HAND_IN,
   type PublicAssessment,
 } from "../../modules/academics/assessments.js";
 import { teacherClassIds, userMayAssessClassSubject } from "../../modules/academics/structure.js";
@@ -72,14 +75,40 @@ const CorrectionBody = z.strictObject({
   reason: z.string().min(5).max(500),
   row_version: z.number().int().nonnegative(),
 });
+/**
+ * The "For parents" guide (docs/HOMEWORK.md): the live shape, every key optional. A blank text, an empty list and a null
+ * `minutes` mean "nothing" and are tidied away before saving.
+ */
+const HomeworkGuide = z.strictObject({
+  about: z.string().optional(),
+  needs: z.array(z.string().max(80)).max(20).optional(),
+  help: z.string().optional(),
+  avoid: z.string().optional(),
+  minutes: z.number().int().min(1).max(600).nullable().optional(),
+});
+const HomeworkHandInValue = z.enum(HOMEWORK_HAND_IN);
 const HomeworkBody = z.strictObject({
   class_id: z.guid(),
   subject_id: z.guid(),
   term_id: z.guid(),
   title: z.string().min(1).max(160),
   due_on: DateString,
-  body: z.string().min(1).max(8000),
+  // Instructions may be blank (the live app allows it); `body` itself is still sent.
+  body: z.string().max(8000),
+  hand_in: HomeworkHandInValue.optional(),
+  parent_guide: HomeworkGuide.nullable().optional(),
 });
+/** A field left out keeps its value; `parent_guide: null` clears the guide. The term cannot change. */
+const HomeworkPatch = z
+  .strictObject({
+    class_id: z.guid().optional(),
+    subject_id: z.guid().optional(),
+    title: z.string().min(1).max(160).optional(),
+    due_on: DateString.optional(),
+    body: z.string().max(8000).optional(),
+    hand_in: HomeworkHandInValue.optional(),
+    parent_guide: HomeworkGuide.nullable().optional(),
+  });
 const MaterialBody = z.strictObject({
   title: z.string().min(1).max(160),
   description: z.string().max(4000).nullable().optional(),
@@ -103,6 +132,7 @@ export const ASSESSMENT_REQUEST_SCHEMAS = {
   "POST /v1/tenants/{tenantId}/assessments/{assessmentId}/marks": MarkBody,
   "POST /v1/tenants/{tenantId}/assessments/{assessmentId}/mark-corrections": CorrectionBody,
   "POST /v1/tenants/{tenantId}/homework-items": HomeworkBody,
+  "PATCH /v1/tenants/{tenantId}/homework-items/{homeworkId}": HomeworkPatch,
   "POST /v1/tenants/{tenantId}/learning-materials": MaterialBody,
   "POST /v1/tenants/{tenantId}/grading-schemes": SchemeBody,
   "POST /v1/tenants/{tenantId}/report-cards": ReportBody,
@@ -378,6 +408,56 @@ export async function registerAcademicsAssessmentRoutes(app: FastifyInstance, po
         },
         replay: async (_t, id) => {
           const homework = await getHomeworkById(tx, { tenantId: params.tenantId, homeworkId: id });
+          return homework ? { homework } : null;
+        },
+      });
+    });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
+  });
+
+  // Same permission as the create above (docs/HOMEWORK.md): a person who may set homework may change or archive it.
+  app.patch("/v1/tenants/:tenantId/homework-items/:homeworkId", async (request) => {
+    const params = request.params as { tenantId: string; homeworkId: string };
+    assertUuid(params.homeworkId, "homeworkId");
+    const parsed = parseOrThrow(HomeworkPatch, request.body, "at least one homework field is required");
+    if (Object.keys(parsed).length === 0) throw validationError("at least one homework field is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const homework = await updateHomework(tx, {
+        tenantId: params.tenantId,
+        homeworkId: params.homeworkId,
+        actorUserId: auth.user.id,
+        ...parsed,
+        ip,
+      });
+      return { homework };
+    });
+  });
+
+  // "Delete" on the API is an archive (decision N10): the item leaves every list, nothing is removed, no restore.
+  app.post("/v1/tenants/:tenantId/homework-items/:homeworkId/archive", async (request, reply) => {
+    const params = request.params as { tenantId: string; homeworkId: string };
+    assertUuid(params.homeworkId, "homeworkId");
+    const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      return runIdempotent(tx, {
+        key: parseIdempotencyKey(request.headers["idempotency-key"]),
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/homework-items/:homeworkId/archive",
+        fingerprintInput: { params },
+        status: 200,
+        execute: async () => {
+          const homework = await archiveHomework(tx, {
+            tenantId: params.tenantId,
+            homeworkId: params.homeworkId,
+            actorUserId: auth.user.id,
+            ip,
+          });
+          return { value: { homework }, resourceType: "homework_item_archived", resourceId: homework.id };
+        },
+        replay: async () => {
+          const homework = await getHomeworkById(tx, { tenantId: params.tenantId, homeworkId: params.homeworkId });
           return homework ? { homework } : null;
         },
       });

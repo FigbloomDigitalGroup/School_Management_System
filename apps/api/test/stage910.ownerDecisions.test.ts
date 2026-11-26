@@ -33,7 +33,7 @@ describe("Stage 9/10 owner decisions", () => {
   let today: string;
   let assignmentX: string;
 
-  async function call(method: "GET" | "POST" | "PUT", path: string, token: string, payload?: unknown, headers: Json = {}) {
+  async function call(method: "GET" | "POST" | "PUT" | "PATCH", path: string, token: string, payload?: unknown, headers: Json = {}) {
     return ctx.app.inject({
       method,
       url: `/v1/tenants/${ids.tenantA}${path}`,
@@ -42,6 +42,7 @@ describe("Stage 9/10 owner decisions", () => {
     });
   }
   const post = (path: string, payload: unknown, token = admin, headers: Json = {}) => call("POST", path, token, payload, headers);
+  const patch = (path: string, payload: unknown, token = admin) => call("PATCH", path, token, payload);
   const get = (path: string, token = admin) => call("GET", path, token);
 
   async function created(path: string, payload: unknown, key: string): Promise<string> {
@@ -127,6 +128,63 @@ describe("Stage 9/10 owner decisions", () => {
   afterAll(async () => {
     await ctx.app.close();
     await ctx.pool.end();
+  });
+
+  describe("W1.1 homework edit and archive", () => {
+    it("refuses a parent before looking up a homework id", async () => {
+      const id = "00000000-0000-4000-8000-000000000002";
+      expect((await patch(`/homework-items/${id}`, { title: "Change" }, parent)).statusCode).toBe(403);
+      expect((await call("POST", `/homework-items/${id}/archive`, parent)).statusCode).toBe(403);
+    });
+
+    it("allows blank instructions, partial edits, normalized guides, and one-way idempotent archive", async () => {
+      const created = await post("/homework-items", {
+        class_id: classX,
+        subject_id: subjectId,
+        term_id: termId,
+        title: "W1 homework",
+        due_on: "2030-01-01",
+        body: "",
+        hand_in: "upload",
+        parent_guide: { about: "  Fractions  ", needs: ["Exercise book", " exercise book ", "Pencils"], help: "  Read together  ", avoid: "  Do not write it for them  ", minutes: null },
+      });
+      expect(created.statusCode, created.body).toBe(201);
+      const homework = created.json().homework;
+      expect(homework).toMatchObject({ body: "", hand_in: "upload", parent_guide: { about: "Fractions", needs: ["Exercise book", "Pencils"], help: "Read together", avoid: "Do not write it for them" }, archived_at: null });
+      const id = homework.id as string;
+
+      const updated = await patch(`/homework-items/${id}`, { title: "W1 homework revised", parent_guide: null });
+      expect(updated.statusCode, updated.body).toBe(200);
+      expect(updated.json().homework).toMatchObject({ title: "W1 homework revised", body: "", hand_in: "upload", parent_guide: null, archived_at: null });
+      expect((await patch(`/homework-items/${id}`, {})).statusCode).toBe(400);
+
+      const key = { "idempotency-key": "w11-homework-archive-01" };
+      const archived = await call("POST", `/homework-items/${id}/archive`, admin, undefined, key);
+      expect(archived.statusCode, archived.body).toBe(200);
+      expect(archived.json().homework.archived_at).toEqual(expect.any(String));
+      const replay = await call("POST", `/homework-items/${id}/archive`, admin, undefined, key);
+      expect(replay.statusCode, replay.body).toBe(200);
+      expect(replay.headers["idempotent-replayed"]).toBe("true");
+      expect(replay.json()).toEqual(archived.json());
+      expect((await patch(`/homework-items/${id}`, { title: "Too late" })).statusCode).toBe(409);
+      expect((await call("POST", `/homework-items/${id}/archive`, admin)).statusCode).toBe(409);
+      expect((await get("/homework-items")).json().homework.some((h: { id: string }) => h.id === id)).toBe(false);
+
+      const audit = await ctx.pool.query<{ event_type: string; detail: Json }>(
+        `SELECT event_type, detail FROM security_audit_events
+          WHERE event_type IN ('academics.homework.created', 'academics.homework.updated', 'academics.homework.archived')
+            AND detail->>'homeworkId' = $1
+          ORDER BY occurred_at, id`,
+        [id],
+      );
+      expect(audit.rows.map((r) => r.event_type)).toEqual([
+        "academics.homework.created",
+        "academics.homework.updated",
+        "academics.homework.archived",
+      ]);
+      expect(JSON.stringify(audit.rows)).not.toContain("W1 homework revised");
+      expect(JSON.stringify(audit.rows)).not.toContain("Fractions");
+    });
   });
 
   // ================================================================ OD-1

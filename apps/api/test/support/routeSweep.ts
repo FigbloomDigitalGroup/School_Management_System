@@ -54,6 +54,8 @@ export const BODY_FIXTURES: Record<string, unknown> = {
   // Migration 101: both patch bodies need at least one field, so the empty sample would answer 400 first.
   "PATCH /v1/tenants/{tenantId}/subjects/{subjectId}": { name: "Fixture subject" },
   "PATCH /v1/tenants/{tenantId}/classes/{classId}": { room: "Fixture room" },
+  // Homework patch requires at least one field; the generic schema sampler produces an empty object.
+  "PATCH /v1/tenants/{tenantId}/homework-items/{homeworkId}": { title: "Fixture homework" },
   "POST /v1/tenants/{tenantId}/classes": {
     academic_year_id: randomUUID(),
     name: "Form 1A",

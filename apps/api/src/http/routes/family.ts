@@ -116,7 +116,8 @@ export async function registerFamilyRoutes(app: FastifyInstance, pool: AppPool):
 
   app.get(`${C}/homework`, async (request) => {
     const from = optionalDate((request.query as Record<string, unknown>).from, "from");
-    return inChild(app, pool, request, async ({ tx, tenantId, learnerId }) => childHomework(tx, { tenantId, learnerId, from }));
+    // The reader decides how much of the teacher's "For parents" guide is sent (docs/HOMEWORK.md).
+    return inChild(app, pool, request, async ({ tx, tenantId, learnerId, reader }) => childHomework(tx, { tenantId, learnerId, reader, from }));
   });
 
   app.get(`${C}/materials`, async (request) =>

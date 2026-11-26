@@ -269,7 +269,16 @@ describe("family reads (A1)", () => {
       }
 
       // homework and materials: class 1A (C1's) and class 2B (C2's); one homework item is old
-      await ok("POST", "/homework-items", { class_id: class1A, subject_id: maths, term_id: term, title: "Fractions sheet", due_on: isoDay(3), body: "Page 12" });
+      await ok("POST", "/homework-items", {
+        class_id: class1A,
+        subject_id: maths,
+        term_id: term,
+        title: "Fractions sheet",
+        due_on: isoDay(3),
+        body: "Page 12",
+        hand_in: "in_person",
+        parent_guide: { about: "Fractions practice", needs: ["Exercise book"], help: "Ask the child to explain their answer", avoid: "Do not give the answer", minutes: 20 },
+      });
       await ok("POST", "/homework-items", { class_id: class1A, subject_id: maths, term_id: term, title: "Old sheet", due_on: isoDay(-30), body: "Page 2" });
       await ok("POST", "/homework-items", { class_id: class2B, subject_id: english, term_id: term, title: "2B essay", due_on: isoDay(3), body: "Write" });
       await ok("POST", "/learning-materials", { title: "Fractions notes", class_id: class1A, subject_id: maths });
@@ -349,6 +358,11 @@ describe("family reads (A1)", () => {
       conforms("/v1/tenants/{tenantId}/me/children/{learnerId}/homework", 200, hw.json());
       expect(hw.json().homework.map((h: { title: string }) => h.title)).toEqual(["Fractions sheet"]);
       expect(hw.json().homework[0].subject).toEqual({ id: maths, name: "Mathematics" });
+      expect(hw.json().homework[0]).toMatchObject({
+        hand_in: "in_person",
+        teacher_name: null,
+        parent_guide: { about: "Fractions practice", needs: ["Exercise book"], help: "Ask the child to explain their answer", avoid: "Do not give the answer", minutes: 20 },
+      });
       const all = await child(c1, `/homework?from=${isoDay(-60)}`);
       expect(all.json().homework.map((h: { title: string }) => h.title)).toEqual(["Old sheet", "Fractions sheet"]);
       expect((await child(c2, "/homework")).json().homework.map((h: { title: string }) => h.title)).toEqual(["2B essay"]);

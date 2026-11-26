@@ -62,6 +62,8 @@ export type SecurityEventType =
   | "academics.marks.published"
   | "academics.assessment.closed"
   | "academics.homework.created"
+  | "academics.homework.updated"
+  | "academics.homework.archived"
   | "academics.material.registered"
   | "academics.report_card.published"
   | "academics.cbe.provenance.created"

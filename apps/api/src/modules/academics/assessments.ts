@@ -682,6 +682,99 @@ export async function getMarkCorrectionById(
   };
 }
 
+/** How learners hand a piece of homework in. The same three values as the live app (packages/shared/src/homework.ts, HandIn). */
+export const HOMEWORK_HAND_IN = ["paper", "in_person", "upload"] as const;
+export type HomeworkHandIn = (typeof HOMEWORK_HAND_IN)[number];
+
+/**
+ * The "For parents" guide of a homework item, written for a parent (docs/HOMEWORK.md). The same shape as the live
+ * `assignments.parent_guide`: every key is optional, a key that says nothing is left out, and an item with no guide has none.
+ */
+export interface HomeworkParentGuide {
+  about?: string;
+  needs?: string[];
+  help?: string;
+  avoid?: string;
+  minutes?: number;
+}
+
+/** What a client may send for a guide (blank strings and a null `minutes` are tidied away, as the live `cleanGuide` does). */
+export interface HomeworkParentGuideInput {
+  about?: string;
+  needs?: string[];
+  help?: string;
+  avoid?: string;
+  minutes?: number | null;
+}
+
+const GUIDE_NEED_MAX = 80;
+const GUIDE_MAX_NEEDS = 20;
+
+/** Tidies a guide for saving, as the live `cleanGuide` does: trimmed, needs de-duplicated (any case) and capped, minutes 1 to 600; a guide that says nothing is null. */
+export function tidyParentGuide(input: HomeworkParentGuideInput | null | undefined): HomeworkParentGuide | null {
+  if (!input) return null;
+  const out: HomeworkParentGuide = {};
+  const about = input.about?.trim();
+  if (about) out.about = about;
+  const needs: string[] = [];
+  for (const raw of input.needs ?? []) {
+    const need = raw.trim().slice(0, GUIDE_NEED_MAX);
+    if (need && !needs.some((n) => n.toLowerCase() === need.toLowerCase())) needs.push(need);
+  }
+  if (needs.length) out.needs = needs.slice(0, GUIDE_MAX_NEEDS);
+  const help = input.help?.trim();
+  if (help) out.help = help;
+  const avoid = input.avoid?.trim();
+  if (avoid) out.avoid = avoid;
+  if (input.minutes !== null && input.minutes !== undefined) {
+    if (!Number.isInteger(input.minutes) || input.minutes < 1 || input.minutes > 600) {
+      throw validationError("minutes must be a whole number from 1 to 600");
+    }
+    out.minutes = input.minutes;
+  }
+  if (Object.keys(out).length === 0) return null;
+  return out;
+}
+
+/** Reads a stored guide defensively: only the five known keys, with their types, and null when nothing is left. */
+export function readParentGuide(raw: unknown): HomeworkParentGuide | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const out: HomeworkParentGuide = {};
+  for (const key of ["about", "help", "avoid"] as const) {
+    const v = r[key];
+    if (typeof v === "string" && v.trim()) out[key] = v.trim();
+  }
+  if (Array.isArray(r.needs)) {
+    const needs = r.needs.filter((n): n is string => typeof n === "string" && n.trim() !== "").map((n) => n.trim());
+    if (needs.length) out.needs = needs;
+  }
+  if (typeof r.minutes === "number" && Number.isInteger(r.minutes) && r.minutes >= 1 && r.minutes <= 600) out.minutes = r.minutes;
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * What a LEARNER is shown of a guide: what to bring and how long it takes. The other three parts ("how you can help", "please
+ * avoid", what it is about) are written to a parent, and the learner's screens never show them (docs/HOMEWORK.md).
+ */
+export function learnerParentGuide(guide: HomeworkParentGuide | null): HomeworkParentGuide | null {
+  if (!guide) return null;
+  const out: HomeworkParentGuide = {};
+  if (guide.needs?.length) out.needs = guide.needs;
+  if (guide.minutes !== undefined) out.minutes = guide.minutes;
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The name of whoever set a homework item: their staff record in this school (a current one first), else the name on their own
+ * account. A name only: no id, e-mail, phone or title. NULL for an item whose creator account is gone. `h` is the item's alias.
+ */
+export const HOMEWORK_TEACHER_NAME_SQL = `COALESCE(
+  (SELECT sm.full_name FROM staff_members sm
+    WHERE sm.tenant_id = h.tenant_id AND sm.user_id = h.created_by
+    ORDER BY (sm.archived_at IS NOT NULL), sm.created_at LIMIT 1),
+  (SELECT NULLIF(btrim(u.full_name), '') FROM users u WHERE u.id = h.created_by))`;
+
 export interface PublicHomework {
   id: string;
   tenantId: string;
@@ -690,8 +783,15 @@ export interface PublicHomework {
   term_id: string;
   title: string;
   due_on: string;
+  /** The instructions. May be empty. */
   body: string;
+  hand_in: HomeworkHandIn;
+  parent_guide: HomeworkParentGuide | null;
+  /** Who set it (a name only), or null. */
+  teacher_name: string | null;
   created_at: string;
+  /** Null on every listed item: an archived item leaves the lists, and only the archive call itself returns one with a date. */
+  archived_at: string | null;
 }
 
 export async function createHomework(
@@ -705,51 +805,52 @@ export async function createHomework(
     title: string;
     due_on: string;
     body: string;
+    hand_in?: HomeworkHandIn;
+    parent_guide?: HomeworkParentGuideInput | null;
     ip?: string | null;
   },
 ): Promise<PublicHomework> {
   const title = trim(input.title, "title", 160);
   const body = input.body;
-  if (body.length < 1 || body.length > 8000) throw validationError("body must be 1–8000 characters");
+  if (body.length > 8000) throw validationError("body must be at most 8000 characters");
+  const guide = tidyParentGuide(input.parent_guide);
   await getClassById(tx, { tenantId: input.tenantId, classId: input.class_id });
   await getSubjectById(tx, { tenantId: input.tenantId, subjectId: input.subject_id });
   await getTermById(tx, { tenantId: input.tenantId, termId: input.term_id });
-  const res = await tx.query<{
-    id: string;
-    tenant_id: string;
-    class_id: string;
-    subject_id: string;
-    term_id: string;
-    title: string;
-    due_on: Date | string;
-    body: string;
-    created_at: Date | string;
-  }>(
-    `INSERT INTO homework_items
-       (tenant_id, class_id, subject_id, term_id, title, due_on, body, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8)
-     RETURNING id, tenant_id, class_id, subject_id, term_id, title, due_on, body, created_at`,
-    [input.tenantId, input.class_id, input.subject_id, input.term_id, title, input.due_on, body, input.actorUserId],
-  );
-  const row = res.rows[0]!;
+  let id: string;
+  try {
+    const res = await tx.query<{ id: string }>(
+      `INSERT INTO homework_items
+         (tenant_id, class_id, subject_id, term_id, title, due_on, body, hand_in, parent_guide, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9::jsonb, $10)
+       RETURNING id`,
+      [
+        input.tenantId,
+        input.class_id,
+        input.subject_id,
+        input.term_id,
+        title,
+        input.due_on,
+        body,
+        input.hand_in ?? "paper",
+        guide === null ? null : JSON.stringify(guide),
+        input.actorUserId,
+      ],
+    );
+    id = res.rows[0]!.id;
+  } catch (err) {
+    // The database repeats the guide/body/hand-in checks; never forward raw constraint text.
+    if (pgCode(err) === "23514") throw validationError("The homework does not fit the allowed sizes and values");
+    throw err;
+  }
   await recordSecurityEvent(tx, {
     eventType: "academics.homework.created",
     actorUserId: input.actorUserId,
     tenantId: input.tenantId,
-    detail: { homeworkId: row.id, classId: row.class_id },
+    detail: { homeworkId: id, classId: input.class_id },
     ip: input.ip,
   });
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    class_id: row.class_id,
-    subject_id: row.subject_id,
-    term_id: row.term_id,
-    title: row.title,
-    due_on: isoDate(row.due_on),
-    body: row.body,
-    created_at: isoStamp(row.created_at)!,
-  };
+  return (await getHomeworkById(tx, { tenantId: input.tenantId, homeworkId: id }))!;
 }
 
 type HomeworkRow = {
@@ -761,10 +862,16 @@ type HomeworkRow = {
   title: string;
   due_on: Date | string;
   body: string;
+  hand_in: HomeworkHandIn;
+  parent_guide: unknown;
+  teacher_name: string | null;
   created_at: Date | string;
+  archived_at: Date | string | null;
 };
 
-const HOMEWORK_COLS = `id, tenant_id, class_id, subject_id, term_id, title, due_on, body, created_at`;
+const HOMEWORK_SELECT = `SELECT h.id, h.tenant_id, h.class_id, h.subject_id, h.term_id, h.title, h.due_on, h.body, h.hand_in,
+       h.parent_guide, ${HOMEWORK_TEACHER_NAME_SQL} AS teacher_name, h.created_at, h.archived_at
+  FROM homework_items h`;
 
 function mapHomework(row: HomeworkRow): PublicHomework {
   return {
@@ -776,7 +883,11 @@ function mapHomework(row: HomeworkRow): PublicHomework {
     title: row.title,
     due_on: isoDate(row.due_on),
     body: row.body,
+    hand_in: row.hand_in,
+    parent_guide: readParentGuide(row.parent_guide),
+    teacher_name: row.teacher_name,
     created_at: isoStamp(row.created_at)!,
+    archived_at: isoStamp(row.archived_at),
   };
 }
 
@@ -789,18 +900,19 @@ export async function listHomework(
   input: { tenantId: string; classId?: string; classIds?: readonly string[]; page: PageInput },
 ): Promise<Page<PublicHomework>> {
   const params: unknown[] = [input.tenantId];
-  let classClause = "";
+  // An archived item is in no list (docs/HOMEWORK.md).
+  let classClause = " AND h.archived_at IS NULL";
   if (input.classId) {
     params.push(input.classId);
-    classClause += ` AND class_id = $${params.length}`;
+    classClause += ` AND h.class_id = $${params.length}`;
   }
   if (input.classIds) {
     params.push([...input.classIds]);
-    classClause += ` AND class_id = ANY($${params.length}::uuid[])`;
+    classClause += ` AND h.class_id = ANY($${params.length}::uuid[])`;
   }
   const out = await pageQuery<HomeworkRow>(
     tx,
-    `SELECT ${HOMEWORK_COLS} FROM homework_items WHERE tenant_id = $1${classClause}`,
+    `${HOMEWORK_SELECT} WHERE h.tenant_id = $1${classClause}`,
     params,
     { name: "homework", expr: "q.due_on", type: "date", dir: "asc" },
     input.page,
@@ -808,13 +920,139 @@ export async function listHomework(
   return { items: out.rows.map(mapHomework), page: out.page };
 }
 
-/** A9-6: replays read the created row by id. */
+/**
+ * A9-6: replays read the row by id. An ARCHIVED item is returned too (with its `archived_at`): a repeat of an archive call with the
+ * same Idempotency-Key must find what the first call did. Lists and the family read never return one.
+ */
 export async function getHomeworkById(tx: Tx, input: { tenantId: string; homeworkId: string }): Promise<PublicHomework | null> {
-  const res = await tx.query<HomeworkRow>(`SELECT ${HOMEWORK_COLS} FROM homework_items WHERE tenant_id = $1 AND id = $2`, [
-    input.tenantId,
-    input.homeworkId,
-  ]);
+  const res = await tx.query<HomeworkRow>(`${HOMEWORK_SELECT} WHERE h.tenant_id = $1 AND h.id = $2`, [input.tenantId, input.homeworkId]);
   return res.rows[0] ? mapHomework(res.rows[0]) : null;
+}
+
+type HomeworkPatchInput = {
+  class_id?: string;
+  subject_id?: string;
+  title?: string;
+  due_on?: string;
+  body?: string;
+  hand_in?: HomeworkHandIn;
+  /** A guide replaces the stored one; null (or one that says nothing) clears it; left out keeps it. */
+  parent_guide?: HomeworkParentGuideInput | null;
+};
+
+/**
+ * Partial update of a homework item (docs/HOMEWORK.md): a field left out keeps its value, `parent_guide: null` clears the guide.
+ * The row is locked first (the same pattern as updateClass). Changing the class or subject checks the new one exists in this
+ * school. The term cannot change. An archived item cannot be changed (409). Changing nothing writes nothing and no audit event.
+ */
+export async function updateHomework(
+  tx: Tx,
+  input: HomeworkPatchInput & { tenantId: string; homeworkId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicHomework> {
+  const found = await tx.query<{
+    class_id: string;
+    subject_id: string;
+    title: string;
+    due_on: string;
+    body: string;
+    hand_in: HomeworkHandIn;
+    parent_guide: unknown;
+    archived_at: Date | string | null;
+  }>(
+    `SELECT class_id, subject_id, title, due_on::text AS due_on, body, hand_in, parent_guide, archived_at
+       FROM homework_items WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.homeworkId],
+  );
+  const current = found.rows[0];
+  if (!current) throw notFound("Homework not found");
+  if (current.archived_at !== null) throw conflict("Archived homework cannot be changed");
+
+  const currentGuide = readParentGuide(current.parent_guide);
+  const next = {
+    class_id: input.class_id ?? current.class_id,
+    subject_id: input.subject_id ?? current.subject_id,
+    title: input.title !== undefined ? trim(input.title, "title", 160) : current.title,
+    due_on: input.due_on ?? current.due_on,
+    body: input.body ?? current.body,
+    hand_in: input.hand_in ?? current.hand_in,
+    parent_guide: input.parent_guide !== undefined ? tidyParentGuide(input.parent_guide) : currentGuide,
+  };
+  if (next.body.length > 8000) throw validationError("body must be at most 8000 characters");
+  if (next.class_id !== current.class_id) await getClassById(tx, { tenantId: input.tenantId, classId: next.class_id });
+  if (next.subject_id !== current.subject_id) await getSubjectById(tx, { tenantId: input.tenantId, subjectId: next.subject_id });
+
+  const changed: string[] = [];
+  if (next.class_id !== current.class_id) changed.push("class_id");
+  if (next.subject_id !== current.subject_id) changed.push("subject_id");
+  if (next.title !== current.title) changed.push("title");
+  if (next.due_on !== current.due_on) changed.push("due_on");
+  if (next.body !== current.body) changed.push("body");
+  if (next.hand_in !== current.hand_in) changed.push("hand_in");
+  if (JSON.stringify(next.parent_guide) !== JSON.stringify(currentGuide)) changed.push("parent_guide");
+  if (changed.length === 0) return (await getHomeworkById(tx, input))!;
+
+  try {
+    await tx.query(
+      `UPDATE homework_items
+          SET class_id = $3, subject_id = $4, title = $5, due_on = $6::date, body = $7, hand_in = $8, parent_guide = $9::jsonb,
+              updated_at = now()
+        WHERE tenant_id = $1 AND id = $2 AND archived_at IS NULL`,
+      [
+        input.tenantId,
+        input.homeworkId,
+        next.class_id,
+        next.subject_id,
+        next.title,
+        next.due_on,
+        next.body,
+        next.hand_in,
+        next.parent_guide === null ? null : JSON.stringify(next.parent_guide),
+      ],
+    );
+  } catch (err) {
+    // The CHECKs repeat the checks above; never forward a raw constraint text.
+    if (pgCode(err) === "23514") throw validationError("The homework does not fit the allowed sizes and values");
+    throw err;
+  }
+  await recordSecurityEvent(tx, {
+    eventType: "academics.homework.updated",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    // Field names only, never their values: a title or a guide is the school's own words.
+    detail: { homeworkId: input.homeworkId, fields: changed },
+    ip: input.ip,
+  });
+  return (await getHomeworkById(tx, input))!;
+}
+
+/**
+ * Archive a homework item: "delete" on the API (decision N10). It leaves the teacher lists and the family and learner reads,
+ * nothing is removed, and there is no restore. Archiving an archived item is refused (409) and changes nothing.
+ */
+export async function archiveHomework(
+  tx: Tx,
+  input: { tenantId: string; homeworkId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicHomework> {
+  const found = await tx.query<{ class_id: string; archived_at: Date | string | null }>(
+    `SELECT class_id, archived_at FROM homework_items WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.homeworkId],
+  );
+  const current = found.rows[0];
+  if (!current) throw notFound("Homework not found");
+  if (current.archived_at !== null) throw conflict("Homework is already archived");
+  await tx.query(
+    `UPDATE homework_items SET archived_at = now(), archived_by = $3, updated_at = now()
+      WHERE tenant_id = $1 AND id = $2 AND archived_at IS NULL`,
+    [input.tenantId, input.homeworkId, input.actorUserId],
+  );
+  await recordSecurityEvent(tx, {
+    eventType: "academics.homework.archived",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { homeworkId: input.homeworkId, classId: current.class_id },
+    ip: input.ip,
+  });
+  return (await getHomeworkById(tx, input))!;
 }
 
 export interface PublicMaterial {
