@@ -95,7 +95,11 @@ Not verified:
   needs the owner's local Supabase, which this work may not use.
 - The week-grid editor's absence (`classTimetable`) was checked by the flag value and the code, not by opening a class's Timetable.
 - The phone app uses none of these screens. The shared code compiles in the phone's type check.
-- No end-to-end spec (the owner's lighter checks), and no mutation tests.
+- The one existing end-to-end spec that visits the Subjects page (`e2e/api/signin-and-console.spec.ts`) looked for "Mathematics" as
+  text; on the API build a subject's name is now the value of a field, so the spec reads the fields instead. The edited lines were
+  linted but the spec was not run locally (CI's "Browser tests (local API)" job runs it); the field-reading expression is the one the
+  browser pass used.
+- No new end-to-end spec (the owner's lighter checks), and no mutation tests.
 - Nobody with only part of an organisation's delegation was tried (see setup-1).
 
 ## What this leaves stale in other files (not edited here)

@@ -80,9 +80,12 @@ test.describe("Web on the new API (VITE_BACKEND=api)", () => {
     await expect(page.getByText("Form 1 East").first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("Form 2 West").first()).toBeVisible();
 
+    // Each subject is an editable row on the API build now (its name is the value of a field, not text), so read the fields.
     await page.goto(`/s/${seed.slug}/admin/subjects`);
-    await expect(page.getByText("Mathematics").first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("English").first()).toBeVisible();
+    await expect(page.getByLabel("Subject name").first()).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(() => page.locator('input[aria-label="Subject name"]').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value)))
+      .toEqual(expect.arrayContaining(["Mathematics", "English"]));
 
     await page.goto(`/s/${seed.slug}/admin/people`);
     await expect(page.getByText("Amina Ochieng").first()).toBeVisible({ timeout: 15_000 });
