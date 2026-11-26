@@ -3,14 +3,15 @@ import { initBackend } from "../backend";
 import { NotOnApiError, canManageExamPapers, examPapersCapabilities } from "../capabilities";
 import {
   createExamPaper, createOnlineExamPaper, deleteExamPaper, fetchCurrentTermExams, fetchExamPapers, fetchMyTeachingPairs,
-  fetchPaperContent, fetchPaperScripts, markExamAttempt, releaseExamResults, saveExamQuestions, savePaperBody,
-  sendExamScoresToGradebook, setPaperFile, setPaperPublished, updateExamPaper, type QuestionDraft,
+  fetchPaperContent, fetchPaperScripts, markExamAttempt, paperStatus, releaseExamResults, saveExamQuestions, savePaperBody,
+  savedPaperPublishProblem, sendExamScoresToGradebook, setPaperFile, setPaperPublished, updateExamPaper, type QuestionDraft,
 } from "../examPapers";
 import { fetchClassSizes } from "../homework";
 import { fetchSchoolClassOptions, fetchSchoolSubjectOptions } from "../teacherData";
 import { BASE, createFakeApi, type FakeApi, type FakeReply, type FakeRoute } from "../testing/fakeApi";
 import { apiQuestionsFromDrafts } from "./examPapersApi";
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
+import { isApiError } from "./errors";
 import { clearTeachingLookups } from "./teachingLookups";
 import { createMemoryTokenStore } from "./tokenStore";
 
@@ -183,13 +184,17 @@ describe("school options and class sizes on API", () => {
 
 describe("examPapersCapabilities and NotOnApiError guards", () => {
   it("hides unsupported paper features on API and guards Supabase-only mutations", async () => {
-    expect(examPapersCapabilities().draftWorkflow).toBe(true);
-    expect(examPapersCapabilities().promptMaxChars).toBe(4000);
+    // The Supabase build keeps every control it had: draft, publish AND unpublish, and the editor that saves in steps.
+    expect(examPapersCapabilities()).toEqual({
+      readMode: true, scheduling: true, fileAttachments: true, examLink: true, draftWorkflow: true, unpublishPaper: true,
+      editPaper: true, deletePaper: true, writtenQuestions: true, scripts: true, promptMaxChars: 4000, oneStepCreate: false,
+    });
 
     initBackend({ kind: "api", apiUrl: BASE });
+    // W0.1: a paper is a draft until published (draftWorkflow is on), but there is no unpublish (unpublishPaper stays off).
     expect(examPapersCapabilities()).toEqual({
-      readMode: false, scheduling: false, fileAttachments: false, examLink: false, draftWorkflow: false,
-      editPaper: false, deletePaper: false, writtenQuestions: false, scripts: false, promptMaxChars: 1000,
+      readMode: false, scheduling: false, fileAttachments: false, examLink: false, draftWorkflow: true, unpublishPaper: false,
+      editPaper: false, deletePaper: false, writtenQuestions: false, scripts: false, promptMaxChars: 1000, oneStepCreate: true,
     });
     expect(await fetchCurrentTermExams(T)).toEqual([]);
 
@@ -203,7 +208,7 @@ describe("examPapersCapabilities and NotOnApiError guards", () => {
     await expect(savePaperBody("p1", "body")).rejects.toThrow(NotOnApiError);
     await expect(setPaperFile("p1", null)).rejects.toThrow(NotOnApiError);
     await expect(saveExamQuestions("p1", [choiceDraft])).rejects.toThrow(NotOnApiError);
-    await expect(setPaperPublished("p1", true)).rejects.toThrow(NotOnApiError);
+    await expect(setPaperPublished("p1", false)).rejects.toThrow(NotOnApiError);
     await expect(deleteExamPaper("p1")).rejects.toThrow(NotOnApiError);
     await expect(fetchPaperScripts({ id: "p1", classId: C1, mode: "online" })).rejects.toThrow(NotOnApiError);
     await expect(markExamAttempt("a1", {}, {}, "")).rejects.toThrow(NotOnApiError);
@@ -236,5 +241,125 @@ describe("examPapersCapabilities and NotOnApiError guards", () => {
 
     boot({ [`GET ${P}/staff/me`]: refused("not_found", 404) });
     expect((await fetchMyTeachingPairs(U1)).size).toBe(0);
+  });
+});
+
+describe("publishing an exam paper on API (W0.1)", () => {
+  const paperRow = (o: Record<string, unknown> = {}) => ({
+    id: "p1", tenantId: T, class_id: C1, subject_id: S1, title: "Paper 1", max_score: "40",
+    created_at: "2026-05-03T08:00:00Z", published_at: null, ...o,
+  });
+  const lookups = {
+    [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+    [`GET ${P}/classes`]: list("classes", [clsRow()]),
+    [`GET ${P}/subjects`]: list("subjects", [subRow()]),
+  };
+
+  it("reads publishedAt from the API, never from the creation time (a new paper is a draft)", async () => {
+    const noField: Record<string, unknown> = paperRow({ id: "old-server" });
+    delete noField.published_at; // an API from before migration 110: still a draft, never "created_at"
+    boot({
+      [`GET ${P}/online-exam-papers`]: list("papers", [
+        paperRow({ id: "draft", published_at: null }),
+        paperRow({ id: "live", published_at: "2026-05-04T09:30:00Z" }),
+        noField,
+      ]),
+      ...lookups,
+    });
+    const rows = await fetchExamPapers(T);
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    expect(byId.draft!.publishedAt).toBeNull();
+    expect(byId.live!.publishedAt).toBe("2026-05-04T09:30:00Z");
+    expect(byId["old-server"]!.publishedAt).toBeNull();
+    // the "Created" column still shows the creation time, which is NOT when it was published
+    expect(byId.live!.opensAt).toBe("2026-05-03T08:00:00Z");
+  });
+
+  it("shows Draft for an unpublished paper and not-Draft once it is published", async () => {
+    boot({
+      [`GET ${P}/online-exam-papers`]: list("papers", [paperRow({ id: "draft" }), paperRow({ id: "live", published_at: "2026-05-04T09:30:00Z" })]),
+      ...lookups,
+    });
+    const [draft, live] = await fetchExamPapers(T);
+    const now = Date.parse("2026-05-10T00:00:00Z");
+    expect(paperStatus(draft!, now)).toEqual({ label: "Draft", tone: "muted" });
+    expect(paperStatus(live!, now).label).not.toBe("Draft");
+  });
+
+  it("creating a paper does not publish it: one POST and no publish call", async () => {
+    const server = boot({
+      [`POST ${P}/online-exam-papers`]: {
+        status: 201,
+        body: { paper: { id: "new-1", tenantId: T, class_id: C1, subject_id: S1, title: "Mid-term", max_score: "2", created_at: "2026-05-03T08:00:00Z", published_at: null } },
+      },
+    });
+    const id = await createOnlineExamPaper(T, { classId: C1, subjectId: S1, title: "Mid-term", maxScore: 2, questions: [choiceDraft] });
+    expect(id).toBe("new-1");
+    expect(server.calls.map((c) => `${c.method} ${c.path}`)).toEqual([`POST ${P}/online-exam-papers`]);
+  });
+
+  it("publishing calls POST .../publish for the open school, with no body, and may be repeated", async () => {
+    const server = boot({
+      [`POST ${P}/online-exam-papers/p1/publish`]: { body: { paper: paperRow({ published_at: "2026-05-04T09:30:00Z" }) } },
+    });
+    await setPaperPublished("p1", true);
+    await setPaperPublished("p1", true); // the API keeps the first time; a second press is harmless
+    expect(server.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      `POST ${P}/online-exam-papers/p1/publish`,
+      `POST ${P}/online-exam-papers/p1/publish`,
+    ]);
+    expect(server.calls[0]!.body).toBeUndefined();
+    expect(server.calls[0]!.headers["x-tenant-id"]).toBe(T);
+  });
+
+  it("there is no unpublish on the API: the request is refused before any call is made", async () => {
+    const server = boot({});
+    await expect(setPaperPublished("p1", false)).rejects.toThrow(NotOnApiError);
+    expect(server.calls).toHaveLength(0);
+    expect(examPapersCapabilities().unpublishPaper).toBe(false);
+  });
+
+  it("a refused publish reaches the screen as an error (no Academics write right, or a paper that is not here)", async () => {
+    boot({
+      [`POST ${P}/online-exam-papers/p1/publish`]: refused("forbidden", 403, "You do not have permission"),
+      [`POST ${P}/online-exam-papers/gone/publish`]: refused("not_found", 404, "Exam paper not found"),
+    });
+    const forbidden = await setPaperPublished("p1", true).catch((e: unknown) => e);
+    expect(isApiError(forbidden) && forbidden.code).toBe("forbidden");
+    const missing = await setPaperPublished("gone", true).catch((e: unknown) => e);
+    expect(isApiError(missing) && missing.code).toBe("not_found");
+  });
+
+  it("a created paper moves Draft to published in the list (create, list, publish, list)", async () => {
+    let publishedAt: string | null = null;
+    boot({
+      [`POST ${P}/online-exam-papers`]: {
+        status: 201,
+        body: { paper: paperRow({ id: "n1", title: "ZZW01 paper", published_at: null }) },
+      },
+      [`GET ${P}/online-exam-papers`]: () => list("papers", [paperRow({ id: "n1", title: "ZZW01 paper", published_at: publishedAt })]),
+      [`POST ${P}/online-exam-papers/n1/publish`]: () => {
+        publishedAt ??= "2026-05-04T09:30:00Z";
+        return { body: { paper: paperRow({ id: "n1", published_at: publishedAt }) } };
+      },
+      ...lookups,
+    });
+    const now = Date.parse("2026-05-10T00:00:00Z");
+    const id = await createOnlineExamPaper(T, { classId: C1, subjectId: S1, title: "ZZW01 paper", maxScore: 2, questions: [choiceDraft] });
+    expect(paperStatus((await fetchExamPapers(T))[0]!, now).label).toBe("Draft");
+    await setPaperPublished(id, true);
+    const after = (await fetchExamPapers(T))[0]!;
+    expect(after.publishedAt).toBe("2026-05-04T09:30:00Z");
+    expect(paperStatus(after, now).label).not.toBe("Draft");
+  });
+
+  it("savedPaperPublishProblem: the API list carries no questions, so it makes no claim (Supabase still checks)", async () => {
+    const server = boot({});
+    expect(await savedPaperPublishProblem({ id: "p1", mode: "online", filePath: null, questionCount: 0 })).toBeNull();
+    expect(server.calls).toHaveLength(0);
+
+    initBackend({ kind: "supabase" });
+    expect(await savedPaperPublishProblem({ id: "p1", mode: "online", filePath: null, questionCount: 0 })).toBe("Add at least one question before publishing.");
+    expect(await savedPaperPublishProblem({ id: "p1", mode: "online", filePath: null, questionCount: 3 })).toBeNull();
   });
 });

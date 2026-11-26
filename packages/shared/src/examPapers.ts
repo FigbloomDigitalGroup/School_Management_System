@@ -1,4 +1,4 @@
-import { apiCreateOnlineExamPaper, apiFetchExamPapers, apiFetchMyTeachingPairs } from "./api/examPapersApi";
+import { apiCreateOnlineExamPaper, apiFetchExamPapers, apiFetchMyTeachingPairs, apiPublishOnlineExamPaper } from "./api/examPapersApi";
 import { apiFetchSittingQuestions, apiSaveExamAttempt, apiStartExamAttempt } from "./api/studentExamsApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
@@ -439,8 +439,11 @@ export async function fetchPaperContent(paperId: string): Promise<{ body: string
 /**
  * Why a paper already saved can't be published yet, or null. The typed text isn't in the list row,
  * so it is only looked up for a read-only paper that has no file.
+ * On the API build the list does not carry a paper's questions (`questionCount` is always 0), so nothing can be said before
+ * publishing. (A learner's Exams page leaves out a paper with no questions, so an empty one is never offered to them.)
  */
 export async function savedPaperPublishProblem(p: Pick<ExamPaperRow, "id" | "mode" | "filePath" | "questionCount">): Promise<string | null> {
+  if (onApi()) return null;
   const hasContent = !!p.filePath || (p.mode === "read" && !!(await fetchPaperContent(p.id)).body);
   return publishProblem({ mode: p.mode, hasContent, questionCount: p.questionCount });
 }
@@ -507,8 +510,15 @@ export async function saveExamQuestions(paperId: string, questions: QuestionDraf
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Publishes a paper to its class, or takes it back to a draft. On the API build only publishing exists (`POST .../publish`,
+ * which keeps the first time if repeated): the API has no unpublish, because a learner may already have started the paper.
+ */
 export async function setPaperPublished(paperId: string, published: boolean): Promise<void> {
-  if (onApi()) throw new NotOnApiError("Publishing or unpublishing exam papers");
+  if (onApi()) {
+    if (!published) throw new NotOnApiError("Unpublishing an exam paper");
+    return apiPublishOnlineExamPaper(paperId);
+  }
   const { data, error } = await supabase().from("exam_papers").update({ published_at: published ? new Date().toISOString() : null }).eq("id", paperId).select("id");
   if (error) throw new Error(error.message);
   if (!data?.length) throw new Error(NOT_YOURS);
