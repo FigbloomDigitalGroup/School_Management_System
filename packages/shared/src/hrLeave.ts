@@ -2,6 +2,7 @@ import { onApi } from "./backend";
 import { EdgeError, invokeEdge } from "./edge";
 import { formatShortDate } from "./parentData";
 import { supabase } from "./supabase";
+import { apiDecideHrLeaveApproval, apiFetchHrLeaveAccess, apiFetchHrLeaveApprovals } from "./api/hrLeaveApi";
 
 /**
  * Leave run by Figbloom HR (SCHOOLS_HR_LEAVE_CONTRACT.md section 3; 20261105800000, the my-hr function's leave routes).
@@ -37,8 +38,7 @@ const NO_ACCESS: HrLeaveAccess = { status: "off", approver: false };
 
 /** hr_leave_access() for the signed-in person; "off" for an answer it doesn't know (the old form stays). */
 export async function fetchHrLeaveAccess(): Promise<HrLeaveAccess> {
-  // The Figbloom HR handoff is not on the new API yet (C13): stay on the school's own leave form.
-  if (onApi()) return NO_ACCESS;
+  if (onApi()) return readAccess(await apiFetchHrLeaveAccess());
   const { data, error } = await supabase().rpc("hr_leave_access");
   if (error) throw new Error(error.message);
   return readAccess(data);
@@ -363,10 +363,12 @@ export function cancelHrLeave(applicationId: string): Promise<unknown> {
 }
 
 export function fetchApprovals(): Promise<unknown> {
+  if (onApi()) return apiFetchHrLeaveApprovals();
   return invokeEdge<unknown>("my-hr", { route: "approvals" }, CALL);
 }
 
 export function decideApproval(applicationId: string, decision: "approve" | "decline", comment: string): Promise<unknown> {
+  if (onApi()) return apiDecideHrLeaveApproval(applicationId, decision, comment);
   const c = comment.trim();
   return invokeEdge<unknown>("my-hr", { route: "approval_decide", application_id: applicationId, decision, ...(c ? { comment: c } : {}) }, CALL);
 }

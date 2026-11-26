@@ -267,6 +267,13 @@ const ConfigSchema = z.object({
    * on while this is off. The calls share MY_HR_HTTP_TIMEOUT_MS.
    */
   platformHandoffEnabled: z.boolean().default(false),
+  /**
+   * Leave run by Figbloom HR (docs/HR-HANDOFF.md, slice L1: "Leave to approve"). OFF unless HR_LEAVE_ENABLED=true AND
+   * PLATFORM_CLIENT_ID, PLATFORM_CLIENT_SECRET, PLATFORM_TOKEN_URL, PLATFORM_API_URL and HR_MY_HR_URL are all set. Its own
+   * switch, as on Supabase. NEVER switch it on before slices L3 (staff apply through HR) and L4 (HR's decisions come back):
+   * on Supabase it moves a whole school's leave to HR. The calls share MY_HR_HTTP_TIMEOUT_MS.
+   */
+  hrLeaveEnabled: z.boolean().default(false),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
@@ -395,6 +402,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     hrMyHrUrl: env.HR_MY_HR_URL?.trim() || undefined,
     myHrHttpTimeoutMs: env.MY_HR_HTTP_TIMEOUT_MS || undefined,
     platformHandoffEnabled: (env.PLATFORM_HANDOFF_ENABLED ?? "").trim().toLowerCase() === "true",
+    hrLeaveEnabled: (env.HR_LEAVE_ENABLED ?? "").trim().toLowerCase() === "true",
   });
   if (!parsed.success) {
     throw new Error(

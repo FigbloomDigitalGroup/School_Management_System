@@ -168,6 +168,19 @@ school administrator).
 | `hr_record_request()` | DEFINER (117), `VOLATILE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | the one write path to `tenants.hr_requested_at` / `hr_requested_by` ("Request Figbloom HR"); `tenants` stays `SELECT`-only for the runtime role. No argument: the school is `app_current_tenant_id()` and the person `app_current_user_id()`, set by the API after it checked `resource.hr.handoff`, the switch and that HR is not already there. Defence in depth: `42501` without them, for an inactive account, a platform super administrator, a suspended school, or anyone who is neither an active `school_admin`, `teacher` or `staff` member of the school nor an organisation administrator with a live `area.fees` delegation there. Keeps the first request and returns its time with `recorded` (false for a repeat) |
 | `school_audit_events(text, timestamptz, text, timestamptz, uuid, integer)` | DEFINER (106, replaced in 117) | `figbloom_app` | unchanged but for one line: `hr.handoff.*` (opening HR, asking Figbloom for it) is shown under `access`, as Supabase files it. Same signature, grants and pinned classification fixture |
 
+## Addendum 2026-11-26 — migration 121 (the platform incident list, `docs/PLATFORM-CONSOLE.md` section 3.4)
+
+`platform_incidents` has no `tenant_id` and is owner-only (forced RLS, owner policy, no privilege for `figbloom_app` or
+`figbloom_worker`). These three functions are the only way to it. Each re-checks `app_current_user_id()` against
+`platform_roles` (`super_admin`) and raises `42501` otherwise; the route has already checked `platform.incidents.manage`
+with no school, and a recent sign-in for the two writes.
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `platform_incidents_list(uuid, text, timestamptz, uuid, integer)` | DEFINER (121), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | one incident by id, or the list newest first with keyset `(opened_at, id)`, `open` / `resolved` filter, at most 201 rows. Returns who declared and resolved it (id and name) and no school data |
+| `platform_incident_declare(text, text, text, integer)` | DEFINER (121), `VOLATILE` | `figbloom_app` | checks severity, trimmed title (1 to 200) and summary (1 to 2,000), schools affected (0 to 100,000); inserts as `investigating`, opened now by the caller; audit row `platform.incident.declared` (`incidentId`, `severity`, `affectedSchools`; never the text) in the same transaction |
+| `platform_incident_resolve(uuid)` | DEFINER (121), `VOLATILE` | `figbloom_app` | locks the row; `P0002` for an unknown id; `false` and no change for one already resolved; otherwise resolved now by the caller and audit row `platform.incident.resolved` (`incidentId`, `severity`, `previousStatus`) in the same transaction |
+
 ## Addendum 2026-11-26 — migration 122 (platform billing subscriptions, `docs/PLATFORM-CONSOLE.md` slice S6a)
 
 `plan_pricing` and `platform_subscriptions` are owner-only, forced-RLS tables with no `figbloom_app` or `figbloom_worker` grants.
@@ -180,3 +193,15 @@ Every callable function sets `search_path = pg_catalog, pg_temp` and re-checks `
 | `platform_billing_plan_prices()` | DEFINER (122), `STABLE` | `figbloom_app` | reads only the owner-only Figbloom plan-price list |
 | `platform_billing_subscription_update(uuid, text, text, integer, timestamptz, date)` | DEFINER (122), `VOLATILE` | `figbloom_app` | re-checks super admin; updates one school's plan, status, price override, trial end and renewal; logs before/after fields to the platform audit log in the same transaction |
 | `platform_billing_plan_price_set(text, integer)` | DEFINER (122), `VOLATILE` | `figbloom_app` | re-checks super admin; upserts one approved plan price; logs the prior and new cents in the same transaction |
+
+## Addendum 2026-11-26 — migration 123 (platform invoices, `docs/PLATFORM-CONSOLE.md` slice S6b)
+
+`platform_invoices` is an owner-only, forced-RLS table with no `figbloom_app` or `figbloom_worker` grants. The platform
+invoices are Figbloom's school-billing records, not school fee invoices. They are manually reconciled; overdue does not
+suspend a school.
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `platform_billing_invoices_list(date, uuid, integer)` | DEFINER (123), `STABLE` | `figbloom_app` | lists school name and invoice fields for `super_admin`, keyset by due date/id; does not expose fee invoices or direct table access |
+| `platform_billing_invoice_create(uuid, integer, date)` | DEFINER (123), `VOLATILE` | `figbloom_app` | re-checks super admin; creates a due invoice and audits school, amount and date in the same transaction |
+| `platform_billing_invoice_mark_paid(uuid)` | DEFINER (123), `VOLATILE` | `figbloom_app` | re-checks super admin; row-locks, manually records payment and audits the amount; repeated mark-paid is a no-op |

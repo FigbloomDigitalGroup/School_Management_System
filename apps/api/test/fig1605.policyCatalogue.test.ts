@@ -125,7 +125,8 @@ describe("FIG-1605 live catalogue", () => {
       `SELECT tablename, roles::text[] AS roles, qual FROM pg_policies WHERE schemaname = 'public'`,
     );
     // account_tokens (072) is owner-only by design: no runtime privilege at all, reached only through definer functions
-    const insertOnly = new Set(["security_audit_events", "account_tokens", "guardian_invitations", "guardian_accounts", "finance_unmatched_cases", "finance_unmatched_case_notes", "learner_accounts"]);
+    // platform_subscriptions (122) and platform_invoices (123) are owner-only the same way: Figbloom billing, reached only through platform_billing_* definers
+    const insertOnly = new Set(["security_audit_events", "account_tokens", "guardian_invitations", "guardian_accounts", "finance_unmatched_cases", "finance_unmatched_case_notes", "learner_accounts", "platform_subscriptions", "platform_invoices"]);
     const missing = withTenant.rows
       .map((r) => r.table_name)
       .filter((t) => !insertOnly.has(t))

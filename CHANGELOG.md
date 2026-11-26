@@ -31,6 +31,8 @@ rename it or change how it behaves without a PR that Mike approves.
 
 ## Unreleased
 
+- **Leave approvals on the new API (L1)**: migration `120_hr_leave_approvals.sql` adds `resource.hr.leave_approvals`; school administrators and Leave or Fees area holders may approve, and organisation administrators need a matching area delegation. `GET /v1/tenants/{tenantId}/me/hr/leave/access`, `GET .../approvals` and `POST .../approvals/{applicationId}/decide` use the caller's own HR identity. The switch defaults off (`HR_LEAVE_ENABLED`); comments and HR response text are not audited or logged, and document URLs are forwarded only over HTTPS. This is the approvals side only: staff leave submission and HR decision events (L3/L4) must exist before enabling it for a school. See `apps/api/docs/HR-HANDOFF.md` section 10.
+
 On `main` or in an open PR, not live in production yet.
 
 - **Guards for stock movements and the behaviour log**: migration `20261125000000_behaviour_inventory_guards.sql`
@@ -53,7 +55,7 @@ On `main` or in an open PR, not live in production yet.
   `platform/audit` (`GET /v1/platform/audit-events`, migration `113_platform_audit_read.sql`, read-audited). Migration
   `114_platform_school_admins_read.sql` fixes the school administrators list, which always came back empty (row-level
   security hid the rows from a request with no school).
-  Pages waiting on their API slice or an open owner decision remain gated behind `platformCapabilities()`.
+  Pages that still depend on open owner decisions remain gated behind `platformCapabilities()`.
 - **Platform subscription billing API (slice S6a, migration `122_platform_billing_subscriptions.sql`)**: D3 makes the API the
   source for Figbloom's school subscriptions and KES plan prices. Owner-only `platform_subscriptions` and `plan_pricing`
   tables are read through audited-scope SECURITY DEFINER functions; no legacy placeholder prices are seeded. The
@@ -61,6 +63,14 @@ On `main` or in an open PR, not live in production yet.
   configured prices; `PUT /v1/platform/subscriptions/{schoolId}` and `PUT /v1/platform/plan-pricing/{plan}` require recent
   password confirmation and audit every money change in the same transaction. Nothing changes the Supabase build, and
   overdue invoices do not suspend schools.
+- **Platform invoices API (slice S6b, migration `123_platform_billing_invoices.sql`)**: adds an owner-only invoices table
+  and `GET /v1/platform/invoices`, `POST /v1/platform/invoices`, and
+  `PUT /v1/platform/invoices/{invoiceId}/mark-paid`. Create and mark-paid require recent password confirmation, audit the
+  money action in the same transaction, and do not connect overdue invoices to school suspension. Nothing changes the
+  Supabase build. The API table starts empty; historical Supabase invoice rows need a separate transfer before a production API cutover.
+- **Platform invoices API page (slice S6c)**: routes /platform/invoices to the new API list and school directory, and
+  uses API writes to create invoices and record manual payments. Overdue state comes from the due date; the page shows
+  no estimated MRR or seat counts.
 - **Platform subscriptions web page on the API (slice S6a)**: connects `platform/subscriptions` to the typed API reads and
   audited writes. Super admins can configure KES plan prices and edit subscription terms after the automatic recent-password
   prompt. The page shows actual configured prices and statuses without MRR or licensed-seat estimates.
@@ -135,6 +145,14 @@ On `main` or in an open PR, not live in production yet.
   period is cut to 366 days (`reportMaxDays`), "This term" is left out when the person may not read the term's dates (`termDatesNeedAcademics`), and
   the Clinic page says sick-bay medicine is recorded by hand (`sickBayUsesStock`), as the API's sick bay does not take it
   from stock. A new stock line may start at 0 on the API build.
+- **Platform incidents on the new API (slice S5, `apps/api/docs/PLATFORM-CONSOLE.md` section 7.1)**: the
+  owner's decision D5, a hand-typed incident list for Figbloom staff. Migration `121_platform_incidents.sql`: permission
+  `platform.incidents.manage` (super admins only), owner-only table `platform_incidents` (no `tenant_id`, no privilege for the
+  runtime role) and three SECURITY DEFINER functions (`platform_incidents_list`, `platform_incident_declare`,
+  `platform_incident_resolve`). New endpoints `GET` and `POST /v1/platform/incidents` and
+  `POST /v1/platform/incidents/{incidentId}/resolve`; the two writes need a recent sign-in. Audit events
+  `platform.incident.declared` and `platform.incident.resolved`. A second resolve changes nothing. The existing hand-typed
+  `platform/incidents` page now uses these API endpoints on the API build; the Supabase build is unchanged.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:

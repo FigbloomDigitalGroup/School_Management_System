@@ -596,3 +596,32 @@ platform answered; the link is returned only once that commits. A request is aud
   `hrLaunchProblem` reads all four as "unreachable".
 - An audit write that fails stops the open (no link handed out). Supabase logs the failure and hands the link out anyway.
 - Ids are the API's own (`tenants.id`, `users.id`), as for My HR: question 3 and risk R1 still stand.
+
+## 10. Slice L1 as built (2026-11-26)
+
+Branch `feature/api-hr-leave-approvals`, migration 120. It ports only the approver's page data and decisions; no school leave
+requests are read or written in the API database.
+
+**Routes** (under `/v1/tenants/{tenantId}/me/hr/leave/`):
+
+| Route | Answer |
+|---|---|
+| `GET access` | `{status, approver}`; staff can see whether their school uses HR leave, and whether they may approve. It does not call HR. |
+| `GET approvals` | HR's pending approvals for this caller; only HTTPS document links are passed through. |
+| `POST approvals/{applicationId}/decide` | `{request_status, application}` from HR; strict body `{decision: approve\|decline, comment?}`. |
+
+**Who.** `resource.hr.leave_approvals`: school administrators and holders of the Leave or Fees area. An organisation
+administrator needs a live `area.leave` or `area.fees` delegation. Platform super administrators are refused in code even though
+the permission catalogue grants the code to them. The area implication sets remain unchanged; the leave permission is kept in
+its own set.
+
+**Settings and calls.** `HR_LEAVE_ENABLED` plus the platform client credentials, token URL, platform API URL and HR My HR URL.
+Anything incomplete is off. Rules and rate limits commit before calling HR; no database transaction stays open during network
+calls. HR receives the session's API school and user ids. The platform-token bucket is shared with My HR. The audit event
+`hr.leave.decided` records the application id and decision only; comments, HR response text, names, reasons and document links
+are not logged.
+
+**Still required before enabling for a school.** L3 (staff applying and cancelling leave through HR) and L4 (signed HR leave
+events applied to the school leave record) are not built. Enabling this switch early would move the whole school's leave to HR
+without those paths. Leave it off for every school until L3 and L4 and the owner checks a real test school. Platform IDs for
+the API school's and user's records also remain an open integration risk (section 6 / `MY-HR.md` Q1b).

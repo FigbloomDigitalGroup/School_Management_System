@@ -110,10 +110,8 @@ to `SECURITY-DEFINER-INVENTORY.md` and its tests. Seats need Q2.
 **Supabase does:** list incidents newest first (1), declare one (1 insert), resolve one (1 update). Staff type them in by
 hand; nothing writes them automatically. 3 calls.
 
-**API backs:** nothing. **Proposed (only if Q4 says keep it here):** a platform-only table `platform_incidents` (no
-`tenant_id`, owner-only, read and written through definer functions that check `super_admin`), `GET/POST
-/v1/platform/incidents`, `POST /v1/platform/incidents/{id}/resolve`, permission `platform.incidents.manage`, audit
-`platform.incident.declared` / `.resolved`. Schools do not see incidents today on either build.
+**API backs:** migration 121 and the platform-only, owner-controlled API in section 7.1. On the API web build, the existing
+hand-typed Incidents page uses those routes; schools do not see incidents on either build.
 
 ### 3.5 `platform/subscriptions` and 3.6 `platform/invoices` (pages.tsx)
 
@@ -122,13 +120,18 @@ list (1). Invoices: every invoice with the school's name (1), the school list fo
 (1 insert). 6 calls. Money is Figbloom's own billing of schools (KES), not school fees. There is no payment gateway: staff
 mark an invoice paid by hand.
 
-**API backs:** migration 122 adds the owner-only `plan_pricing` and `platform_subscriptions` tables, with
+**API backs (subscriptions):** migration 122 adds the owner-only `plan_pricing` and `platform_subscriptions` tables, with
 `GET /v1/platform/subscriptions`, `PUT /v1/platform/subscriptions/{schoolId}` and
 `PUT /v1/platform/plan-pricing/{plan}`. Both writes need recent re-authentication and audit their money changes in the same
 transaction. The old price rows were explicitly placeholders, so no prices are seeded; an unset price stays unset.
 
-**Not built yet:** `platform_invoices` and its create/mark-paid endpoints (the next slice). Overdue invoices will not suspend
-a school. The API stores subscription terms in a platform table keyed by school; it does not add billing columns to `tenants`.
+**API backs (invoices):** migration 123 adds the owner-only `platform_invoices` table and the routes `GET /v1/platform/invoices`,
+`POST /v1/platform/invoices` and `PUT /v1/platform/invoices/{invoiceId}/mark-paid`. Create and mark-paid require recent
+re-authentication; each money action writes an audit event in the same transaction. Invoice status is `due` or `paid`;
+overdue is derived from the due date and does not suspend a school. The API table starts empty; this migration does not copy
+existing Supabase invoice rows, so they need a separate transfer before any production API cutover. The API web page is S6c. It reads invoices and schools from the API, then creates invoices and records manually reconciled payments through the API.
+
+The API stores subscription terms and invoices in platform tables; it does not add billing columns to `tenants`.
 
 ### 3.7 `platform/impersonation` (pages.tsx `Impersonation`)
 
@@ -217,8 +220,9 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
 3. **P3:** organisations read (`platform.organizations.read`, migration), school admins list; reuse S11's org-admin functions.
 4. **P4:** usage counts (owner function, counts only).
 5. **P5:** audit read, together with S11's school audit read.
-6. After decisions only: suspend and reactivate (Q1), invoices (D3), impersonation or support sessions (Q3), incidents (Q4),
-   curriculum (Q6), and live provider checks (Q7).
+6. After decisions only: suspend and reactivate (Q1), impersonation or support sessions (Q3), and live provider
+   checks (Q7). Incidents (Q4) and curriculum (Q6) have been decided and are documented as built/closed above;
+   billing (Q2, D3) is built as migrations 122 and 123 (see 7.2 and 7.3).
 
 ## 6. Questions for the owner
 
@@ -238,7 +242,26 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
 7. **Q7 Health:** is worker and queue status enough, or do you want live checks of M-Pesa, e-mail, storage and Bloom?
 8. **Q8 Org-and-platform accounts:** may one person be both a super admin and an org admin (risk R4)?
 
-## 7. As built
+## 7. As built: slice S5 (after the owner's decisions of 2026-11-25)
+
+The owner answered Q2 (D3: the API owns Figbloom's billing of schools, KES only, invoices marked paid by hand), Q3 (D4: no
+impersonation page), Q4 (D5: keep a hand-typed incident list) and Q6 (D6: each school verifies its own catalogue). Q1 (D2,
+school and organisation lifecycle) is still open, so nothing in S5 links billing to suspension or to a school's status.
+
+### 7.1 Incidents (migration 121)
+
+| What | As built |
+|---|---|
+| Table | `platform_incidents`: severity (`SEV-1` to `SEV-3`), title (1 to 200), summary (1 to 2,000), schools affected (0 to 100,000), status, opened at and by, resolved at and by. **No `tenant_id`.** Owner-only: forced RLS with only the owner policy, no privilege for `figbloom_app` or `figbloom_worker` (`RLS-CATALOGUE.md`) |
+| Functions | `platform_incidents_list`, `platform_incident_declare`, `platform_incident_resolve` (SECURITY DEFINER, each re-checks `super_admin` from `app.user_id`; `SECURITY-DEFINER-INVENTORY.md`) |
+| Routes | `GET /v1/platform/incidents?state=open\|resolved` (newest first, keyset on `(openedAt, id)`), `POST /v1/platform/incidents` (201), `POST /v1/platform/incidents/{incidentId}/resolve` (`{incident, changed}`) |
+| Who | `platform.incidents.manage`, `super_admin` only, checked with no school (`X-Tenant-Id` ignored). The two writes need a recent sign-in (`assertRecentAuth`) |
+| Audit | `platform.incident.declared` and `platform.incident.resolved`, written by the definer in the same transaction. Detail: ids, severity, count, previous status; never the title or summary. Hidden from every school's log |
+
+Differences from the Supabase screen (`20260914000000_platform_ops_tables.sql`): resolving stamps the server's time and who
+resolved it (Supabase wrote the browser's clock and kept no name), and a second resolve changes nothing (Supabase overwrote the
+time); title, summary and the count have upper bounds; `fix_in_review` stays a valid status so the Supabase rows can be carried
+over, but no route sets it (no Supabase screen did either). Not built: editing an incident, re-opening one, deleting one.
 
 ### 7.2 Subscriptions and plan pricing (migration 122)
 
@@ -249,3 +272,13 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
 | Reads | `GET /v1/platform/subscriptions` returns school name/slug and terms, plus the configured price list, keyset-paginated by school name/id. Effective price is override, else the configured plan price, else zero (displayed as unset). |
 | Writes | `PUT /v1/platform/subscriptions/{schoolId}` and `PUT /v1/platform/plan-pricing/{plan}` require `platform.billing.manage` and recent password confirmation. A changed record writes an immutable audit event in the same transaction; no-op updates add no event. |
 | Separation | These terms do not change a school's access status. An overdue Figbloom invoice does not suspend a school. No MRR or licensed-seat count is invented. |
+
+### 7.3 Invoices (migration 123)
+
+| What | As built |
+|---|---|
+| Table | `platform_invoices` mirrors the live Figbloom invoice fields (`tenant_id`, integer `amount_cents`, `due_date`, `due`/`paid` status, `paid_at`, `created_at`) in an owner-only, forced-RLS table with no runtime table grants. The API table starts empty; migration 123 does not copy existing Supabase rows. |
+| Reads | `GET /v1/platform/invoices` returns school name, amount, due date, stored payment state, and timestamps; overdue is derived from `due_date` by the caller. Keyset order is due date then invoice id. |
+| Writes | `POST /v1/platform/invoices` creates a due invoice. `PUT /v1/platform/invoices/{invoiceId}/mark-paid` records a manual bank reconciliation. Both require `platform.billing.manage` and recent password confirmation; audit is written in the same transaction. A repeated mark-paid is a no-op. |
+| UI | The API page at /platform/invoices uses the API invoice list and school directory for its table and creation form. It records payments after manual bank reconciliation and does not show MRR or seat estimates. |
+| Separation | These are Figbloom invoices for schools, separate from school fee invoices. No payment gateway is wired, and overdue invoices do not suspend a school. |

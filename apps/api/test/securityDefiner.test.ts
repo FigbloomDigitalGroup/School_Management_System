@@ -44,6 +44,10 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "family_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: the calling account's children in the current school (live link, active account, parent membership, active guardian record, live relationship, active learner); no argument, so no other account can be asked about" },
   // Migration 117: "Request Figbloom HR" (docs/HR-HANDOFF.md, H1)
   "hr_record_request()": { secdef: true, grantees: ["figbloom_app"], why: "tenants is SELECT-only for figbloom_app: records the school's request for HR (hr_requested_at / hr_requested_by) for the school and person of the request (app.tenant_id / app.user_id, no argument), keeps the first request, and refuses (42501) without them, for a platform super admin, a suspended school, or anyone not an active staff member of the school or a delegated organisation administrator for its Fees area" },
+  // Migration 121: the platform incident list (docs/PLATFORM-CONSOLE.md section 3.4, owner decision D5)
+  "platform_incidents_list(uuid,text,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "platform_incidents is owner-only (no tenant_id, no runtime privilege): lists Figbloom's hand-typed incidents for super_admin (re-checked from app.user_id), newest first, keyset (opened_at, id), at most 201 rows; no school data" },
+  "platform_incident_declare(text,text,text,integer)": { secdef: true, grantees: ["figbloom_app"], why: "platform_incidents is owner-only: a super_admin (re-checked from app.user_id) declares an incident as investigating, opened now by the caller; audited platform.incident.declared in the same transaction (ids, severity, count; no free text)" },
+  "platform_incident_resolve(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "platform_incidents is owner-only: a super_admin (re-checked from app.user_id) resolves an incident under a row lock; a second resolve changes nothing and writes no audit row; audited platform.incident.resolved" },
   // Migration 114: platform school administrators read (docs/PLATFORM-CONSOLE.md slice P3, fix)
   "platform_school_admins(uuid,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "school_memberships is tenant-scoped (forced RLS) and the platform request has no school: lists one school's active school_admin members (name, e-mail, status) for super_admin (re-checked from app.user_id); at most 201 rows; the route audits every read" },
   // Migration 113: platform audit read (docs/PLATFORM-CONSOLE.md slice P5)
@@ -56,6 +60,9 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "platform_billing_plan_prices()": { secdef: true, grantees: ["figbloom_app"], why: "owner-only Figbloom plan price list for platform super_admin; no school fee data" },
   "platform_billing_subscription_update(uuid,text,text,integer,timestamp with time zone,date)": { secdef: true, grantees: ["figbloom_app"], why: "recently re-authenticated platform subscription update; re-checks super_admin and audits before/after terms in the same transaction" },
   "platform_billing_plan_price_set(text,integer)": { secdef: true, grantees: ["figbloom_app"], why: "recently re-authenticated Figbloom list-price change; re-checks super_admin and writes an immutable price-change audit row in the same transaction" },
+  "platform_billing_invoices_list(date,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "owner-only Figbloom invoices for super_admin; keyset by due date/id and no direct runtime table access" },
+  "platform_billing_invoice_create(uuid,integer,date)": { secdef: true, grantees: ["figbloom_app"], why: "recently re-authenticated invoice creation; re-checks super_admin and audits amount and school in the same transaction" },
+  "platform_billing_invoice_mark_paid(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "recently re-authenticated manual payment reconciliation; row-locks, re-checks super_admin and audits the paid amount in the same transaction" },
   // Migration 110: student accounts (docs/STUDENT-ACCOUNTS.md)
   "student_my_learner()": { secdef: true, grantees: ["figbloom_app"], why: "learner_accounts is owner-only: the calling account's own learner in the current school (live link, active account, student membership, active learner); no argument, so no other account can be asked about" },
   "student_account_actor_may_manage(uuid)": { secdef: true, grantees: [], why: "internal: is the GUC actor the school office of the tenant in context (super administrator, school administrator, or teacher/staff holding the People area)" },
@@ -562,11 +569,16 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "auth_session_idle_seconds(uuid)",
   "finance_ops_snapshot()",
   "platform_usage_counts()",
-  "platform_subscription_seed()",
+  "platform_incidents_list(uuid,text,timestamp with time zone,uuid,integer)",
+  "platform_incident_declare(text,text,text,integer)",
+  "platform_incident_resolve(uuid)",
   "platform_billing_subscriptions_list(uuid,integer)",
   "platform_billing_plan_prices()",
   "platform_billing_subscription_update(uuid,text,text,integer,timestamp with time zone,date)",
   "platform_billing_plan_price_set(text,integer)",
+  "platform_billing_invoices_list(date,uuid,integer)",
+  "platform_billing_invoice_create(uuid,integer,date)",
+  "platform_billing_invoice_mark_paid(uuid)",
   "hr_record_request()",
   "platform_school_admins(uuid,timestamp with time zone,uuid,integer)",
   "platform_audit_events(uuid,text,timestamp with time zone,timestamp with time zone,uuid,integer)",
@@ -676,7 +688,8 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
     // four: users (status), organizations (status) and organization_memberships (UPDATE and DELETE).
     // Migration 029 adds class_memberships_integrity_guard. Later attendance triggers are invokers.
     // Migration 110 adds learner_accounts_on_membership_archive (school_memberships).
-    expect(r.rows.length).toBe(18);
+    // Migration 122 adds platform_subscription_seed (tenants).
+    expect(r.rows.length).toBe(19);
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 

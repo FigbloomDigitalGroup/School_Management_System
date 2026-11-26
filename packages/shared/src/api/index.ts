@@ -44,7 +44,9 @@ export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayKeepVisitors, staf
 export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type BloomReadiness, type BloomScope } from "./aiApi";
 export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";
 export {
+  apiCreatePlatformInvoice,
   apiFetchPlatformAuditEvents,
+  apiFetchPlatformInvoices,
   apiFetchPlatformOpsStatus,
   apiFetchPlatformOrganization,
   apiFetchPlatformOrganizationAdmins,
@@ -57,6 +59,7 @@ export {
   apiSetPlatformPlanPrice,
   apiUpdatePlatformSubscription,
   apiLoadPlatformSession,
+  apiMarkPlatformInvoicePaid,
   apiProvisionSchool,
   parsePlatformOpsStatus,
   platformOrganizationFromApi,
@@ -70,6 +73,8 @@ export {
   type PlatformAdminItem,
   type PlatformAuditEventItem,
   type PlatformAuditPage,
+  type PlatformBillingInvoice,
+  type PlatformBillingInvoiceStatus,
   type PlatformOpsStatus,
   type PlatformPlanCode,
   type PlatformPlanPrice,

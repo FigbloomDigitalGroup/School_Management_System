@@ -1,4 +1,4 @@
-import type { Organization, Profile, Tenant, TenantStatus } from "../types";
+import type { IncidentSeverity, IncidentStatus, Organization, PlatformIncident, Profile, Tenant, TenantStatus } from "../types";
 import { apiMe } from "./authApi";
 import { apiClient } from "./client";
 import { isApiError } from "./errors";
@@ -318,6 +318,69 @@ export async function apiFetchPlatformUsage(): Promise<PlatformUsageSummary> {
   };
 }
 
+// ---------------------------------------------------------------- incidents (slice P6)
+
+const INCIDENT_SEVERITIES: readonly IncidentSeverity[] = ["SEV-1", "SEV-2", "SEV-3"];
+const INCIDENT_STATUSES: readonly IncidentStatus[] = ["investigating", "fix_in_review", "resolved"];
+
+/** Maps the platform API's camel-case incident record to the shape the existing console screen uses. */
+export function platformIncidentFromApi(raw: {
+  id: string;
+  severity: string;
+  title: string;
+  summary: string;
+  affectedSchools: number;
+  status: string;
+  openedAt: string;
+  openedBy: string | null;
+  resolvedAt: string | null;
+}): PlatformIncident {
+  return {
+    id: raw.id,
+    severity: (INCIDENT_SEVERITIES as readonly string[]).includes(raw.severity) ? raw.severity as IncidentSeverity : "SEV-3",
+    title: raw.title,
+    summary: raw.summary,
+    affected_schools: raw.affectedSchools,
+    status: (INCIDENT_STATUSES as readonly string[]).includes(raw.status) ? raw.status as IncidentStatus : "investigating",
+    opened_at: raw.openedAt,
+    resolved_at: raw.resolvedAt,
+    created_by: raw.openedBy,
+  };
+}
+
+/** The hand-typed platform incident list, newest first, optionally limited to open or resolved rows. */
+export async function apiFetchPlatformIncidents(state?: "open" | "resolved"): Promise<PlatformIncident[]> {
+  const rows = await listAllPages(async (cursor) => {
+    const res = await apiClient().get("/v1/platform/incidents", {
+      query: { limit: API_PAGE_LIMIT, ...(cursor ? { cursor } : {}), ...(state ? { state } : {}) },
+      tenantId: null,
+    });
+    return { items: res.items, page: res.page };
+  });
+  return rows.map(platformIncidentFromApi);
+}
+
+/** Declaring an incident is a platform-only, recently re-authenticated API write. */
+export async function apiDeclarePlatformIncident(input: {
+  severity: IncidentSeverity;
+  title: string;
+  summary: string;
+  affected_schools: number;
+}): Promise<void> {
+  await apiClient().post("/v1/platform/incidents", {
+    body: input,
+    tenantId: null,
+  });
+}
+
+/** Resolves an incident at the server's clock and ignores the no-op `changed` result. */
+export async function apiResolvePlatformIncident(id: string): Promise<void> {
+  await apiClient().post("/v1/platform/incidents/{incidentId}/resolve", {
+    path: { incidentId: id },
+    tenantId: null,
+  });
+}
+
 // ---------------------------------------------------------------- subscriptions and Figbloom plan pricing (slice S6a)
 
 export const PLATFORM_PLAN_CODES = ["standard", "institution", "county"] as const;
@@ -453,6 +516,51 @@ export async function apiFetchPlatformAuditEvents(opts?: {
     })),
     nextCursor: res.page.next_cursor ?? null,
   };
+}
+
+// ---------------------------------------------------------------- Figbloom billing invoices (migration 123)
+
+export type PlatformBillingInvoiceStatus = "due" | "paid";
+
+export interface PlatformBillingInvoice {
+  invoiceId: string;
+  tenantId: string;
+  tenantName: string;
+  amountCents: number;
+  dueDate: string;
+  status: PlatformBillingInvoiceStatus;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+/** All Figbloom invoices for schools, ordered by due date and invoice id. */
+export async function apiFetchPlatformInvoices(): Promise<PlatformBillingInvoice[]> {
+  return listAllPages(async (cursor) => {
+    const res = await apiClient().get("/v1/platform/invoices", {
+      query: { limit: API_PAGE_LIMIT, ...(cursor ? { cursor } : {}) },
+      tenantId: null,
+    });
+    return { items: res.items, page: res.page };
+  });
+}
+
+/** Creates a Figbloom school invoice; recent password confirmation is handled by the API client. */
+export async function apiCreatePlatformInvoice(input: {
+  tenantId: string;
+  amountCents: number;
+  dueDate: string;
+}): Promise<string> {
+  const res = await apiClient().post("/v1/platform/invoices", { body: input, tenantId: null });
+  return res.invoiceId;
+}
+
+/** Records a manually reconciled payment and returns whether the invoice changed to paid. */
+export async function apiMarkPlatformInvoicePaid(invoiceId: string): Promise<boolean> {
+  const res = await apiClient().put("/v1/platform/invoices/{invoiceId}/mark-paid", {
+    path: { invoiceId },
+    tenantId: null,
+  });
+  return res.changed;
 }
 
 // ---------------------------------------------------------------- provisioning (POST /v1/platform/schools)

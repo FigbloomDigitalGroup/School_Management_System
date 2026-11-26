@@ -3,6 +3,7 @@ import { initBackend } from "../backend";
 import { isNotOnApiError, platformCapabilities } from "../capabilities";
 import {
   activateTenant,
+  declarePlatformIncident,
   fetchAllTenants,
   fetchImpersonationLog,
   fetchOrganizationAdminProfiles,
@@ -15,6 +16,7 @@ import {
   fetchPlatformUsage,
   fetchSchoolAdmins,
   fetchServiceHistory,
+  resolvePlatformIncident,
 } from "../platform";
 import { BASE, createFakeApi, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiTokenStore } from "./client";
@@ -295,6 +297,9 @@ describe("platform.ts on API backend & platformCapabilities", () => {
           totals: { schools: 1, activeLearners: 120, activeStaff: 14, activeGuardianLinks: 110 },
         },
       },
+      "GET /v1/platform/incidents": {
+        body: { items: [], page: { limit: 200, next_cursor: null } },
+      },
       "GET /v1/platform/audit-events": {
         body: {
           items: [
@@ -340,7 +345,6 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     const unbacked = [
       () => activateTenant(SCHOOL_A),
       () => fetchServiceHistory(),
-      () => fetchPlatformIncidents(),
       () => fetchPlatformSubscriptions(),
       () => fetchPlatformInvoices(),
       () => fetchImpersonationLog(),
@@ -353,6 +357,7 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     expect(apiCaps.organizationsPage).toBe(true);
     expect(apiCaps.tenantAdminsPanel).toBe(true);
     expect(apiCaps.usagePage).toBe(true);
+    expect(apiCaps.incidentsPage).toBe(true);
     expect(apiCaps.auditPage).toBe(true);
     expect(apiCaps.tenantIllustrativeCharts).toBe(false);
     expect(apiCaps.liveProviderChecks).toBe(false);
@@ -361,5 +366,80 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     const sbCaps = platformCapabilities();
     expect(sbCaps.organizationsPage).toBe(true);
     expect(sbCaps.liveProviderChecks).toBe(true);
+  });
+
+  it("routes platform incident list, declare and resolve calls through identity-scoped API endpoints", async () => {
+    const incidentId = "44444444-4444-4444-8444-444444444444";
+    const opened = {
+      id: incidentId,
+      severity: "SEV-1",
+      title: "Attendance sync backlog",
+      summary: "Schools see stale attendance records",
+      affectedSchools: 8,
+      status: "investigating",
+      openedAt: "2026-11-25T10:00:00.000Z",
+      openedBy: USER,
+      openedByName: "Platform Operator",
+      resolvedAt: null,
+      resolvedBy: null,
+      resolvedByName: null,
+    };
+    const resolved = {
+      ...opened,
+      id: "55555555-5555-4555-8555-555555555555",
+      status: "resolved",
+      resolvedAt: "2026-11-25T11:00:00.000Z",
+    };
+    const api = boot({
+      "GET /v1/platform/incidents": (call) => ({
+        body: {
+          items: call.query.get("state") === "open" ? [opened] : call.query.has("cursor") ? [resolved] : [opened],
+          page: { limit: 200, next_cursor: call.query.get("state") === "open" || call.query.has("cursor") ? null : "cursor-2" },
+        },
+      }),
+      "POST /v1/platform/incidents": { status: 201, body: { incident: opened } },
+      [`POST /v1/platform/incidents/${incidentId}/resolve`]: { body: { incident: resolved, changed: true } },
+    });
+
+    expect(await fetchPlatformIncidents()).toEqual([
+      {
+        id: incidentId,
+        severity: "SEV-1",
+        title: "Attendance sync backlog",
+        summary: "Schools see stale attendance records",
+        affected_schools: 8,
+        status: "investigating",
+        opened_at: "2026-11-25T10:00:00.000Z",
+        resolved_at: null,
+        created_by: USER,
+      },
+      {
+        id: "55555555-5555-4555-8555-555555555555",
+        severity: "SEV-1",
+        title: "Attendance sync backlog",
+        summary: "Schools see stale attendance records",
+        affected_schools: 8,
+        status: "resolved",
+        opened_at: "2026-11-25T10:00:00.000Z",
+        resolved_at: "2026-11-25T11:00:00.000Z",
+        created_by: USER,
+      },
+    ]);
+    await declarePlatformIncident({ severity: "SEV-2", title: "Queue lag", summary: "Some schools are delayed", affected_schools: 3 });
+    await resolvePlatformIncident(incidentId);
+
+    const list = api.callsTo("GET /v1/platform/incidents")[0]!;
+    expect(list.query.get("limit")).toBe("200");
+    expect(list.headers["x-tenant-id"]).toBeUndefined();
+    expect(api.callsTo("POST /v1/platform/incidents")[0]!.body).toEqual({
+      severity: "SEV-2", title: "Queue lag", summary: "Some schools are delayed", affected_schools: 3,
+    });
+    expect(api.callsTo(`POST /v1/platform/incidents/${incidentId}/resolve`)[0]!.body).toBeUndefined();
+    expect(api.calls.every((call) => call.headers["x-tenant-id"] === undefined)).toBe(true);
+    expect(api.callsTo("GET /v1/platform/incidents")[1]!.query.get("cursor")).toBe("cursor-2");
+
+    api.on("GET /v1/platform/schools", { body: { items: [], page: { limit: 200, next_cursor: null } } });
+    expect((await fetchPlatformNavCounts()).openIncidents).toBe(1);
+    expect(api.callsTo("GET /v1/platform/incidents")[2]!.query.get("state")).toBe("open");
   });
 });

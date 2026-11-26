@@ -22,25 +22,25 @@ Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md) and implementing 
   - Migration `apps/api/migrations/113_platform_audit_read.sql` (`platform.audit.read`, `public.platform_audit_events(...)` `SECURITY DEFINER`, never returns `ip` or `detail`, registered in `SECURITY-DEFINER-INVENTORY.md` + `securityDefiner.test.ts`).
   - API route: `GET /v1/platform/audit-events` (reading is itself audited as `platform.audit.read`).
   - Web: `platform/audit` (`ApiPlatformAudit.tsx`), `auditPage: true` in `platformCapabilities()`.
-- **S5 (incidents, on feature branches)**: migration `121_platform_incidents.sql`, the super-admin incident API, and
-  `platform/incidents` connected through `ApiPlatformIncidents.tsx`. The page keeps the hand-entered workflow chosen by D2.
-- **S6a (subscriptions, local feature branch)**: migration `122_platform_billing_subscriptions.sql`, owner-only subscription
-  and price tables, audited/re-authenticated writes, typed OpenAPI operations, and `platform/subscriptions` connected in
-  `ApiPlatformSubscriptions.tsx` without MRR or seat estimates.
+- **P6 (API commit `d5078f70`, web on `feature/web-api-platform-incidents`)**:
+  - Migration `apps/api/migrations/121_platform_incidents.sql`, owner-only `platform_incidents` table, and the three `SECURITY DEFINER` functions listed in `apps/api/docs/PLATFORM-CONSOLE.md` section 7.1.
+  - API routes: `GET /v1/platform/incidents`, `POST /v1/platform/incidents`, and `POST /v1/platform/incidents/{incidentId}/resolve` (`platform.incidents.manage`; writes require recent re-auth and audit in the same transaction).
+  - Web: the existing hand-typed `Incidents` page is available at `/platform/incidents` on the API build. The shared client maps API records to the page's existing shape, pages through the list, and sends identity-scoped calls without `X-Tenant-Id`. `platformCapabilities()` enables the page; the shell shows the open-incident badge.
+- **S6a to S6c (billing, D3)**:
+  - Migrations `122_platform_billing_subscriptions.sql` (owner-only `platform_subscriptions` and `plan_pricing`) and `123_platform_billing_invoices.sql` (owner-only `platform_invoices`), read and written only through `platform_billing_*` definers; writes need a recent password confirmation and are audited in the same transaction.
+  - API routes: `GET /v1/platform/subscriptions`, `PUT /v1/platform/subscriptions/{schoolId}`, `PUT /v1/platform/plan-pricing/{plan}`, `GET`/`POST /v1/platform/invoices`, `PUT /v1/platform/invoices/{invoiceId}/mark-paid`.
+  - Web: `platform/subscriptions` (`ApiPlatformSubscriptions.tsx`) and `platform/invoices` (`ApiPlatformInvoices.tsx`), `subscriptionsPage` and `invoicesPage` on in `platformCapabilities()`. No MRR or seat estimates are shown; overdue is derived from the due date.
 
-## Remaining work
+## Remaining work (open owner decisions)
 
-Owner answers have unblocked most of the console. Remaining platform work is:
+Unblocked slices (**P1–P6**) are implemented. Remaining platform console work waits on owner answers to section 6 of `apps/api/docs/PLATFORM-CONSOLE.md`:
 
-- **S6b (next)**: `platform/invoices` API and web page, migration 123. Staff create invoices and mark them paid by hand;
-  an overdue invoice does not suspend a school.
-- **Q1 follow-up**: implement approved school lifecycle actions and the `console.figbloom.org` visibility contract; do not
-  infer that contract from this API.
-- **Q5**: audit retention policy (the seven-year immutability claim).
-- **Q7**: live external provider checks on `platform/health`.
-- **Q8**: super-admin + org-admin dual accounts (Risk R4).
-- **Closed**: impersonation (D4) and platform curriculum verification (D6) remain hidden; each school verifies its own catalogue.
-
+- **Q1 (answered 2026-11-26)**: This API console owns organization lifecycle. Approve and reject come with sign-up (slice S6); suspend and reactivate come later. Showing API schools in `console.figbloom.org` requires that console's contract.
+- **Q2 (answered 2026-11-25)**: The API owns Figbloom billing of schools. Subscriptions, plan prices and invoices are built (S6a to S6c, below); do not tie overdue invoices to school suspension or invent MRR or seat counts.
+- **Q3 (closed 2026-11-25)**: No impersonation page or impersonation feature.
+- **Q5**: Audit retention policy (7-year immutability claim).
+- **Q7**: Live external provider checks on `platform/health`.
+- **Q8**: Super-admin + org-admin dual accounts (Risk R4).
 ## What works in P2
 
 - **Sign-in (`continueSignIn`)**: `super_admin` accounts are no longer refused at sign-in. After MFA (required by the API for
@@ -57,16 +57,20 @@ Owner answers have unblocked most of the console. Remaining platform work is:
   - Reads `GET /v1/platform/ops/status` (`finance_ops_snapshot()`), displaying worker heartbeats/ages, job queue depth/lag/dead,
     reconciliation backlog, and unmatched M-Pesa callback/case counters, with a Refresh action.
 
-## Remaining or closed platform work on the API build
+## What remains hidden on the API build (`platformCapabilities()`)
 
-| Page or action | Next slice / blocker |
+| Hidden on the API build | Next slice / blocker |
 |---|---|
-| School lifecycle actions | **Q1**: this API's console owns lifecycle; approve/reject are planned with sign-up, and suspend/reactivate/move remain future work. The `console.figbloom.org` visibility contract still needs implementation |
-| `platform/invoices` | **D3 answered 2026-11-25: API owns school billing.** Next API slice (migration 123); overdue invoices do not suspend schools |
-| `platform/incidents` | **D2 answered 2026-11-25: keep a hand-typed incident list.** API and web work is on a sibling local feature branch |
-| `platform/impersonation` | **Closed by D4 (2026-11-25: no impersonation).** Hidden for good. A separate question remains: a super admin can act inside any school with full powers and no record the school can read |
-| `platform/curriculum` | **Closed by D6 (2026-11-25: each school verifies its own catalogue).** Hidden for good; there is no platform-wide catalogue to show |
-| Live external provider checks on `platform/health` | **Q7**: worker/queue ops status is shown today; live provider checks are not built |
+| `platform/organizations` | **P3**: needs `GET /v1/platform/organizations` + `/{id}` (`platform.organizations.read`, migration); **Q1 answered 2026-11-26: this API's console owns lifecycle**, so approve and reject come with sign-up (slice S6) and suspend and reactivate later. API schools in `console.figbloom.org` need that console's contract |
+| School admins panel on `platform/tenants` | **P3**: needs `GET /v1/platform/schools/{tenantId}/admins` (`platform.tenants.admins.read`, read-audited) |
+| `platform/usage` & per-school headcounts | **P4**: needs counts-only owner function (`GET /v1/platform/usage`, `platform.usage.read`); seats wait on Q2 |
+| `platform/audit` | **P5**: needs platform-wide audit read (`platform.audit.read`) reusing migration 106's allowlist; retention waits on Q5 |
+| Suspend / reactivate / move organisation | **Q1** (and Risk R5 for org-delegation FK when moving schools) |
+| `platform/impersonation` | **Closed by decision (Q3 answered 2026-11-25: no impersonation).** Hidden for good. The page was an empty log (nothing ever wrote to it). Still open as a separate question: a super admin can act inside any school with full powers and no record the school can read |
+| Audit retention | **Q5**: retention and immutability policy for the platform-wide audit log |
+| `platform/curriculum` | **Closed by decision (Q6 answered 2026-11-25: each school verifies its own catalogue, as the API already works).** Hidden for good; there is no platform-wide catalogue to show |
+| Live external provider checks on `platform/health` | **Q7** (worker/queue ops status is shown today) |
+| Super-admin + org-admin dual accounts | **Q8** (Risk R4) |
 
 ## Where the code is
 
@@ -76,10 +80,10 @@ Owner answers have unblocked most of the console. Remaining platform work is:
 - `packages/shared/src/capabilities.ts` (`platformCapabilities()`)
 - `packages/shared/src/platform.ts` (API branches + `NotOnApiError` guards)
 - `apps/web/src/api/ApiPlatformRoutes.tsx`, `ApiPlatform.tsx`, `ApiApp.tsx`, `ApiSessionGuard.tsx`
-- `apps/web/src/screens/platform/ApiPlatformTenants.tsx`, `ApiPlatformHealth.tsx`, `ApiPlatformSubscriptions.tsx`
+- `apps/web/src/screens/platform/ApiPlatformTenants.tsx`, `ApiPlatformHealth.tsx`, `ApiPlatformSubscriptions.tsx`, `ApiPlatformInvoices.tsx`
 
-## Next steps
+## Next steps for the next agent
 
-1. **S6b**: build the invoices API and connect platform/invoices; migration 123 follows subscriptions. Create and mark-paid actions need recent re-authentication and audit logging.
-2. **Platform lifecycle**: build the approved school and organisation actions, plus the agreed visibility contract for console.figbloom.org.
-3. **Later decisions**: audit retention (Q5), live provider checks (Q7), and dual super-admin/org-admin accounts (Q8) remain open.
+1. **Billing (Q2, approved by D3) is built** (migrations 122 and 123). Before a production API cutover, transfer the historical Supabase invoice rows (the API table starts empty). Do not link overdue invoices to school suspension or invent MRR/seat counts.
+2. **Open owner decisions**: Q1, Q3, Q5, Q7 and Q8 remain open; see section 6 of `apps/api/docs/PLATFORM-CONSOLE.md`.
+3. **Sign-up visibility**: API-owned school sign-ups still need an explicit contract with `console.figbloom.org`; do not guess its integration.

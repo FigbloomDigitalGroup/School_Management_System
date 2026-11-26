@@ -950,11 +950,11 @@ export interface PlatformCapabilities {
   curriculumPage: boolean;
   /** `/platform/usage` — needs counts-only owner function (slice P4) and Q2 for licensed seats. */
   usagePage: boolean;
-  /** `/platform/incidents` — blocked on owner decision Q4 (hand-typed incident list vs external status/ops). */
+  /** `/platform/incidents` — hand-typed incident list backed by migration 121 and the platform incident routes. */
   incidentsPage: boolean;
   /** `/platform/subscriptions` — needs the platform billing API (slice S6a, D3). */
   subscriptionsPage: boolean;
-  /** `/platform/invoices` — blocked on owner decision Q2 (whether the API owns Figbloom billing). */
+  /** `/platform/invoices` — backed by the API billing endpoints and the S6c API page. */
   invoicesPage: boolean;
   /** `/platform/impersonation` — blocked on owner decision Q3 (impersonation / explicit support sessions). */
   impersonationPage: boolean;
@@ -992,9 +992,9 @@ const PLATFORM_ON_API: PlatformCapabilities = {
   organizationsPage: true,
   curriculumPage: false,
   usagePage: true,
-  incidentsPage: false,
+  incidentsPage: true,
   subscriptionsPage: true,
-  invoicesPage: false,
+  invoicesPage: true,
   impersonationPage: false,
   auditPage: true,
   tenantFiguresAndBilling: false,
