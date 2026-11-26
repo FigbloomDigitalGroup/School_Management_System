@@ -958,10 +958,10 @@ paths:
         an hour per e-mail address; `ORG_SIGNUP_DAILY_CAP` new requests a day for everyone together). Stores a REQUEST and
         e-mails a confirmation link (`/signup/verify?token=...`, valid 24 hours) to the address given; it creates no
         organisation, account or school. Enumeration-safe: a new address, an address whose request is already waiting and an
-        address that already has an account all get the same 202 (the route never reads accounts). 503 while e-mail is not
-        configured (nothing could be confirmed) and once the day's cap is reached, for every caller alike. No password is
-        collected: the first administrator chooses one after a super administrator approves the request. The token is never
-        returned.
+        address that already has an account all get the same 202 (the route never reads accounts). 503 while the route is
+        switched off (`ORG_SIGNUP_ENABLED`, off by default), while e-mail is not configured (nothing could be confirmed) and
+        once the day's cap is reached, for every caller alike. No password is collected: the first administrator chooses
+        one after a super administrator approves the request. The token is never returned.
       operationId: signupRequestOrganization
       x-figbloom-authz: public
       x-figbloom-tenantScope: none
@@ -1025,7 +1025,7 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
-          description: Sign-up is not available (e-mail is not configured, or today's cap of new requests is reached)
+          description: Sign-up is not available (switched off, e-mail is not configured, or today's cap of new requests is reached)
           content:
             application/json:
               schema:

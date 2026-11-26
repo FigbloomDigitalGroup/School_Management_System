@@ -396,6 +396,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/signup/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask to register an organisation (public)
+         * @description Public, rate limited (5 requests at once then 5 an hour per caller, an IPv6 caller counted per /64; 3 at once then 1 an hour per e-mail address; `ORG_SIGNUP_DAILY_CAP` new requests a day for everyone together). Stores a REQUEST and e-mails a confirmation link (`/signup/verify?token=...`, valid 24 hours) to the address given; it creates no organisation, account or school. Enumeration-safe: a new address, an address whose request is already waiting and an address that already has an account all get the same 202 (the route never reads accounts). 503 while the route is switched off (`ORG_SIGNUP_ENABLED`, off by default), while e-mail is not configured (nothing could be confirmed) and once the day's cap is reached, for every caller alike. No password is collected: the first administrator chooses one after a super administrator approves the request. The token is never returned.
+         */
+        post: operations["signupRequestOrganization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/signup/organizations/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the e-mail address of an organisation request (public)
+         * @description Public, rate limited (the login limiter, per caller). Single use: the link works once and for 24 hours. Moves the request to review (a super administrator then approves or rejects it). Every failure (unknown, used, replaced, expired, rejected) answers the same 400, so the answer never says which.
+         */
+        post: operations["signupVerifyOrganization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/org-signups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Organisation sign-up requests (platform)
+         * @description Super administrators only (`platform.org_signups.manage`). The requests, newest first, keyset-paginated on `(createdAt, id)`, read through `platform_org_signups_list()`. `status` filters on the effective status (an unconfirmed request whose link has lapsed reads `expired`). The list holds personal data (a name, an address, a phone), so each read is audited (`platform.org_signup.listed`, the count only). The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
+        get: operations["listPlatformOrgSignups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/org-signups/{signupId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve an organisation sign-up request (platform)
+         * @description Super administrators only (`platform.org_signups.manage`), with a recently confirmed password (403 `reauth_required` otherwise). Only a request whose address is confirmed can be approved (409 otherwise, and 409 when the address already has an account: an e-mailed link must never attach an organisation to somebody else's login). One transaction through `platform_org_signup_approve()` creates the organisation (active), the first administrator's account (invited, no usable password) with their org_admin membership, and a password-setup link (a password reset token, valid 7 days), and writes the audit row `platform.org_signup.approved` (ids only). The link is e-mailed to the confirmed address; it is returned in `setup.token` only when e-mail is not configured. The optional `slug` sets the organisation's address (3 to 40 of a-z, 0-9 and hyphens, none at either end; the platform's own words are refused; 409 when taken); without it the address is made from the name.
+         */
+        post: operations["approvePlatformOrgSignup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/org-signups/{signupId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject an organisation sign-up request (platform)
+         * @description Super administrators only (`platform.org_signups.manage`), with a recently confirmed password (403 `reauth_required` otherwise). Rejects a request that has not been decided (confirmed or not; 409 when it was already approved, rejected or has expired). The optional `reason` (at most 500 characters) is kept for the platform and is never e-mailed or audited. A plain notice is e-mailed only when the person had confirmed the address (an unconfirmed address may be somebody else's); `notified` says whether it was sent. Audit row `platform.org_signup.rejected` (ids only).
+         */
+        post: operations["rejectPlatformOrgSignup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/org-signups/{signupId}/reissue-setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a new password link to an approved organisation's administrator (platform)
+         * @description Super administrators only (`platform.org_signups.manage`), with a recently confirmed password (403 `reauth_required` otherwise). For an APPROVED request whose administrator has not yet chosen a password (the first e-mail was lost, or its 7-day link lapsed): issues a new link and revokes the older ones. 409 when the request was not approved or the person has already set a password. The account is found through the request's own organisation, so this can never reset anybody else's login. Audit row `platform.org_signup.setup_reissued` (ids only). No request body.
+         */
+        post: operations["reissuePlatformOrgSignupSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/invitations": {
         parameters: {
             query?: never;
@@ -6932,6 +7052,42 @@ export interface components {
             resolvedBy: string | null;
             resolvedByName: string | null;
         };
+        PlatformOrgSignup: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @enum {string} */
+            kind: "government" | "county" | "constituency" | "group_owner";
+            county: string | null;
+            contactPhone: string | null;
+            adminFullName: string;
+            adminEmail: string;
+            /** @enum {string} */
+            status: "pending_email" | "pending_review" | "approved" | "rejected" | "expired";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            verifiedAt: string | null;
+            /** Format: date-time */
+            decidedAt: string | null;
+            decidedByName: string | null;
+            decisionReason: string | null;
+            /** Format: uuid */
+            organizationId: string | null;
+            organizationSlug: string | null;
+        };
+        PlatformOrgSignupList: {
+            items: components["schemas"]["PlatformOrgSignup"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        PlatformOrgSignupSetup: {
+            /** Format: date-time */
+            expiresAt: string;
+            /** @enum {string} */
+            delivery: "sent" | "not_configured";
+            /** @description Only when `delivery` is `not_configured` (no e-mail provider). The single-use link token, shown once to the reviewer. */
+            token?: string;
+        };
         PlatformIncidentList: {
             items: components["schemas"]["PlatformIncident"][];
             page: components["schemas"]["PageInfo"];
@@ -11477,6 +11633,222 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    signupRequestOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @enum {string} */
+                    kind: "government" | "county" | "constituency" | "group_owner";
+                    county?: string;
+                    contact_phone?: string;
+                    admin_full_name: string;
+                    admin_email: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Received. The same answer whether or not a request or an account already exists for the address. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "received";
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["RateLimited"];
+            /** @description Sign-up is not available (switched off, e-mail is not configured, or today's cap of new requests is reached) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    signupVerifyOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The address is confirmed and the request waits for review */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "confirmed";
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    listPlatformOrgSignups: {
+        parameters: {
+            query?: {
+                status?: "pending_email" | "pending_review" | "approved" | "rejected" | "expired";
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sign-up requests page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOrgSignupList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    approvePlatformOrgSignup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                signupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    slug?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The request after approval, the new organisation and the setup link's delivery */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        signup: components["schemas"]["PlatformOrgSignup"];
+                        organization: {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                        };
+                        setup: components["schemas"]["PlatformOrgSignupSetup"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rejectPlatformOrgSignup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                signupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The request after rejection, and whether a notice was e-mailed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        signup: components["schemas"]["PlatformOrgSignup"];
+                        notified: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    reissuePlatformOrgSignupSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                signupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new link's delivery */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        setup: components["schemas"]["PlatformOrgSignupSetup"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     accountsCreateInvitation: {

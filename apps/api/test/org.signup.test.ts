@@ -91,7 +91,7 @@ describe("organisation sign-up (slice S6a, migration 124)", () => {
     ctx = await createTestApp();
     ids = ctx.ids;
     // this file stores far more than a day's default cap of requests; the cap itself is tested below with a low value
-    (ctx.app.appConfig as { orgSignupDailyCap: number }).orgSignupDailyCap = 10_000;
+    Object.assign(ctx.app.appConfig, { orgSignupDailyCap: 10_000, orgSignupEnabled: true });
     tokens.super = await login({ email: "super@example.com", password: PASSWORD });
     tokens.schoolAdmin = await login({ email: "admin-a@example.com", password: PASSWORD });
     tokens.orgAdmin = await login({ email: "orgadmin@example.com", password: PASSWORD });
@@ -113,6 +113,25 @@ describe("organisation sign-up (slice S6a, migration 124)", () => {
   });
 
   describe("the public route stores a request and nothing more", () => {
+    it("ships closed: off by default, and a 503 for everyone while it is switched off, with nothing stored", async () => {
+      const cfg = ctx.app.appConfig as { orgSignupEnabled: boolean };
+      cfg.orgSignupEnabled = false;
+      try {
+        const before = await signupCount();
+        for (const body of [fresh(), fresh({ admin_email: "admin-a@example.com" })]) {
+          const r = await submit(body);
+          expect(r.statusCode).toBe(503);
+          expect(r.json().error.code).toBe("service_unavailable");
+        }
+        expect(await signupCount()).toBe(before);
+        expect(sent).toEqual([]);
+        // deciding what is already stored is not affected by the switch
+        expect((await call("GET", PLATFORM, { token: tokens.super })).statusCode).toBe(200);
+      } finally {
+        cfg.orgSignupEnabled = true;
+      }
+    });
+
     it("is closed (503, for everyone) while e-mail is not configured, and stores nothing", async () => {
       setAccountNotifier(null);
       const before = await signupCount();

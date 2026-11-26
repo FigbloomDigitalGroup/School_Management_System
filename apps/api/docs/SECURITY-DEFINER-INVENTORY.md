@@ -205,3 +205,20 @@ suspend a school.
 | `platform_billing_invoices_list(date, uuid, integer)` | DEFINER (123), `STABLE` | `figbloom_app` | lists school name and invoice fields for `super_admin`, keyset by due date/id; does not expose fee invoices or direct table access |
 | `platform_billing_invoice_create(uuid, integer, date)` | DEFINER (123), `VOLATILE` | `figbloom_app` | re-checks super admin; creates a due invoice and audits school, amount and date in the same transaction |
 | `platform_billing_invoice_mark_paid(uuid)` | DEFINER (123), `VOLATILE` | `figbloom_app` | re-checks super admin; row-locks, manually records payment and audits the amount; repeated mark-paid is a no-op |
+
+## Addendum 2026-11-26 — migration 124 (organisation self-service sign-up, `docs/ORG-SIGNUP.md`)
+
+`organization_signups` has no `tenant_id` and is owner-only (forced RLS, owner policy, no privilege for `figbloom_app` or
+`figbloom_worker`). These six functions are the only way to it. The two public ones take no acting user (the person has no
+account yet) and can only store or confirm a request: nothing they do creates an account, an organisation or a school. The four
+platform ones each re-check `app_current_user_id()` against `platform_roles` (`super_admin`) and raise `42501` otherwise; the
+route has already checked `platform.org_signups.manage` with no school, and a recent sign-in for the three writes.
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `org_signup_submit(text, text, text, text, text, text, text, timestamptz, integer)` | DEFINER (124), `VOLATILE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | public; validates every field, takes one global advisory lock, checks the daily cap first, retires a lapsed unconfirmed request, then stores a new request, replaces the link of an unconfirmed one, or does nothing for a confirmed one; returns `created`, `resent`, `duplicate` or `capped` only; audit rows hold ids and the kind |
+| `org_signup_verify(text)` | DEFINER (124), `VOLATILE` | `figbloom_app` | public; true once for a live token of an unconfirmed request (the token is cleared), false for every other cause; audit `org_signup.verified` |
+| `platform_org_signups_list(uuid, text, timestamptz, uuid, integer)` | DEFINER (124), `STABLE` | `figbloom_app` | one request by id, or the list newest first, keyset `(created_at, id)`, filtered on the effective status, at most 201 rows; the route audits each read (a count) |
+| `platform_org_signup_approve(uuid, text, text, timestamptz)` | DEFINER (124), `VOLATILE` | `figbloom_app` | locks the request; only `pending_review` (`55000`); refuses an address that already has an account (`23505`); creates the organisation (active), the invited administrator (credential `!`), the `org_admin` membership and a `password_reset` token (at most 14 days), all in one transaction; audit `platform.org_signup.approved` (ids only). A given slug must be 3 to 40 of a-z, 0-9 and hyphens, none at either end, and not one of the platform's own words |
+| `platform_org_signup_reject(uuid, text)` | DEFINER (124), `VOLATILE` | `figbloom_app` | locks the request; `55000` unless undecided and, when unconfirmed, still live; keeps the reason (at most 500 characters) and clears the token; returns whether the address was confirmed; audit `platform.org_signup.rejected` (id, confirmed, has a reason) |
+| `platform_org_signup_reissue(uuid, text, timestamptz)` | DEFINER (124), `VOLATILE` | `figbloom_app` | an APPROVED request only (`55000`); finds the account through the request's own organisation and `org_admin` membership and only while it is `invited`; revokes its older setup tokens and issues one; no row means the person already set a password; audit `platform.org_signup.setup_reissued` |

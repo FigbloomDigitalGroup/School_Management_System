@@ -25,8 +25,8 @@ import { junkBucketAddress } from "./mpesa.js";
  *  - Limits, in addition to the body size (4 KiB): 5 requests at once then 5 an hour for a person (an IPv6 caller counts per
  *    /64), 3 at once then 1 an hour for one address (the bucket holds a hash, never the address), and
  *    ORG_SIGNUP_DAILY_CAP new requests a day for everyone together (the Supabase function allowed 5 an hour and 50 a day).
- *  - The confirmation token is never returned to the caller. With no e-mail provider the route answers 503 instead of storing
- *    requests nobody could confirm.
+ *  - The confirmation token is never returned to the caller. The route ships CLOSED (ORG_SIGNUP_ENABLED, off by default) and
+ *    answers 503 while there is no e-mail provider, instead of storing requests nobody could confirm.
  *  - Nothing typed by the person is logged or put in an audit row; the audit row names the request's id and kind only.
  */
 
@@ -66,8 +66,9 @@ export async function registerSignupOrganizationRoutes(app: FastifyInstance, poo
     if (body.name.trim().length < 2 || body.admin_full_name.trim().length < 1) throw validationError("Check the details and try again");
 
     const notifier = getAccountNotifier();
-    // The only proof is an e-mailed link: with nothing to send it, say so to everyone (as the Supabase function did).
-    if (!notifier.configured) throw serviceUnavailable("Sign-up is not available right now", 300);
+    // Closed until the owner opens it (ORG_SIGNUP_ENABLED), and while there is nothing to send the link with (the only proof is an
+    // e-mailed link; the Supabase function was closed the same way). The same 503 for everyone.
+    if (!app.appConfig.orgSignupEnabled || !notifier.configured) throw serviceUnavailable("Sign-up is not available right now", 300);
 
     const ip = clientIp(request);
     const result = await withIdentityAccess(

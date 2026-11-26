@@ -1,7 +1,7 @@
 # Account lifecycle, authentication and session policy (migrations 068, 069, 072)
 
 ## Principles
-* **No public account creation, no default administrator, no default password, no backdoor.** Every account is created by accepting an invitation issued by an authorised person, or by the one-time bootstrap below.
+* **No public account creation, no default administrator, no default password, no backdoor.** Every account is created by accepting an invitation issued by an authorised person, by the one-time bootstrap below, or by a super administrator approving an organisation sign-up request (below): the public sign-up route stores a *request* and creates no account.
 * Tokens (invitation, password reset, bootstrap setup) are 32 random bytes; only the **SHA-256** is stored (`account_tokens.token_hash`). They are **single-use, expiring (invitation 72 h, reset 30 min; hard cap 14 days by CHECK), revocable**, and never logged or audited in clear. The table is owner-only; all operations are SECURITY DEFINER functions with a fixed `search_path`, executable only by `figbloom_app`, whose actor/tenant come from the transaction GUCs set by the server (never from a request).
 * **Delivery is an external dependency.** No email/SMS provider is wired. `AccountNotifier` (`src/modules/account/notifier.ts`) defaults to `not_configured`; the API then returns the token **once** to the authorised issuer so it can be delivered out of band. Self-service reset requests never return a token, so they cannot complete until a provider is configured.
 
@@ -15,6 +15,8 @@
 | Accept invitation | `POST /v1/invitations/accept` | public, rate limited | new person sets an Argon2id password; **an existing account must present its own bearer token** (an emailed token alone never attaches a school to someone else's login); all failure causes answer identically; school becomes `active` when its first administrator accepts |
 | Request reset | `POST /v1/auth/password-reset/request` | public, rate limited | always `202` with the same body; a newer request revokes the older token |
 | Complete reset | `POST /v1/auth/password-reset/complete` | public, rate limited | replaces the hash (Argon2id), clears the forced-change flag, **revokes every session** |
+| Ask for an organisation | `POST /v1/signup/organizations`, `POST /v1/signup/organizations/verify` | public, rate limited, off unless `ORG_SIGNUP_ENABLED` | stores a request and e-mails a link to prove the mailbox; no account, organisation or school exists until a super administrator approves (`docs/ORG-SIGNUP.md`) |
+| Approve or reject a request | `POST /v1/platform/org-signups/:id/approve`, `/reject`, `/reissue-setup` | super administrator (`platform.org_signups.manage`, re-authentication) | approving creates the organisation, an `invited` administrator with an `org_admin` membership and a 7-day password link (a password-reset token) sent to the confirmed address |
 | Administrator reset | `POST …/members/:userId/password-reset` | school administrator | own-school members only; never yourself or a platform administrator |
 | Deactivate | `POST …/members/:userId/deactivate` | school administrator | archives the membership, revokes sessions acting in that school (all sessions if it was their last); never yourself or a platform administrator |
 
