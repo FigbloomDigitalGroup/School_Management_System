@@ -14,15 +14,15 @@ Counted from the code on 2026-11-25: the page registry in `apps/web/src/api/page
 
 | # | Page | Why it is not on the API build | Slice |
 |---|---|---|---|
-| 1 | `admin/leave-to-approve` | HR-run leave approvals: no API, and owner decisions open | S4 |
-| 2 | `teacher/loans` | A preview with sample data. No backend anywhere. Hidden by the owner's decision | S7 |
-| 3 | `staff/loans` | same | S7 |
+| 1 | `admin/leave-to-approve` | To build (HR-run leave approvals; the HR handoff it needed is merged) | S4 |
+| 2 | `teacher/loans` | **Closed by decision (D1, 2026-11-26):** stays hidden. A preview with sample data; no backend anywhere | S7 |
+| 3 | `staff/loans` | **Closed by decision (D1, 2026-11-26):** same | S7 |
 | 4 | `platform/curriculum` | **Closed by decision (D6, 2026-11-25):** each school verifies its own catalogue, as the API does | S5 |
 | 5 | `platform/incidents` | To build (D5: keep a hand-typed list) | S5 |
 | 6 | `platform/subscriptions` | To build (D3: the API owns Figbloom's billing of schools) | S5 |
 | 7 | `platform/invoices` | To build (D3) | S5 |
 | 8 | `platform/impersonation` | **Closed by decision (D4, 2026-11-25):** no impersonation page. (It was an empty log: nothing writes it.) | S5 |
-| 9 | `/signup` | No self-service sign-up on the API (C15) | S6 |
+| 9 | `/signup` | To build (D8: platform approves, rate-limited; D2: this API's console owns approval) | S6 |
 | 10 | `admin/behaviour` | On `main` only. The API has nothing for it | S2 |
 | 11 | `teacher/behaviour` | same | S2 |
 | 12 | `parent/behaviour` | same | S2 |
@@ -201,13 +201,17 @@ organisations (Q1).
 - **API:** a public, rate-limited route that creates an organisation in `pending` with its first admin's invitation (e-mail
   goes through Resend, in since #353). Approval through `platform/organizations`.
 - **Web:** `/signup` on the API build, with the slug check on the public school lookup (#414).
-- **Gate:** D8. **Size:** L, two PRs.
+- **Decisions (2026-11-26):** D8: Figbloom staff approve or reject on `platform/organizations`; the public route is
+  rate-limited with an e-mail check. D2: this API's console owns approve and reject. The owner added that API schools and
+  organisations should also be seen in `console.figbloom.org`. That needs that console's contract (which events it expects
+  and which ids), which we do not have, so it is **not built** and is written up as a finding in `docs/web-on-api/signup.md`.
+- **Size:** L, two PRs.
 
 ### S7. Loans (pages 2 and 3)
 
-No backend exists on either build. The decision on 2026-11-25 stands: they stay hidden, and the reason is written in
-`docs/web-on-api/staff-shell.md`. Closed by decision. If the owner wants Loans built, that is a new product and needs a
-spec first; it is not a port.
+No backend exists on either build. **Closed by decision (D1, 2026-11-26):** they stay hidden, and the reason is written in
+`docs/web-on-api/staff-shell.md`. If the owner wants Loans built, that is a new product and needs a spec first; it is not a
+port.
 
 ## 6. Decisions I need from the owner
 
@@ -216,14 +220,14 @@ others. Each line has my suggested answer; "no default" means I would not guess.
 
 | ID | Question | Pages | Suggested answer |
 |---|---|---|---|
-| D1 | Do Loans stay hidden? | 2, 3 | Yes. There is nothing to connect |
-| D2 | Q1: which console owns school and organisation lifecycle on the API? | Tenants controls, 9 | This API's console. The other path needs a server-to-server endpoint and a webhook that do not exist |
+| D1 | Do Loans stay hidden? | 2, 3 | **Answered 2026-11-26: yes, keep them hidden** |
+| D2 | Q1: which console owns school and organisation lifecycle on the API? | Tenants controls, 9 | **Answered 2026-11-26: this API's console, "but also seen in console.figbloom.org".** The first part is built (approve and reject, S6; suspend and reactivate later). The second needs that console's contract and is open |
 | D3 | Q2: does the API own Figbloom's billing of schools? | 6, 7 | **Answered 2026-11-25: yes, build it.** (Today staff mark invoices paid by hand, and there is no gateway) |
 | D4 | Q3: should impersonation exist? | 8 | **Answered 2026-11-25: no.** Still open: whether a super admin keeps full powers inside any school |
 | D5 | Q4: keep a hand-typed incident list here? | 5 | **Answered 2026-11-25: yes, keep it** |
 | D6 | Q6: does Figbloom verify one curriculum catalogue for all schools, or each school its own? | 4 | **Answered 2026-11-25: each school verifies its own** |
 | D7 | HR: ids, credentials, network, contracts, who sees the pages, approvals-only first (`HR-HANDOFF.md` section 6, questions 2 to 5, 7, 8, 9, 13) | 1, 14, 15 | Needed to switch on for a real school. Not needed to build. Suggested: leave documents out of L3 first |
-| D8 | Sign-up: who approves a new organisation, and what stops abuse? | 9 | The platform's Approve on `platform/organizations`, with a rate limit and an e-mail check |
+| D8 | Sign-up: who approves a new organisation, and what stops abuse? | 9 | **Answered 2026-11-26: the platform approves on `platform/organizations`; the public route is rate-limited with an e-mail check** |
 
 ## 7. How I work through it
 

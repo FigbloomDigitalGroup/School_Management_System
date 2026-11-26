@@ -56,15 +56,15 @@ All unblocked slices (**P1–P5**) are now implemented. Remaining platform conso
 
 | Hidden on the API build | Next slice / blocker |
 |---|---|
-| `platform/organizations` | **P3**: needs `GET /v1/platform/organizations` + `/{id}` (`platform.organizations.read`, migration); create/approve/suspend wait on Q1 |
+| `platform/organizations` | **P3**: needs `GET /v1/platform/organizations` + `/{id}` (`platform.organizations.read`, migration); **Q1 answered 2026-11-26: this API's console owns lifecycle**, so approve and reject come with sign-up (slice S6) and suspend and reactivate later. The owner also wants API schools seen in `console.figbloom.org`: not built, it needs that console's contract |
 | School admins panel on `platform/tenants` | **P3**: needs `GET /v1/platform/schools/{tenantId}/admins` (`platform.tenants.admins.read`, read-audited) |
 | `platform/usage` & per-school headcounts | **P4**: needs counts-only owner function (`GET /v1/platform/usage`, `platform.usage.read`); seats wait on Q2 |
 | `platform/audit` | **P5**: needs platform-wide audit read (`platform.audit.read`) reusing migration 106's allowlist; retention waits on Q5 |
 | Suspend / reactivate / move organisation | **Q1** (and Risk R5 for org-delegation FK when moving schools) |
-| `platform/subscriptions` & `platform/invoices` | **Q2** (whether the API owns Figbloom billing of schools) |
-| `platform/impersonation` | **Q3** (impersonation vs bounded support sessions) |
-| `platform/incidents` | **Q4** (in-app incident list vs external status/ops) |
-| `platform/curriculum` | **Q6** (platform-verified vs per-school KICD catalogue) |
+| `platform/subscriptions` & `platform/invoices` | **Q2 answered 2026-11-25: the API owns Figbloom's billing of schools.** Being built (roadmap slice S5); hidden until then |
+| `platform/impersonation` | **Closed by decision (Q3 answered 2026-11-25: no impersonation).** Hidden for good. The page was an empty log (nothing ever wrote to it). Still open as a separate question: a super admin can act inside any school with full powers and no record the school can read |
+| `platform/incidents` | **Q4 answered 2026-11-25: keep a hand-typed incident list.** Being built (slice S5); hidden until then |
+| `platform/curriculum` | **Closed by decision (Q6 answered 2026-11-25: each school verifies its own catalogue, as the API already works).** Hidden for good; there is no platform-wide catalogue to show |
 | Live external provider checks on `platform/health` | **Q7** (worker/queue ops status is shown today) |
 
 ## Where the code is
