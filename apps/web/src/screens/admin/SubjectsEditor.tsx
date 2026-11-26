@@ -24,7 +24,8 @@ export function SubjectsEditor({ classId, className, tenantId, classLevel, formL
   onClose: () => void;
 }) {
   const toast = useToast();
-  // On the new API a subject's teacher can be named once but not changed or cleared yet: a subject that has one shows it as text.
+  // What the backend can do (capabilities.ts). A teacher can be named, changed and cleared on both builds; where a build cannot change
+  // one, a subject that has a teacher shows it as text.
   const caps = setupCapabilities();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClassSubjects(tenantId, classId, classLevel, formLevel), [tenantId, classId, classLevel, formLevel, reloadKey]);

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { LEVELS, PATHWAY_LABEL, createClass, createClasses, defaultLevelForTenant, deleteClass, fetchClassTimetableSlots, fetchClassesOverview, levelsForTenant, saveClassTimetable, setClassTeacher, setupCapabilities, timetableCapabilities, yearLabel, yearRangeLabel, yearsFor } from "@figbloom/shared";
+import { LEVELS, PATHWAY_LABEL, createClass, createClasses, defaultLevelForTenant, deleteClass, fetchClassTimetableSlots, fetchClassesOverview, levelsForTenant, onApi, saveClassTimetable, setClassRoom, setClassTeacher, setupCapabilities, timetableCapabilities, yearLabel, yearRangeLabel, yearsFor } from "@figbloom/shared";
 import type { ClassGroup, ClassLevel, Pathway } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { Button } from "../../components/ui/Button";
@@ -66,8 +66,10 @@ function PathwaySelect({ value, onChange }: { value: Pathway | ""; onChange: (p:
 export function AdminClasses() {
   const toast = useToast();
   const { profile, tenant } = useTenantSession();
-  // What the backend can do: on the new API a class's teacher is chosen when it is made, and there is no room, promotion, timetable or delete yet.
+  // What the backend can do (capabilities.ts). On the new API a class's teacher and room can be changed, and "Delete" is an archive: the
+  // class leaves the list, nothing is lost, and it cannot be brought back. Promotion and the week-grid timetable editor are not there yet.
   const caps = setupCapabilities();
+  const archives = onApi();
   const timetableCaps = timetableCapabilities();
   const [reloadKey, setReloadKey] = useState(0);
   const { data, loading, error } = useAsync(() => fetchClassesOverview(tenant.id), [tenant.id, reloadKey]);
@@ -98,15 +100,26 @@ export function AdminClasses() {
 
   async function removeClass(c: ClassGroup) {
     const count = data?.studentCountByClass.get(c.id) ?? 0;
-    if (count > 0) { toast(`${c.name} has ${count} learner${count === 1 ? "" : "s"} on it — move them first.`, "error"); return; }
-    if (!(await confirmDialog({ title: `Delete ${c.name}?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
+    const learners = `${count} learner${count === 1 ? "" : "s"}`;
+    if (count > 0) {
+      toast(archives ? `${c.name} still has ${learners}. Move them to another class first, then archive it.` : `${c.name} has ${learners} on it — move them first.`, "error");
+      return;
+    }
+    const confirmed = archives
+      ? await confirmDialog({
+        title: `Archive ${c.name}?`,
+        body: "The class leaves this list and its teachers are taken off it. Its timetable and history are kept, but it cannot be brought back yet. A class that still has learners cannot be archived: move them to another class first.",
+        confirmLabel: "Archive", danger: true,
+      })
+      : await confirmDialog({ title: `Delete ${c.name}?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true });
+    if (!confirmed) return;
     try {
       await deleteClass(c.id);
     } catch (err) {
-      toast(`Could not delete ${c.name}: ${err instanceof Error ? err.message : String(err)}`, "error");
+      toast(`Could not ${archives ? "archive" : "delete"} ${c.name}: ${err instanceof Error ? err.message : String(err)}`, "error");
       return;
     }
-    toast(`${c.name} deleted.`);
+    toast(`${c.name} ${archives ? "archived" : "deleted"}.`);
     reload();
   }
 
@@ -139,7 +152,12 @@ export function AdminClasses() {
                 ? [{ key: "level", header: "Level", render: (c: ClassGroup) => <Cell sub={c.pathway ? PATHWAY_LABEL[c.pathway] : undefined}>{levelOptionLabel(c.level)}</Cell> }]
                 : []),
               { key: "form", header: "Year", render: (c: ClassGroup) => <Mono>{yearLabel(c.level, c.form_level)}</Mono> },
-              ...(caps.classRoom ? [{ key: "room", header: "Room", render: (c: ClassGroup) => <span className="text-[13px]">{c.room ?? "—"}</span> }] : []),
+              ...(caps.classRoom ? [{
+                key: "room", header: "Room",
+                render: (c: ClassGroup) => caps.editClassRoom
+                  ? <RoomField key={`${c.id}:${c.room ?? ""}`} cls={c} onSaved={reload} toast={toast} />
+                  : <span className="text-[13px]">{c.room ?? "—"}</span>,
+              }] : []),
               {
                 key: "teacher", header: "Class teacher", width: "1.4fr",
                 render: (c: ClassGroup) => !caps.changeClassTeacher ? (
@@ -195,7 +213,7 @@ export function AdminClasses() {
                       onClick={() => void removeClass(c)}
                       className="text-[12px] font-semibold text-warn-ink hover:underline"
                     >
-                      Delete
+                      {archives ? "Archive" : "Delete"}
                     </button>
                     )}
                   </div>
@@ -275,6 +293,41 @@ export function AdminClasses() {
         />
       )}
     </>
+  );
+}
+
+/** A class's room, edited where it is shown: saved when the field loses focus or Enter is pressed, and only if it changed (a blank clears it). */
+function RoomField({ cls, onSaved, toast }: { cls: ClassGroup; onSaved: () => void; toast: ToastFn }) {
+  const [value, setValue] = useState(cls.room ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const next = value.trim();
+    if (next === (cls.room ?? "")) { setValue(cls.room ?? ""); return; }
+    setSaving(true);
+    try {
+      await setClassRoom(cls.id, next || null);
+      onSaved();
+    } catch (err) {
+      setValue(cls.room ?? "");
+      toast(`Could not change the room for ${cls.name}: ${err instanceof Error ? err.message : String(err)}`, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <input
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => void save()}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+      disabled={saving}
+      maxLength={64}
+      placeholder="—"
+      aria-label={`Room for ${cls.name}`}
+      className="w-28 rounded-md border border-transparent px-1.5 py-1 text-[13px] outline-none hover:border-[#D3DAD5] focus:border-[#D3DAD5]"
+    />
   );
 }
 

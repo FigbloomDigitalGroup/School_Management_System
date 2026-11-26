@@ -173,6 +173,14 @@ On `main` or in an open PR, not live in production yet.
   `POST /v1/platform/incidents/{incidentId}/resolve`; the two writes need a recent sign-in. Audit events
   `platform.incident.declared` and `platform.incident.resolved`. A second resolve changes nothing. The existing hand-typed
   `platform/incidents` page now uses these API endpoints on the API build; the Supabase build is unchanged.
+- **School setup on the API build: classes and subjects (slice W0.2, web only, `docs/web-on-api/setup-classes-subjects.md`)**: on
+  `VITE_BACKEND=api`, `setupCapabilities()` turns on `changeClassTeacher`, `deleteClass`, `classRoom`, `editSubject`, `subjectDetails`
+  and `changeSubjectTeacher`, using what migration 101 already added (`PATCH` and `POST .../archive` on classes, `PATCH` on subjects,
+  `PATCH` and `POST .../archive` on teaching assignments). "Delete" on a class is an archive there: the button says Archive, the API
+  refuses while a learner is in the class, and there is no restore. "Add from KICD" is split into its own flag, `kicdCatalogue`
+  (true on Supabase, false on the API). Two API-only controls are added behind their own flags, `editClassRoom` and
+  `editSubjectLevelAndCore`. Still hidden on the API build: `promoteClass`, `classTimetable`, `feeSetup`, `schoolCrest`,
+  `aiSettings`. Nothing on Supabase changes, and no database object or endpoint is added or changed.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:

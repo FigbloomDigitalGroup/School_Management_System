@@ -3,7 +3,7 @@ import * as client from "./supabase";
 import {
   createClass, createClasses, createSubject, createSubjects, deleteClass, fetchClassSubjects, fetchClassesOverview, fetchGuardianProfileIds,
   fetchLatestExamMeans, fetchPromotionRoster, fetchSubjects, fetchTermSetup, markLearnersLeft, moveLearnersToClass, saveSchoolAccent,
-  saveSchoolDetails, saveSchoolLogo, saveSchoolPaymentMethods, sendInAppNotices, setClassSubjectTeacher, setClassTeacher, startTerm,
+  saveSchoolDetails, saveSchoolLogo, saveSchoolPaymentMethods, sendInAppNotices, setClassRoom, setClassSubjectTeacher, setClassTeacher, startTerm,
   updateSubject,
 } from "./schoolSetup";
 
@@ -126,6 +126,16 @@ describe("classes", () => {
     ]);
   });
 
+  it("setClassRoom sets that class's room, or clears it with null", async () => {
+    const sb = fake();
+    await setClassRoom("c1", "Block C-2");
+    await setClassRoom("c2", null);
+    expect(sb.on("classes").map((c) => [op(c, "update"), eqs(c)])).toEqual([
+      [[{ room: "Block C-2" }], { id: "c1" }],
+      [[{ room: null }], { id: "c2" }],
+    ]);
+  });
+
   it("deleteClass deletes that class only", async () => {
     const sb = fake();
     await deleteClass("c1");
@@ -138,6 +148,7 @@ describe("classes", () => {
     await expect(createClass("t1", NEW)).rejects.toBe(REFUSED);
     await expect(createClasses("t1", [NEW])).rejects.toBe(REFUSED);
     await expect(setClassTeacher("c1", "p1")).rejects.toBe(REFUSED);
+    await expect(setClassRoom("c1", "R1")).rejects.toBe(REFUSED);
     await expect(deleteClass("c1")).rejects.toBe(REFUSED);
   });
 });
@@ -378,6 +389,16 @@ describe("subjects", () => {
     expect(sb.on("subjects")[0]!.ops).toEqual([
       ["update", [{ name: "Mathematics", code: "MATH", min_form_level: null, max_form_level: 4 }]],
       ["eq", ["id", "sub1"]],
+    ]);
+  });
+
+  it("updateSubject also changes the level and the core flag when they are given, and only then", async () => {
+    const sb = fake();
+    await updateSubject("sub1", { name: "Maths", code: "MAT", minFormLevel: 7, maxFormLevel: 9, level: "junior_secondary", isCore: false });
+    await updateSubject("sub2", { name: "Art", code: "ART", minFormLevel: null, maxFormLevel: null, level: null });
+    expect(sb.on("subjects").map((c) => op(c, "update"))).toEqual([
+      [{ name: "Maths", code: "MAT", min_form_level: 7, max_form_level: 9, level: "junior_secondary", is_core: false }],
+      [{ name: "Art", code: "ART", min_form_level: null, max_form_level: null, level: null }],
     ]);
   });
 

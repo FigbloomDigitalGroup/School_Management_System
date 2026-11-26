@@ -1,4 +1,4 @@
-import { LEVELS, yearSortKey } from "../levels";
+import { LEVELS, subjectOffered, yearSortKey } from "../levels";
 import type { ClassGroup, ClassLevel, Subject, Term } from "../types";
 import { NotOnApiError } from "../capabilities";
 import { apiClient } from "./client";
@@ -13,9 +13,12 @@ import type { components } from "./schema";
  *  - A class belongs to an academic year, and a term to a year. Supabase had neither link. "The classes" here means the
  *    classes of the current year; making a class needs a current year (School settings -> Start a term makes one).
  *  - A teacher is a staff record, not a login. Every teacher id on this side is a staff id, kept opaque by the screens.
- *  - A subject is a code and a name. No core flag, no level or year range.
- *  - Most things can be made but not changed or removed yet. What the API cannot do throws NotOnApiError, and the screen
- *    does not offer it (capabilities.ts).
+ *  - A subject is a code, a name, a level, a year range and a core flag. It has no link to a KICD learning area.
+ *  - A class and a subject can be changed (migration 101: `PATCH`), and a class's teacher, room and subjects' teachers can be set and
+ *    cleared. A class is ARCHIVED, not deleted: the API refuses while an active learner is in it, and has no restore. A teaching
+ *    assignment keeps its id when its teacher changes, and is archived to clear it.
+ *  - What the API cannot do throws NotOnApiError, and the screen does not offer it (capabilities.ts).
+ *  - A write that names no school (a class's teacher, a subject's code) goes to the school the tab is in.
  */
 
 type SchoolClass = components["schemas"]["SchoolClass"];
@@ -25,6 +28,13 @@ type ApiSubject = components["schemas"]["Subject"];
 type StaffMember = components["schemas"]["StaffMember"];
 
 export interface TeacherOption { id: string; full_name: string }
+
+/** The school a write is for when it was not told one (the shared functions that change a class or a subject take only its id). */
+function activeTenantId(): string {
+  const id = apiClient().activeTenant();
+  if (!id) throw new Error("No active school selected.");
+  return id;
+}
 
 // ---------------------------------------------------------------- reading the lists (every page)
 
@@ -122,7 +132,7 @@ export function classGroupFromApi(c: SchoolClass, tenantId: string): ClassGroup 
     id: c.id, tenant_id: tenantId, name: c.name, level,
     // A class that never said its year is read as the first of its level: sorted and labelled, never a made-up 0.
     form_level: c.form_level ?? LEVELS[level].min,
-    pathway: c.pathway, stream: c.stream, class_teacher_id: c.class_teacher_staff_id, room: null,
+    pathway: c.pathway, stream: c.stream, class_teacher_id: c.class_teacher_staff_id, room: c.room ?? null,
   };
 }
 
@@ -135,7 +145,12 @@ export function termFromApi(t: AcademicTerm, year: AcademicYear | undefined, ten
 }
 
 export function subjectFromApi(s: ApiSubject, tenantId: string): Subject {
-  return { id: s.id, tenant_id: tenantId, name: s.name, code: s.code, is_core: true, level: null, min_form_level: null, max_form_level: null, learning_area_id: null };
+  return {
+    id: s.id, tenant_id: tenantId, name: s.name, code: s.code, is_core: s.is_core ?? true,
+    level: s.education_level ?? null, min_form_level: s.min_form_level ?? null, max_form_level: s.max_form_level ?? null,
+    // The API's subject has no link to a KICD learning area.
+    learning_area_id: null,
+  };
 }
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
@@ -173,7 +188,7 @@ export async function apiFetchClassesOverview(tenantId: string): Promise<ApiClas
 }
 
 export interface ApiNewClass {
-  name: string; level: ClassLevel; formLevel: number; pathway: ClassGroup["pathway"]; stream: string | null; classTeacherId: string | null;
+  name: string; level: ClassLevel; formLevel: number; pathway: ClassGroup["pathway"]; stream: string | null; room: string | null; classTeacherId: string | null;
 }
 
 async function requireCurrentYear(tenantId: string): Promise<AcademicYear> {
@@ -185,7 +200,7 @@ async function requireCurrentYear(tenantId: string): Promise<AcademicYear> {
 function classBody(yearId: string, c: ApiNewClass) {
   return {
     academic_year_id: yearId, name: c.name, form_level: c.formLevel, education_level: c.level,
-    pathway: c.pathway ?? null, stream: c.stream, class_teacher_staff_id: c.classTeacherId,
+    pathway: c.pathway ?? null, stream: c.stream, room: blankToNull(c.room), class_teacher_staff_id: c.classTeacherId,
   };
 }
 
@@ -210,6 +225,28 @@ export async function apiCreateClasses(tenantId: string, classes: ApiNewClass[])
       throw partialFailure("classes", made, classes.length, c.name, err);
     }
   }
+}
+
+/** Gives a class another teacher, or takes the teacher off with null. The new teacher must be an active member of staff of the school (400 otherwise). */
+export async function apiSetClassTeacher(classId: string, teacherId: string | null): Promise<void> {
+  const tenantId = activeTenantId();
+  await apiClient().patch("/v1/tenants/{tenantId}/classes/{classId}", { path: { tenantId, classId }, body: { class_teacher_staff_id: teacherId }, tenantId });
+}
+
+/** Sets a class's room, or clears it when blank or null. */
+export async function apiSetClassRoom(classId: string, room: string | null): Promise<void> {
+  const tenantId = activeTenantId();
+  await apiClient().patch("/v1/tenants/{tenantId}/classes/{classId}", { path: { tenantId, classId }, body: { room: blankToNull(room) }, tenantId });
+}
+
+/**
+ * Archives a class (what the screens call deleting one). The API refuses with 409 while an active learner is in it, ends the class's
+ * teaching assignments, and keeps its timetable and history. There is no restore. The ApiError's message is the API's own sentence,
+ * written for the person ("The class still has 2 learners. Move them to another class first.").
+ */
+export async function apiArchiveClass(classId: string): Promise<void> {
+  const tenantId = activeTenantId();
+  await apiClient().post("/v1/tenants/{tenantId}/classes/{classId}/archive", { path: { tenantId, classId }, tenantId });
 }
 
 /** The error for a batch that stopped part-way. Nothing made yet: the API's own error, untouched. Otherwise a message saying how far it got. */
@@ -275,7 +312,7 @@ export async function apiStartTerm(input: { tenantId: string; year: number; inde
   if (!term.is_current) await c.post("/v1/tenants/{tenantId}/academic-terms/{termId}/set-current", { path: { tenantId, termId: term.id }, tenantId });
 }
 
-const blankToNull = (s: string): string | null => (s.trim() === "" ? null : s.trim());
+const blankToNull = (s: string | null): string | null => (s === null || s.trim() === "" ? null : s.trim());
 
 export async function apiSaveSchoolDetails(tenantId: string, d: { name: string; county: string; moeRegistration: string }): Promise<void> {
   await apiClient().patch("/v1/tenants/{tenantId}/school-profile", {
@@ -293,21 +330,58 @@ export async function apiFetchSubjects(tenantId: string): Promise<Subject[]> {
   return (await listApiSubjects(tenantId)).map((s) => subjectFromApi(s, tenantId)).sort(byName);
 }
 
-export async function apiCreateSubject(tenantId: string, s: { name: string; code: string }): Promise<void> {
-  await apiClient().post("/v1/tenants/{tenantId}/subjects", { path: { tenantId }, tenantId, body: { code: s.code, name: s.name } });
+/** A subject to make. `level` is left out of the request when it is undefined, so the API's own default applies; null means any level. */
+export interface ApiNewSubject {
+  name: string; code: string; isCore: boolean; level?: ClassLevel | null; minFormLevel: number | null; maxFormLevel: number | null;
+  /** The KICD learning area it was added from: the API's subject has no such link, so a call that gives one is refused. */
+  learningAreaId?: string;
+}
+
+function subjectBody(s: ApiNewSubject) {
+  if (s.learningAreaId !== undefined) throw new NotOnApiError("Adding a subject from the KICD catalogue");
+  return {
+    code: s.code, name: s.name, is_core: s.isCore,
+    ...(s.level !== undefined ? { education_level: s.level } : {}),
+    min_form_level: s.minFormLevel, max_form_level: s.maxFormLevel,
+  };
+}
+
+export async function apiCreateSubject(tenantId: string, s: ApiNewSubject): Promise<void> {
+  await apiClient().post("/v1/tenants/{tenantId}/subjects", { path: { tenantId }, tenantId, body: subjectBody(s) });
 }
 
 /** One at a time (the API has no batch): see apiCreateClasses for what a refusal part-way leaves. */
-export async function apiCreateSubjects(tenantId: string, subjects: { name: string; code: string }[]): Promise<void> {
+export async function apiCreateSubjects(tenantId: string, subjects: ApiNewSubject[]): Promise<void> {
+  const bodies = subjects.map(subjectBody);
   let made = 0;
-  for (const s of subjects) {
+  for (const [i, s] of subjects.entries()) {
     try {
-      await apiClient().post("/v1/tenants/{tenantId}/subjects", { path: { tenantId }, tenantId, body: { code: s.code, name: s.name } });
+      await apiClient().post("/v1/tenants/{tenantId}/subjects", { path: { tenantId }, tenantId, body: bodies[i]! });
       made++;
     } catch (err) {
       throw partialFailure("subjects", made, subjects.length, s.name, err);
     }
   }
+}
+
+/**
+ * Changes a subject. The years and the name and code are always sent (a null year clears it); the level and the core flag only when given.
+ * The API refuses a code another subject has (409), years outside the level (400), and a subject that was archived (400): its own
+ * sentences reach the person.
+ */
+export async function apiUpdateSubject(
+  subjectId: string,
+  f: { name: string; code: string; minFormLevel: number | null; maxFormLevel: number | null; level?: ClassLevel | null; isCore?: boolean },
+): Promise<void> {
+  const tenantId = activeTenantId();
+  await apiClient().patch("/v1/tenants/{tenantId}/subjects/{subjectId}", {
+    path: { tenantId, subjectId }, tenantId,
+    body: {
+      name: f.name, code: f.code, min_form_level: f.minFormLevel, max_form_level: f.maxFormLevel,
+      ...(f.level !== undefined ? { education_level: f.level } : {}),
+      ...(f.isCore !== undefined ? { is_core: f.isCore } : {}),
+    },
+  });
 }
 
 export interface ApiClassSubjects {
@@ -322,27 +396,38 @@ async function listAssignments(tenantId: string, classId: string) {
   });
 }
 
-/** Every subject of the school with who teaches it in this class. No subject has a year range here, so every subject applies; and the API keeps no list of which teacher "teaches" which subject, so none is marked qualified. */
-export async function apiFetchClassSubjects(tenantId: string, classId: string): Promise<ApiClassSubjects> {
+/**
+ * The subjects a class takes, with who teaches each in this class. A subject whose level or years leave this class out is not listed
+ * (Subjects > "which forms offer it"), as on Supabase, unless it already has a teacher here: that one stays so the teacher can be changed
+ * or cleared. The API keeps no list of which teacher "teaches" which subject, so none is marked qualified.
+ */
+export async function apiFetchClassSubjects(tenantId: string, classId: string, classLevel: ClassLevel, formLevel: number): Promise<ApiClassSubjects> {
   const [subjects, assignments] = await Promise.all([listApiSubjects(tenantId), listAssignments(tenantId, classId)]);
   const teacherBySubject = new Map(assignments.map((a) => [a.subject_id, a.staff_member_id]));
-  return {
-    rows: subjects.sort(byName).map((s) => ({ subject: subjectFromApi(s, tenantId), teacherId: teacherBySubject.get(s.id) ?? null })),
-    qualifiedTeacherIdsBySubject: new Map(),
-  };
+  const rows = subjects
+    .map((s) => ({ subject: subjectFromApi(s, tenantId), teacherId: teacherBySubject.get(s.id) ?? null }))
+    .filter((r) => r.teacherId !== null || subjectOffered(r.subject, { level: classLevel, year: formLevel }))
+    .sort((a, b) => byName(a.subject, b.subject));
+  return { rows, qualifiedTeacherIdsBySubject: new Map() };
 }
 
-/** Names a subject's teacher in a class. The API can add an assignment, not change or clear one. */
+/**
+ * Names, changes or clears a subject's teacher in a class. A subject with none gets a new assignment. One that has a teacher keeps its
+ * assignment (the same id, so its timetable slots keep their link) and is given the new one; clearing archives it. The new teacher must
+ * be an active member of staff of the school (400 otherwise).
+ */
 export async function apiSetClassSubjectTeacher(input: { tenantId: string; classId: string; subjectId: string; teacherId: string | null }): Promise<void> {
   const { tenantId, classId, subjectId, teacherId } = input;
   const existing = (await listAssignments(tenantId, classId)).find((a) => a.subject_id === subjectId);
   if (!teacherId) {
     if (!existing) return;
-    throw new NotOnApiError("Taking a teacher off a subject");
+    await apiClient().post("/v1/tenants/{tenantId}/teaching-assignments/{assignmentId}/archive", { path: { tenantId, assignmentId: existing.id }, tenantId });
+    return;
   }
   if (existing) {
     if (existing.staff_member_id === teacherId) return;
-    throw new NotOnApiError("Changing a subject's teacher");
+    await apiClient().patch("/v1/tenants/{tenantId}/teaching-assignments/{assignmentId}", { path: { tenantId, assignmentId: existing.id }, body: { staff_member_id: teacherId }, tenantId });
+    return;
   }
   await apiClient().post("/v1/tenants/{tenantId}/teaching-assignments", { path: { tenantId }, tenantId, body: { staff_member_id: teacherId, class_id: classId, subject_id: subjectId } });
 }
