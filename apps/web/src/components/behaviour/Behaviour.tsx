@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  BEHAVIOUR_KIND_LABEL, fetchBehaviourPoints, fetchBehaviourSettings, fetchLearnerBehaviour, formatPoints, INCIDENT_ACTION_LABEL,
+  BEHAVIOUR_KIND_LABEL, fetchBehaviourPoints, fetchBehaviourSettings, fetchFamilyBehaviour, fetchLearnerBehaviour, formatPoints, INCIDENT_ACTION_LABEL,
   kindCounts, recordBehaviour, setBehaviourIncident, SEVERITY_LABEL, thresholdsReached, todayIso, voidBehaviourEntry,
   type BehaviourCategory, type BehaviourEntryRow, type BehaviourKind, type BehaviourLearner, type BehaviourSettings,
   type BehaviourThreshold, type FollowUpStatus, type IncidentAction, type LearnerPoints,
@@ -286,6 +286,8 @@ export function LearnerBehaviour({ studentId, tenantId, staff, firstName, reload
   const toast = useToast();
   const [bump, setBump] = useState(0);
   const { data, loading, error } = useAsync(async () => {
+    // A family reads one call (a parent may not read the school's settings route); staff read the three.
+    if (!staff) return fetchFamilyBehaviour(studentId, tenantId);
     const [settings, entries, points] = await Promise.all([
       fetchBehaviourSettings(tenantId), fetchLearnerBehaviour(studentId, staff), fetchBehaviourPoints([studentId]),
     ]);

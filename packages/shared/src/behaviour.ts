@@ -1,3 +1,23 @@
+import {
+  apiAddDefaultBehaviourCategories,
+  apiFetchBehaviourCategories,
+  apiFetchBehaviourClasses,
+  apiFetchBehaviourEntriesPage,
+  apiFetchBehaviourPoints,
+  apiFetchBehaviourRecorders,
+  apiFetchBehaviourSettings,
+  apiFetchClassLearners,
+  apiFetchFamilyBehaviour,
+  apiFetchLearnerBehaviour,
+  apiFetchSchoolLearners,
+  apiRecordBehaviour,
+  apiSaveBehaviourCategory,
+  apiSaveBehaviourSettings,
+  apiSetBehaviourCategoryArchived,
+  apiSetBehaviourIncident,
+  apiVoidBehaviourEntry,
+} from "./api/behaviourApi";
+import { onApi } from "./backend";
 import { supabase } from "./supabase";
 
 /**
@@ -198,12 +218,14 @@ export function familySees(s: Pick<BehaviourSettings, "parents_see_demerits" | "
 // ---------------------------------------------------------------- reading and writing
 
 export async function fetchBehaviourSettings(tenantId: string): Promise<BehaviourSettings> {
+  if (onApi()) return apiFetchBehaviourSettings(tenantId);
   const { data, error } = await supabase().from("behaviour_settings").select("*").eq("tenant_id", tenantId).maybeSingle();
   if (error) throw new Error(error.message);
   return data ? (data as BehaviourSettings) : { tenant_id: tenantId, ...DEFAULT_BEHAVIOUR_SETTINGS };
 }
 
 export async function saveBehaviourSettings(s: BehaviourSettings): Promise<void> {
+  if (onApi()) return apiSaveBehaviourSettings(s);
   const problem = settingsProblem(s);
   if (problem) throw new Error(problem);
   const row = {
@@ -216,6 +238,7 @@ export async function saveBehaviourSettings(s: BehaviourSettings): Promise<void>
 }
 
 export async function fetchBehaviourCategories(tenantId: string): Promise<BehaviourCategory[]> {
+  if (onApi()) return apiFetchBehaviourCategories(tenantId);
   const { data, error } = await supabase().from("behaviour_categories").select("*").eq("tenant_id", tenantId)
     .order("kind").order("sort_order").order("name");
   if (error) throw new Error(error.message);
@@ -223,6 +246,7 @@ export async function fetchBehaviourCategories(tenantId: string): Promise<Behavi
 }
 
 export async function saveBehaviourCategory(tenantId: string, c: Pick<BehaviourCategory, "kind" | "name" | "points" | "severity">, id?: string): Promise<void> {
+  if (onApi()) return apiSaveBehaviourCategory(tenantId, c, id);
   const name = c.name.trim();
   if (name.length < 2 || name.length > 60) throw new Error("A category name is 2 to 60 characters.");
   if (!Number.isInteger(c.points) || c.points < 1 || c.points > 100) throw new Error("Points are a whole number from 1 to 100.");
@@ -235,11 +259,13 @@ export async function saveBehaviourCategory(tenantId: string, c: Pick<BehaviourC
 }
 
 export async function setBehaviourCategoryArchived(id: string, archived: boolean): Promise<void> {
+  if (onApi()) return apiSetBehaviourCategoryArchived(id, archived);
   const { error } = await supabase().from("behaviour_categories").update({ archived_at: archived ? new Date().toISOString() : null }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
 export async function addDefaultBehaviourCategories(tenantId: string): Promise<number> {
+  if (onApi()) return apiAddDefaultBehaviourCategories(tenantId);
   const { data, error } = await supabase().rpc("add_default_behaviour_categories", { p_tenant: tenantId });
   if (error) throw new Error(error.message);
   return (data as number) ?? 0;
@@ -258,6 +284,7 @@ export interface RecordBehaviourInput {
 }
 
 export async function recordBehaviour(i: RecordBehaviourInput): Promise<number> {
+  if (onApi()) return apiRecordBehaviour(i);
   const { data, error } = await supabase().rpc("record_behaviour", {
     p_student_ids: i.studentIds, p_kind: i.kind, p_category_id: i.categoryId, p_points: i.points,
     p_note: i.note.trim() || null, p_staff_note: i.staffNote.trim() || null, p_occurred_on: i.occurredOn,
@@ -268,11 +295,13 @@ export async function recordBehaviour(i: RecordBehaviourInput): Promise<number> 
 }
 
 export async function voidBehaviourEntry(id: string, reason: string): Promise<void> {
+  if (onApi()) return apiVoidBehaviourEntry(id, reason);
   const { error } = await supabase().rpc("void_behaviour_entry", { p_id: id, p_reason: reason });
   if (error) throw new Error(error.message);
 }
 
 export async function setBehaviourIncident(id: string, action: IncidentAction | null, status: FollowUpStatus, parentNotified: boolean): Promise<void> {
+  if (onApi()) return apiSetBehaviourIncident(id, action, status, parentNotified);
   const { error } = await supabase().rpc("set_behaviour_incident", { p_id: id, p_action: action, p_status: status, p_parent_notified: parentNotified });
   if (error) throw new Error(error.message);
 }
@@ -284,6 +313,7 @@ export function friendlyBehaviourError(message: string): string {
 
 /** Points for these learners, or (null) every current learner the caller may see at their school. */
 export async function fetchBehaviourPoints(studentIds: string[] | null, on?: string): Promise<Map<string, LearnerPoints>> {
+  if (onApi()) return apiFetchBehaviourPoints(studentIds, on);
   if (studentIds && studentIds.length === 0) return new Map();
   const { data, error } = await supabase().rpc("behaviour_points", { p_student_ids: studentIds, p_on: on ?? null });
   if (error) throw new Error(error.message);
@@ -328,6 +358,7 @@ export interface EntryFilters {
 
 /** One page of the log, newest first, with the total for the pager. RLS decides whose entries come back. */
 export async function fetchBehaviourEntriesPage(tenantId: string, f: EntryFilters, offset: number, limit: number): Promise<{ rows: BehaviourEntryRow[]; total: number }> {
+  if (onApi()) return apiFetchBehaviourEntriesPage(tenantId, f, offset, limit);
   let q = supabase().from("behaviour_entries").select(ENTRY_SELECT, { count: "exact" }).eq("tenant_id", tenantId);
   if (f.classId) q = q.eq("class_id", f.classId);
   if (f.kind) q = q.eq("kind", f.kind);
@@ -347,6 +378,7 @@ export async function fetchBehaviourEntriesPage(tenantId: string, f: EntryFilter
 
 /** A learner's whole log, newest first (what the caller may see of it). */
 export async function fetchLearnerBehaviour(studentId: string, includeVoided = false): Promise<BehaviourEntryRow[]> {
+  if (onApi()) return apiFetchLearnerBehaviour(studentId, includeVoided);
   let q = supabase().from("behaviour_entries").select(ENTRY_SELECT).eq("student_id", studentId);
   if (!includeVoided) q = q.is("voided_at", null);
   const { data, error } = await q.order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(500).returns<EntryJoin[]>();
@@ -358,6 +390,7 @@ export interface BehaviourLearner { id: string; full_name: string; admission_no:
 
 /** The current learners of a class, for the record form's picker. */
 export async function fetchClassLearners(classId: string): Promise<BehaviourLearner[]> {
+  if (onApi()) return apiFetchClassLearners(classId);
   const { data, error } = await supabase().from("students").select("id, full_name, admission_no, class_id")
     .eq("class_id", classId).is("archived_at", null).order("full_name").returns<BehaviourLearner[]>();
   if (error) throw new Error(error.message);
@@ -366,6 +399,7 @@ export async function fetchClassLearners(classId: string): Promise<BehaviourLear
 
 /** The staff who have recorded something (the log's teacher filter). */
 export async function fetchBehaviourRecorders(tenantId: string): Promise<{ id: string; full_name: string }[]> {
+  if (onApi()) return apiFetchBehaviourRecorders(tenantId);
   const { data, error } = await supabase().from("profiles").select("id, full_name").eq("tenant_id", tenantId)
     .in("role", ["teacher", "school_admin", "staff"]).is("archived_at", null).order("full_name").returns<{ id: string; full_name: string }[]>();
   if (error) throw new Error(error.message);
@@ -374,6 +408,7 @@ export async function fetchBehaviourRecorders(tenantId: string): Promise<{ id: s
 
 /** The school's classes, for the office's filters and the record form's class picker. */
 export async function fetchBehaviourClasses(tenantId: string): Promise<{ id: string; name: string }[]> {
+  if (onApi()) return apiFetchBehaviourClasses(tenantId);
   const { data, error } = await supabase().from("classes").select("id, name").eq("tenant_id", tenantId).order("name").returns<{ id: string; name: string }[]>();
   if (error) throw new Error(error.message);
   return data ?? [];
@@ -381,6 +416,7 @@ export async function fetchBehaviourClasses(tenantId: string): Promise<{ id: str
 
 /** Every current learner at the school with their class name (the office's points list). */
 export async function fetchSchoolLearners(tenantId: string): Promise<(BehaviourLearner & { className: string | null })[]> {
+  if (onApi()) return apiFetchSchoolLearners(tenantId);
   const out: (BehaviourLearner & { className: string | null })[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase().from("students").select("id, full_name, admission_no, class_id, classes(name)")
@@ -390,4 +426,11 @@ export async function fetchSchoolLearners(tenantId: string): Promise<(BehaviourL
     for (const r of data ?? []) out.push({ id: r.id, full_name: r.full_name, admission_no: r.admission_no, class_id: r.class_id, className: r.classes?.name ?? null });
     if ((data ?? []).length < 1000) return out;
   }
+}
+
+/** What the school shares with a learner's family: the display settings, the entries a family may see, and the points. */
+export async function fetchFamilyBehaviour(studentId: string, tenantId: string): Promise<{ settings: BehaviourSettings; entries: BehaviourEntryRow[]; points: LearnerPoints | undefined }> {
+  if (onApi()) return apiFetchFamilyBehaviour(studentId);
+  const [settings, entries, points] = await Promise.all([fetchBehaviourSettings(tenantId), fetchLearnerBehaviour(studentId, false), fetchBehaviourPoints([studentId])]);
+  return { settings, entries, points: points.get(studentId) };
 }

@@ -599,7 +599,8 @@ describe("peopleCapabilities", () => {
     initBackend({ kind: "api", apiUrl: BASE });
     const c = peopleCapabilities();
     expect(c).toMatchObject({ staffArchive: true, guardianContactForm: true, learnerWithoutClass: true, unassignClass: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, staffAccounts: false });
-    const on = ["staffArchive", "guardianContactForm", "learnerWithoutClass", "guardianInvitations", "staffSignIn"];
+    // learnerBehaviour: the behaviour log is on the API (docs/web-on-api/behaviour.md)
+    const on = ["staffArchive", "guardianContactForm", "learnerWithoutClass", "guardianInvitations", "staffSignIn", "learnerBehaviour"];
     const off = Object.entries(c).filter(([k]) => !on.includes(k)).filter(([, v]) => v);
     expect(off).toEqual([]);
   });
