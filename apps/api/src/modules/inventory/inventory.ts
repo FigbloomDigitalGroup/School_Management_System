@@ -18,6 +18,12 @@ export interface InventoryItem {
   retired_at: string | null;
   created_at: string;
   updated_at: string;
+  /** What a stock line is counted in: kg, litres, bags (migration 115). */
+  unit: string | null;
+  /** Used up rather than handed out and returned: kitchen food, chalk, printer paper. */
+  consumable: boolean;
+  /** Warn when stock falls to this. */
+  reorder_level: number | null;
 }
 
 export interface InventoryIssue {
@@ -33,7 +39,7 @@ export interface InventoryIssue {
   closed_at: string | null;
 }
 
-const ITEM_COLS = `id, tenant_id, name, category, tracking, quantity, asset_tag, condition, location, retired_at, created_at, updated_at`;
+export const ITEM_COLS = `id, tenant_id, name, category, tracking, quantity, asset_tag, condition, location, retired_at, created_at, updated_at, unit, consumable, reorder_level`;
 const ISSUE_COLS = `id, tenant_id, item_id, learner_id, holder_user_id, quantity, status, issued_at, due_on::text AS due_on, closed_at`;
 
 export function assertValidCalendarDate(dateStr: string, field: string): void {
@@ -55,14 +61,25 @@ export async function createInventoryItem(
     asset_tag?: string | null;
     condition?: string;
     location?: string | null;
+    unit?: string | null;
+    consumable?: boolean;
+    reorder_level?: number | null;
   },
 ): Promise<InventoryItem> {
   const qty = input.tracking === "asset" ? 1 : (input.quantity ?? 1);
-  if (qty < 1) throw validationError("quantity must be at least 1");
+  // A stock line may start empty (a consumable's opening stock, before its first delivery), as on Supabase.
+  if (qty < 0) throw validationError("quantity must be 0 or more");
+  const unit = input.unit?.trim() || null;
+  if (unit !== null && unit.length > 20) throw validationError("unit must be at most 20 characters");
+  // An asset is one thing: it has no unit, is never used up and has no reorder level (docs/INVENTORY-STOCK.md).
+  if (input.tracking === "asset" && (unit !== null || input.consumable === true || (input.reorder_level ?? null) !== null)) {
+    throw validationError("An asset has no unit, is not consumable and has no reorder level");
+  }
   try {
     const res = await tx.query<InventoryItem>(
-      `INSERT INTO inventory_items (tenant_id, name, category, tracking, quantity, asset_tag, condition, location, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO inventory_items (tenant_id, name, category, tracking, quantity, asset_tag, condition, location, created_by,
+                                    unit, consumable, reorder_level)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING ${ITEM_COLS}`,
       [
         input.tenantId,
@@ -74,6 +91,9 @@ export async function createInventoryItem(
         input.condition ?? "good",
         input.location ?? null,
         input.actorUserId,
+        unit,
+        input.consumable ?? false,
+        input.reorder_level ?? null,
       ],
     );
     await recordSecurityEvent(tx, {

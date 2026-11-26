@@ -11,6 +11,7 @@ Isolated replacement schema in database `figbloom_api`. Legacy Supabase tables a
 | tenants | organization_id | uuid FK | INDEX | NOT NULL |
 | tenants | slug | text | UNIQUE | Path segment |
 | tenants | status | text | INDEX | `suspended` blocks membership use |
+| tenants | hr_requested_at / hr_requested_by | timestamptz / uuid FK users (SET NULL) | CHECK: no requester without a time | "Request Figbloom HR" (117); written only by `hr_record_request()` |
 | users | id | uuid PK | | Canonical identity |
 | users | email | text | UNIQUE, lower-case check | Null for login_id accounts |
 | users | password_hash | text | NOT NULL | scrypt encoding; never plaintext |

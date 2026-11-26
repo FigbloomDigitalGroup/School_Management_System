@@ -258,8 +258,15 @@ const ConfigSchema = z.object({
   platformApiUrl: z.string().min(1).max(2048).optional(),
   /** HR's base address for My HR, e.g. https://hr.example/api/integrations/my-hr (https, no trailing slash). */
   hrMyHrUrl: z.string().min(1).max(2048).optional(),
-  /** Per call to the platform token endpoint or to HR (including reading the answer). */
+  /** Per call to the platform token endpoint, the platform's API or HR (including reading the answer). */
   myHrHttpTimeoutMs: z.coerce.number().int().min(100).max(30_000).default(15_000),
+  /**
+   * "HR & Payroll" hand-off (docs/HR-HANDOFF.md, slice H1): the one-time sign-in link into Figbloom HR, whether HR is there for
+   * the school, and "Request Figbloom HR". OFF unless PLATFORM_HANDOFF_ENABLED=true AND PLATFORM_CLIENT_ID,
+   * PLATFORM_CLIENT_SECRET, PLATFORM_TOKEN_URL and PLATFORM_API_URL are all set. Its own switch, as on Supabase, so My HR can be
+   * on while this is off. The calls share MY_HR_HTTP_TIMEOUT_MS.
+   */
+  platformHandoffEnabled: z.boolean().default(false),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
@@ -387,6 +394,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     platformApiUrl: env.PLATFORM_API_URL?.trim() || undefined,
     hrMyHrUrl: env.HR_MY_HR_URL?.trim() || undefined,
     myHrHttpTimeoutMs: env.MY_HR_HTTP_TIMEOUT_MS || undefined,
+    platformHandoffEnabled: (env.PLATFORM_HANDOFF_ENABLED ?? "").trim().toLowerCase() === "true",
   });
   if (!parsed.success) {
     throw new Error(

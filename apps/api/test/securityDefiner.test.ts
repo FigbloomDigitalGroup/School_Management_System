@@ -42,6 +42,8 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "transport_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: resolves only the calling guardian account's linked, active learners in the current tenant" },
   // Migration 099: family reads (docs/FAMILY-READS.md)
   "family_my_children()": { secdef: true, grantees: ["figbloom_app"], why: "guardian_accounts is owner-only: the calling account's children in the current school (live link, active account, parent membership, active guardian record, live relationship, active learner); no argument, so no other account can be asked about" },
+  // Migration 117: "Request Figbloom HR" (docs/HR-HANDOFF.md, H1)
+  "hr_record_request()": { secdef: true, grantees: ["figbloom_app"], why: "tenants is SELECT-only for figbloom_app: records the school's request for HR (hr_requested_at / hr_requested_by) for the school and person of the request (app.tenant_id / app.user_id, no argument), keeps the first request, and refuses (42501) without them, for a platform super admin, a suspended school, or anyone not an active staff member of the school or a delegated organisation administrator for its Fees area" },
   // Migration 114: platform school administrators read (docs/PLATFORM-CONSOLE.md slice P3, fix)
   "platform_school_admins(uuid,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "school_memberships is tenant-scoped (forced RLS) and the platform request has no school: lists one school's active school_admin members (name, e-mail, status) for super_admin (re-checked from app.user_id); at most 201 rows; the route audits every read" },
   // Migration 113: platform audit read (docs/PLATFORM-CONSOLE.md slice P5)
@@ -485,6 +487,24 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: ["figbloom_app"],
     why: "guardian_accounts is owner-only: the parent accounts to tell about ONE serious entry, and only for the person who recorded it in the last 10 minutes, when the school lets families see that kind of entry; opaque account ids only",
   },
+  // Migration 116 (stock reports, docs/INVENTORY-STOCK.md): a port of the Supabase report functions, all SECURITY INVOKER.
+  "inventory_assert_tenant(uuid)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): refuses (42501) a school other than app.tenant_id; the first line of every stock report" },
+  "inventory_price_on(uuid,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): an item's unit price on a day (latest priced delivery on or before it, else the register's), under RLS" },
+  "inventory_qty_text(numeric,text)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): IMMUTABLE formatting of a quantity and its unit for the flag wording; reads no data" },
+  "inventory_ledger(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: every movement in a period; refuses another school; under RLS" },
+  "inventory_usage(uuid,date,date,text)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: use, waste, deliveries, shrinkage and money per item per bucket; refuses another school; under RLS" },
+  "inventory_spend_by_month(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: delivery spend per month and store; refuses another school; under RLS" },
+  "inventory_cost_per_meal(uuid,date,date,text)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: kitchen cost over meals served; refuses another school; under RLS" },
+  "inventory_stock_levels(uuid,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: live stock lines, value, use, cover, low, next delivery; refuses another school; under RLS" },
+  "inventory_headcount(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: learners, staff and gate visitors per day (counts only), at most 400 days; refuses another school; under RLS" },
+  "inventory_headcount_days(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): the days of inventory_headcount without the 400-day limit, for the flags; refuses another school; under RLS" },
+  "inventory_consumption_flags(uuid,date,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): stock report: the deterministic anomaly flags (item names and numbers, never a person); refuses another school; under RLS" },
+  // Migration 115 (stock movements, docs/INVENTORY-STOCK.md).
+  "inventory_movements_apply()": {
+    secdef: false,
+    grantees: [],
+    why: "INVOKER trigger; locks the item FOR UPDATE under row security, refuses assets, written-off items and stock below 0 or below what issues owe, stamps the recorder from app.user_id, moves the count; refuses any UPDATE",
+  },
   // Migration 055 (leave).
   "leave_requests_guard()": {
     secdef: false,
@@ -536,6 +556,7 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "auth_session_idle_seconds(uuid)",
   "finance_ops_snapshot()",
   "platform_usage_counts()",
+  "hr_record_request()",
   "platform_school_admins(uuid,timestamp with time zone,uuid,integer)",
   "platform_audit_events(uuid,text,timestamp with time zone,timestamp with time zone,uuid,integer)",
   "platform_provision_school(uuid,text,text,text,text,text,text,timestamp with time zone)",

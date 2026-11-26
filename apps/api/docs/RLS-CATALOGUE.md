@@ -105,6 +105,7 @@ no mode GUC and no application-settable bypass.
 | `behaviour_categories` | tenant; `UPDATE` only of name, points, severity, order and `archived_at`: a category is archived, never deleted. Same-school entries through the composite key `(category_id, tenant_id)` | same | 118 | `behaviour` |
 | `behaviour_entries` | tenant; `SELECT`, `INSERT`, and `UPDATE` of the void and incident columns only. `behaviour_entries_guard` (invoker trigger) refuses every other change, so an entry is only ever voided or followed up; no `DELETE`. Same-school learner, category, class and subject through composite keys | same | 118 | `behaviour` |
 | `behaviour_staff_notes` | tenant; `SELECT` and `INSERT` only (a staff-only note never changes). Same-school entry through `(entry_id, tenant_id)` | same | 118 | `behaviour` |
+| `inventory_movements` | tenant; `SELECT` and `INSERT` only for the app (a stock movement is never rewritten or removed; the `inventory_movements_apply` trigger refuses any `UPDATE`, the owner's too). Same-school item through the composite key `(item_id, tenant_id)` (`INVENTORY-STOCK.md`) | same | 115 | `inventory.stock` |
 | `leave_requests` | tenant | same | 055, 064 | `stage13.leave`, `stage13.adversarial` |
 | `activities` | tenant | same | 056 | `stage13.activities` |
 | `activity_patrons` | tenant | same | 056 | `stage13.activities` |
@@ -141,7 +142,7 @@ no mode GUC and no application-settable bypass.
 | `finance_bank_statements` | tenant (`SELECT, INSERT` + column-level `UPDATE (matched_count, unmatched_count, status)`) | same | 097 | `bankReconciliation.unit` |
 | `finance_bank_statement_lines` | tenant (`SELECT, INSERT` + column-level `UPDATE (match_status, matched_payment_id, matched_invoice_id, matched_by, matched_at, match_note)`) | same | 097 | `bankReconciliation.unit` |
 | `teacher_reports` | tenant (`SELECT, INSERT` + column-level `UPDATE` on editable/review fields) | same | 098 | `teacherReports.unit` |
-| `platform_school_links` | tenant; `SELECT` only for the app (an operator writes it as the migrator; nothing in the API does): the school is known to the platform, and the platform's last answer about HR (My HR, `MY-HR.md`) | same | 108 | `myHr` |
+| `platform_school_links` | tenant; `SELECT` plus column-level `UPDATE (hr_enabled, hr_reason, hr_checked_at)` for the app (117: the HR & Payroll hand-off records the platform's last answer about HR for its own school); an operator adds, removes and re-points rows (and sets `platform_tenant_id`) as the migrator | same | 108, 117 | `myHr`, `hrHandoff` |
 
 Not in this table on purpose: `security_audit_events` carries `tenant_id` for attribution but is an
 append-only log; the runtime role holds `INSERT` only (asserted in `phase3.runtimeIsolation`). Identity-plane
@@ -169,6 +170,13 @@ and its `/enrolments` roster read `he_sections`, `he_courses`, `academic_terms`,
 under the policies above; "the caller is the instructor" is the join to the caller's own active, linked staff record.
 
 My HR (`MY-HR.md`, migration 108) adds the one table above and no function or definer. `/me/hr/*` read it under the tenant policy; every call to Figbloom HR happens after that transaction has committed.
+
+The HR & Payroll hand-off (`HR-HANDOFF.md`, slice H1, migration 117) adds no table and no policy. It adds the nullable column
+`platform_school_links.platform_tenant_id` (operator-written) and the column-level `UPDATE` grant above; the update runs under
+the same tenant policy, so a school can only record an answer about itself. It adds `tenants.hr_requested_at` and
+`hr_requested_by` (`tenants` is an identity table, still `SELECT`-only for the runtime role); their one write path is the
+`SECURITY DEFINER` function `hr_record_request()`, which takes the school and the person from `app_current_tenant_id()` and
+`app_current_user_id()`. Every call to the platform happens between two short tenant transactions, with no connection held.
 
 ## Updating this file
 

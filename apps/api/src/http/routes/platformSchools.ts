@@ -24,6 +24,10 @@ import { uuidString } from "../schemas.js";
  *
  * Paging: keyset on `(name COLLATE "C", id)`. The cursor carries only the last school's id (names have no length limit),
  * and the boundary is read from that row in the same statement, as GET /v1/org/schools does.
+ *
+ * "Request Figbloom HR" (docs/HR-HANDOFF.md, H1; migration 117): each school carries when it asked Figbloom for HR and the
+ * id of the account that asked (`hrRequestedAt`, `hrRequestedBy`; null when it never asked), so Figbloom staff see the
+ * requests, as the Supabase console does. An id only: no name or e-mail, so the list stays free of personal data.
  */
 
 const TENANT_STATUSES = ["active", "trial", "onboarding", "overdue", "suspended", "setup_stalled"] as const;
@@ -41,9 +45,11 @@ interface SchoolRow {
   organization_slug: string;
   organization_kind: string;
   organization_status: string;
+  hr_requested_at: Date | null;
+  hr_requested_by: string | null;
 }
 
-const SELECT_SCHOOL = `SELECT t.id, t.name, t.slug, t.status, t.timezone, t.created_at,
+const SELECT_SCHOOL = `SELECT t.id, t.name, t.slug, t.status, t.timezone, t.created_at, t.hr_requested_at, t.hr_requested_by,
          o.id AS organization_id, o.name AS organization_name, o.slug AS organization_slug,
          o.kind AS organization_kind, o.status AS organization_status
     FROM tenants t
@@ -64,6 +70,8 @@ function toSchool(r: SchoolRow) {
       kind: r.organization_kind,
       status: r.organization_status,
     },
+    hrRequestedAt: r.hr_requested_at ? r.hr_requested_at.toISOString() : null,
+    hrRequestedBy: r.hr_requested_by,
   };
 }
 

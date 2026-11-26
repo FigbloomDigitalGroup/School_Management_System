@@ -79,7 +79,8 @@ describe("seeded upgrade 072 -> latest (migrations 073+)", () => {
               ('ws_CO_U2', 'MR2', 1032, NULL, NULL, NULL, now() - interval '1 hour')`);
 
     const snapshot = async () => ({
-      tenants: (await q(`SELECT md5(string_agg(t::text, '|' ORDER BY id)) AS h, count(*)::int AS n FROM tenants t`)).rows[0],
+      // every column that existed at 072: migration 117 legitimately adds tenants.hr_requested_at and hr_requested_by (null until a school asks for HR)
+      tenants: (await q(`SELECT md5(string_agg((to_jsonb(t) - 'hr_requested_at' - 'hr_requested_by')::text, '|' ORDER BY id)) AS h, count(*)::int AS n FROM tenants t`)).rows[0],
       users: (await q(`SELECT md5(string_agg(u::text, '|' ORDER BY id)) AS h, count(*)::int AS n FROM users u`)).rows[0],
       members: (await q(`SELECT md5(string_agg(m::text, '|' ORDER BY id)) AS h, count(*)::int AS n FROM school_memberships m`)).rows[0],
       learners: (await q(`SELECT md5(string_agg(l::text, '|' ORDER BY id)) AS h, count(*)::int AS n FROM learners l`)).rows[0],
