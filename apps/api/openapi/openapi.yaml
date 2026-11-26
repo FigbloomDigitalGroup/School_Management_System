@@ -28657,9 +28657,9 @@ components:
           type:
             - integer
             - "null"
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: "The size, positive. Null or left out: the category's default."
+          description: "The size, positive (0 only for an incident with no category). Null or left out: the category's default."
         note:
           type:
             - string
