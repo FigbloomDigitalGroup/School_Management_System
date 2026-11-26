@@ -96,5 +96,6 @@ export { apiCreateLearningMaterial } from "./materialsApi";
 export { visitFromApi, apiSubscribeVisits } from "./visitorsApi";
 export { apiFetchMyHomework, apiCreateHomework, apiFetchHomeworkSubjectsForClass } from "./homeworkApi";
 export { auditEventFromApi, API_AUDIT_SEARCH_MAX, AUDIT_SYSTEM_ACTOR } from "./auditApi";
+export { apiCreateStudentAccount, apiFetchStudentAccountStatuses, STUDENT_ACCOUNT_STATUS_CONCURRENCY } from "./studentAccountsApi";
 
 export * from "./orgSignupApi";

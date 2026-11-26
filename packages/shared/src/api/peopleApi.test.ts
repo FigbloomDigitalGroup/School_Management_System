@@ -598,9 +598,9 @@ describe("peopleCapabilities", () => {
   it("offers on the API only what it can do: archive, guardian contacts, sign-in invitations, and not what has no endpoint", () => {
     initBackend({ kind: "api", apiUrl: BASE });
     const c = peopleCapabilities();
-    expect(c).toMatchObject({ staffArchive: true, guardianContactForm: true, learnerWithoutClass: true, unassignClass: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, staffAccounts: false });
+    expect(c).toMatchObject({ staffArchive: true, guardianContactForm: true, learnerWithoutClass: true, learnerLogins: true, unassignClass: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, staffAccounts: false });
     // learnerBehaviour: the behaviour log is on the API (docs/web-on-api/behaviour.md)
-    const on = ["staffArchive", "guardianContactForm", "learnerWithoutClass", "guardianInvitations", "staffSignIn", "learnerBehaviour"];
+    const on = ["staffArchive", "guardianContactForm", "learnerWithoutClass", "learnerLogins", "guardianInvitations", "staffSignIn", "learnerBehaviour"];
     const off = Object.entries(c).filter(([k]) => !on.includes(k)).filter(([, v]) => v);
     expect(off).toEqual([]);
   });

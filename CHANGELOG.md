@@ -31,6 +31,7 @@ rename it or change how it behaves without a PR that Mike approves.
 
 ## Unreleased
 
+- **Learner logins in People on the API build (W0.3, first PR, `docs/web-on-api/people.md`)**: adds the Login column and Create logins action using the existing student-account status and create endpoints. Login status is read for the current page only, with bounded concurrency; one-time passwords remain visible only in the create response and modal. The Supabase provisioning path is unchanged.
 - **Homework editing and archive on the new API (W1.1, `apps/api/docs/HOMEWORK.md`)**: migration `125_homework_edit_archive.sql` adds `hand_in`, the optional parent guide, archive metadata, and `updated_at` to `homework_items`; instructions may now be blank. `PATCH /v1/tenants/{tenantId}/homework-items/{homeworkId}` updates allowed fields, and `POST .../{homeworkId}/archive` archives without deleting (both use `resource.academics.write`). Lists omit archived items. Parent and learner homework reads now include hand-in method, teacher name only, and guide fields; learner reads expose only `needs` and `minutes`. Audit events `academics.homework.updated` and `.archived` omit the homework text. No Supabase behavior changes; file attachments remain separate.
 - **Organisation sign-up on the API build (slice S6b, `docs/web-on-api/signup.md`)**: `/signup` and `/signup/verify` open on
   `VITE_BACKEND=api` (`apps/web/src/api/ApiSignup.tsx`; no password and no web address: the platform sets the address and the first
