@@ -15,6 +15,10 @@ export function hashAccountToken(token: string): string {
 
 export const INVITATION_TTL_HOURS = 72;
 export const RESET_TTL_MINUTES = 30;
+/** The confirmation link of an organisation sign-up (docs/ORG-SIGNUP.md). */
+export const ORG_SIGNUP_VERIFY_TTL_HOURS = 24;
+/** The first administrator's password-setup link, after approval (a password_reset token; the table allows at most 14 days). */
+export const ORG_SIGNUP_SETUP_TTL_DAYS = 7;
 const expiry = (ms: number) => new Date(Date.now() + ms);
 
 function policy(password: string): void {

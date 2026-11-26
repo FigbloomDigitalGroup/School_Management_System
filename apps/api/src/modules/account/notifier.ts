@@ -8,7 +8,11 @@
 export type DeliveryResult = "sent" | "not_configured";
 
 export interface AccountMessage {
-  kind: "invitation" | "password_reset" | "guardian_invitation";
+  /**
+   * `org_signup_verify`: the confirmation link of an organisation sign-up (public; the token is never returned to the person who asked).
+   * `org_signup_approved`: the first administrator's password-setup link. `org_signup_rejected`: a plain "not approved" notice (no token, no reason).
+   */
+  kind: "invitation" | "password_reset" | "guardian_invitation" | "org_signup_verify" | "org_signup_approved" | "org_signup_rejected";
   email: string;
   token: string;
   tenantId?: string | null;
@@ -16,6 +20,11 @@ export interface AccountMessage {
 
 export interface AccountNotifier {
   send(message: AccountMessage): Promise<DeliveryResult>;
+  /**
+   * True when this notifier really delivers e-mail. A public flow whose only proof is an e-mailed link (organisation sign-up)
+   * is closed (503) while this is not true, rather than storing requests nobody could confirm. Absent means not configured.
+   */
+  readonly configured?: boolean;
 }
 
 const notConfigured: AccountNotifier = { send: async () => "not_configured" };

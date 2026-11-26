@@ -45,6 +45,13 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   // Migration 117: "Request Figbloom HR" (docs/HR-HANDOFF.md, H1)
   "hr_record_request()": { secdef: true, grantees: ["figbloom_app"], why: "tenants is SELECT-only for figbloom_app: records the school's request for HR (hr_requested_at / hr_requested_by) for the school and person of the request (app.tenant_id / app.user_id, no argument), keeps the first request, and refuses (42501) without them, for a platform super admin, a suspended school, or anyone not an active staff member of the school or a delegated organisation administrator for its Fees area" },
   // Migration 121: the platform incident list (docs/PLATFORM-CONSOLE.md section 3.4, owner decision D5)
+  // Migration 124: organisation self-service sign-up (docs/ORG-SIGNUP.md; owner decisions D2 and D8)
+  "org_signup_submit(text,text,text,text,text,text,text,timestamp with time zone,integer)": { secdef: true, grantees: ["figbloom_app"], why: "organization_signups is owner-only and the caller has no account yet: stores a sign-up REQUEST (never an account, organisation or school), under one global lock so the daily cap is exact; one open request per address (a second submit replaces the unconfirmed link or changes nothing); returns only an outcome so the route answers every case alike; audited without personal data" },
+  "org_signup_verify(text)": { secdef: true, grantees: ["figbloom_app"], why: "organization_signups is owner-only: proves the mailbox by the SHA-256 of a single-use 24-hour token (cleared on use) and moves the request to review; returns false for every other cause so the answer never says which" },
+  "platform_org_signups_list(uuid,text,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "organization_signups is owner-only: lists the requests for super_admin (re-checked from app.user_id), newest first, keyset (created_at, id), at most 201 rows, with the effective status (a lapsed unconfirmed request reads expired); the route audits every read" },
+  "platform_org_signup_approve(uuid,text,text,timestamp with time zone)": { secdef: true, grantees: ["figbloom_app"], why: "organizations, users and organization_memberships are identity tables the runtime role cannot write: a super_admin (re-checked from app.user_id) approves a CONFIRMED request under a row lock, creating the organisation, the invited administrator (credential '!', no usable password), their org_admin membership and a password-setup token in one transaction; refuses an address that already has an account (23505); audited platform.org_signup.approved (ids only)" },
+  "platform_org_signup_reject(uuid,text)": { secdef: true, grantees: ["figbloom_app"], why: "organization_signups is owner-only: a super_admin (re-checked from app.user_id) rejects an undecided request under a row lock; the reason (at most 500 characters) is kept for the platform and never audited; returns whether the address was confirmed so the route e-mails only a confirmed mailbox; audited platform.org_signup.rejected" },
+  "platform_org_signup_reissue(uuid,text,timestamp with time zone)": { secdef: true, grantees: ["figbloom_app"], why: "account_tokens is owner-only: a super_admin (re-checked from app.user_id) issues a new password-setup token to the administrator of an APPROVED request who is still invited (found through the request's own organisation and membership, never an arbitrary account), revoking the older ones; audited platform.org_signup.setup_reissued" },
   "platform_incidents_list(uuid,text,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "platform_incidents is owner-only (no tenant_id, no runtime privilege): lists Figbloom's hand-typed incidents for super_admin (re-checked from app.user_id), newest first, keyset (opened_at, id), at most 201 rows; no school data" },
   "platform_incident_declare(text,text,text,integer)": { secdef: true, grantees: ["figbloom_app"], why: "platform_incidents is owner-only: a super_admin (re-checked from app.user_id) declares an incident as investigating, opened now by the caller; audited platform.incident.declared in the same transaction (ids, severity, count; no free text)" },
   "platform_incident_resolve(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "platform_incidents is owner-only: a super_admin (re-checked from app.user_id) resolves an incident under a row lock; a second resolve changes nothing and writes no audit row; audited platform.incident.resolved" },
@@ -572,6 +579,12 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "platform_incidents_list(uuid,text,timestamp with time zone,uuid,integer)",
   "platform_incident_declare(text,text,text,integer)",
   "platform_incident_resolve(uuid)",
+  "org_signup_submit(text,text,text,text,text,text,text,timestamp with time zone,integer)",
+  "org_signup_verify(text)",
+  "platform_org_signups_list(uuid,text,timestamp with time zone,uuid,integer)",
+  "platform_org_signup_approve(uuid,text,text,timestamp with time zone)",
+  "platform_org_signup_reject(uuid,text)",
+  "platform_org_signup_reissue(uuid,text,timestamp with time zone)",
   "platform_billing_subscriptions_list(uuid,integer)",
   "platform_billing_plan_prices()",
   "platform_billing_subscription_update(uuid,text,text,integer,timestamp with time zone,date)",

@@ -274,6 +274,11 @@ const ConfigSchema = z.object({
    * on Supabase it moves a whole school's leave to HR. The calls share MY_HR_HTTP_TIMEOUT_MS.
    */
   hrLeaveEnabled: z.boolean().default(false),
+  /**
+   * Organisation sign-up (docs/ORG-SIGNUP.md): the most NEW requests the public route stores in any 24 hours, everyone together.
+   * The Supabase function allowed 50 a day. Past it the route answers 503 to every caller until the oldest request is a day old.
+   */
+  orgSignupDailyCap: z.coerce.number().int().min(1).max(10_000).default(50),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
@@ -403,6 +408,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     myHrHttpTimeoutMs: env.MY_HR_HTTP_TIMEOUT_MS || undefined,
     platformHandoffEnabled: (env.PLATFORM_HANDOFF_ENABLED ?? "").trim().toLowerCase() === "true",
     hrLeaveEnabled: (env.HR_LEAVE_ENABLED ?? "").trim().toLowerCase() === "true",
+    orgSignupDailyCap: env.ORG_SIGNUP_DAILY_CAP?.trim() || undefined,
   });
   if (!parsed.success) {
     throw new Error(

@@ -1,6 +1,6 @@
 import { logError, logInfo } from "../../log.js";
 import type { AccountMessage, AccountNotifier, DeliveryResult } from "./notifier.js";
-import { INVITATION_TTL_HOURS, RESET_TTL_MINUTES } from "./service.js";
+import { INVITATION_TTL_HOURS, ORG_SIGNUP_SETUP_TTL_DAYS, ORG_SIGNUP_VERIFY_TTL_HOURS, RESET_TTL_MINUTES } from "./service.js";
 
 /**
  * Account e-mail (invitations and password resets) through Resend (https://resend.com).
@@ -64,6 +64,32 @@ export function accountEmail(message: AccountMessage, linkBaseUrl: string): Acco
     case "guardian_invitation":
       // Guardian invitations carry no address (they are handed over as a code or QR by the school).
       return null;
+    // The three organisation sign-up messages carry no text typed by the person (no name, no organisation): the address alone says who.
+    case "org_signup_verify":
+      return render(
+        "Confirm your e-mail address for FigBloom",
+        "Someone asked to register an organisation on FigBloom School Management with this e-mail address.",
+        "Confirm this e-mail address",
+        `${linkBaseUrl}/signup/verify?token=${token}`,
+        `The link works once and expires in ${ORG_SIGNUP_VERIFY_TTL_HOURS} hours. After you confirm, our team reviews the request and writes to you again. If this was not you, ignore this e-mail: nothing is created until you confirm.`,
+      );
+    case "org_signup_approved":
+      return render(
+        "Your FigBloom organisation is approved",
+        "Your request to register an organisation on FigBloom School Management has been approved.",
+        "Choose your password",
+        `${linkBaseUrl}/reset-password?token=${token}`,
+        `The link works once and expires in ${ORG_SIGNUP_SETUP_TTL_DAYS} days. After you choose a password, sign in with this e-mail address.`,
+      );
+    case "org_signup_rejected": {
+      const lead = "Thank you for asking to register an organisation on FigBloom School Management. We could not approve the request.";
+      const after = "If you think this is a mistake, reply to the e-mail you have from us or write to the FigBloom team.";
+      return {
+        subject: "About your FigBloom organisation request",
+        text: `${lead}\n\n${after}\n\nFigBloom School Management`,
+        html: `<p>${escapeHtml(lead)}</p><p>${escapeHtml(after)}</p><p>FigBloom School Management</p>`,
+      };
+    }
   }
 }
 
@@ -71,6 +97,7 @@ export function createResendNotifier(opts: ResendNotifierOptions): AccountNotifi
   const doFetch = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
   return {
+    configured: true,
     async send(message): Promise<DeliveryResult> {
       const email = message.email.trim();
       if (!email) return "not_configured";

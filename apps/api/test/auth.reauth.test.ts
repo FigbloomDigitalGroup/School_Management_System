@@ -69,6 +69,9 @@ describe("sensitive-action re-authentication (migration 077)", () => {
       ["POST", `/v1/platform/finance/unmatched-callbacks/${id}/reopen`, { reason: "gate test reason" }, "super"],
       ["POST", "/v1/platform/incidents", { severity: "SEV-3", title: "Gate incident", summary: "gate test summary", affected_schools: 0 }, "super"],
       ["POST", `/v1/platform/incidents/${id}/resolve`, undefined, "super"],
+      ["POST", `/v1/platform/org-signups/${id}/approve`, {}, "super"],
+      ["POST", `/v1/platform/org-signups/${id}/reject`, {}, "super"],
+      ["POST", `/v1/platform/org-signups/${id}/reissue-setup`, undefined, "super"],
     ];
     const send = (m: string, u: string, p: unknown, who: "admin" | "super") =>
       ctx.app.inject({ method: m as "POST", url: u, headers: { authorization: `Bearer ${who === "admin" ? admin : su}`, "x-tenant-id": A() }, ...(p === undefined ? {} : { payload: p as Record<string, unknown> }) });
