@@ -784,8 +784,17 @@ export interface ExamPapersCapabilities {
   fileAttachments: boolean;
   /** Linking a paper to a term exam so scores flow to the Gradebook. */
   examLink: boolean;
-  /** Draft / publish / unpublish workflow (POST /online-exam-papers creates live papers immediately). */
+  /**
+   * A new paper is a draft that learners cannot see until the office publishes it: the Status column and the Publish button
+   * (`published_at` and `POST .../online-exam-papers/{paperId}/publish`, migration 110). Taking it back is `unpublishPaper`.
+   */
   draftWorkflow: boolean;
+  /**
+   * Taking a published paper back to a draft. Hidden on the API build by design, not for a missing screen: the API has no
+   * unpublish, because a learner may already have started the paper (`publishOnlinePaper` in `apps/api/src/modules/academics/
+   * higherEd.ts`; "Online exams" in `apps/api/docs/STUDENT-ACCOUNTS.md`).
+   */
+  unpublishPaper: boolean;
   /** Editing a paper or its questions after creation (no PATCH /online-exam-papers/{id} endpoint). */
   editPaper: boolean;
   /** Deleting a paper (no DELETE /online-exam-papers/{id} endpoint). */
@@ -796,16 +805,23 @@ export interface ExamPapersCapabilities {
   scripts: boolean;
   /** Maximum characters per question prompt (1,000 on API vs 4,000 on Supabase). */
   promptMaxChars: number;
+  /**
+   * API only: the paper editor makes a paper in one call (`POST /online-exam-papers` carries the title, total marks and the
+   * multiple-choice questions), then publishes it if asked (so it needs `draftWorkflow`). The Supabase editor saves a paper in
+   * steps (details, typed text, file, questions) and can reopen it. Turn this off when the API can edit a paper and takes the
+   * full paper form.
+   */
+  oneStepCreate: boolean;
 }
 
 const EXAM_PAPERS_ON_SUPABASE: ExamPapersCapabilities = {
-  readMode: true, scheduling: true, fileAttachments: true, examLink: true, draftWorkflow: true,
-  editPaper: true, deletePaper: true, writtenQuestions: true, scripts: true, promptMaxChars: 4000,
+  readMode: true, scheduling: true, fileAttachments: true, examLink: true, draftWorkflow: true, unpublishPaper: true,
+  editPaper: true, deletePaper: true, writtenQuestions: true, scripts: true, promptMaxChars: 4000, oneStepCreate: false,
 };
 
 const EXAM_PAPERS_ON_API: ExamPapersCapabilities = {
-  readMode: false, scheduling: false, fileAttachments: false, examLink: false, draftWorkflow: false,
-  editPaper: false, deletePaper: false, writtenQuestions: false, scripts: false, promptMaxChars: 1000,
+  readMode: false, scheduling: false, fileAttachments: false, examLink: false, draftWorkflow: true, unpublishPaper: false,
+  editPaper: false, deletePaper: false, writtenQuestions: false, scripts: false, promptMaxChars: 1000, oneStepCreate: true,
 };
 
 export function examPapersCapabilities(): ExamPapersCapabilities {

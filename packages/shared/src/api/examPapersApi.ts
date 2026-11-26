@@ -13,9 +13,12 @@ import { apiListTeachingAssignments, apiMyStaffId, whenRefused } from "./teachin
  * lookups used by `ExamPapers`.
  *
  * Differences from Supabase, handled here rather than in the screens:
- *  - `GET /online-exam-papers` returns `{ id, tenantId, class_id, subject_id, title, max_score, created_at }`
+ *  - `GET /online-exam-papers` returns `{ id, tenantId, class_id, subject_id, title, max_score, created_at, published_at }`
  *    (and `questions` when returned). There is no read-only PDF/typed mode, open/close window, duration,
- *    draft/publish state, edit, delete, or attempt/scripts listing endpoint.
+ *    edit, delete, unpublish, or attempt/scripts listing endpoint.
+ *  - A new paper is a DRAFT (migration 110): `published_at` is null and learners read only papers where it is set. The
+ *    office makes it visible with `POST .../online-exam-papers/{paperId}/publish` (`resource.academics.write`; publishing
+ *    again keeps the first time). The API has no unpublish: a learner may already have started the paper.
  *  - `POST /online-exam-papers` uses strict validation (`z.strictObject`): it accepts `{ class_id,
  *    subject_id, title, max_score, questions? }` where each question is `mcq` or `true_false` with
  *    `id`, `prompt` (<= 1000), `options` (each <= 200), `correct_answer` (option text), and `points`.
@@ -91,7 +94,8 @@ function mapPaper(
     opensAt: p.created_at,
     closesAt: null,
     durationMinutes: null,
-    publishedAt: p.created_at,
+    // null until the office publishes it (migration 110). Never the creation time: a new paper is a draft learners cannot see.
+    publishedAt: p.published_at ?? null,
     resultsReleasedAt: null,
     questionCount: p.questions?.length ?? 0,
     attemptCount: 0,
@@ -148,6 +152,17 @@ export async function apiCreateOnlineExamPaper(
     tenantId,
   });
   return res.paper.id;
+}
+
+/**
+ * Publishes a paper to the learners of its class (`POST .../publish`, `resource.academics.write`). Publishing again is safe: the
+ * API keeps the first time. There is no way back (no unpublish endpoint), so the screen offers none.
+ */
+export async function apiPublishOnlineExamPaper(paperId: string, tenantId: string = activeTenantId()): Promise<void> {
+  await apiClient().post("/v1/tenants/{tenantId}/online-exam-papers/{paperId}/publish", {
+    path: { tenantId, paperId },
+    tenantId,
+  });
 }
 
 /** All active classes of a school as `{ id, name }` options, ordered by name. */

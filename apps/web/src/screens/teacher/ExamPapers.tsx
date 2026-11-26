@@ -110,12 +110,12 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
         eyebrow="Exams & tests"
         title="Exams & tests"
         blurb={admin
-          ? (caps.draftWorkflow
-              ? "Every exam paper and test posted in the school. Learners read a paper, or sit it online and get it marked here."
-              : "Online exam papers posted in the school for a class and subject.")
-          : (caps.draftWorkflow
-              ? "Post an exam paper or a test for a class and subject you teach. Learners read it, or sit it online and you mark it here."
-              : "Online exam papers for a class and subject you teach.")}
+          ? (caps.oneStepCreate
+              ? "Online exam papers posted in the school for a class and subject. Learners see a paper only after you publish it."
+              : "Every exam paper and test posted in the school. Learners read a paper, or sit it online and get it marked here.")
+          : (caps.oneStepCreate
+              ? "Online exam papers for a class and subject you teach. Learners see a paper only after you publish it."
+              : "Post an exam paper or a test for a class and subject you teach. Learners read it, or sit it online and you mark it here.")}
         actions={mayManage
           ? (
             <>
@@ -148,9 +148,9 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
           <div className="rounded-lg border border-line bg-white">
             <EmptyState
               title="No papers yet"
-              body={caps.draftWorkflow
-                ? "Post an exam paper or a test. It stays a draft, seen only by staff, until you publish it."
-                : "Create an online exam paper for a class and subject."}
+              body={caps.oneStepCreate
+                ? "Create an online exam paper for a class and subject. It stays a draft, seen only by staff, until you publish it."
+                : "Post an exam paper or a test. It stays a draft, seen only by staff, until you publish it."}
               action={<Button variant="accent" onClick={() => setEditing({})}>New paper</Button>}
             />
           </div>
@@ -186,7 +186,7 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
                     <div className="flex flex-wrap justify-end gap-2">
                       {caps.scripts && p.mode === "online" && p.publishedAt && <Button onClick={() => setScripts(p)}>Scripts</Button>}
                       {caps.editPaper && <Button onClick={() => setEditing({ paper: p })}>Edit</Button>}
-                      {caps.draftWorkflow && <Button onClick={() => void togglePublish(p)}>{p.publishedAt ? "Unpublish" : "Publish"}</Button>}
+                      {caps.draftWorkflow && (!p.publishedAt || caps.unpublishPaper) && <Button onClick={() => void togglePublish(p)}>{p.publishedAt ? "Unpublish" : "Publish"}</Button>}
                       {caps.deletePaper && p.attemptCount === 0 && <Button onClick={() => void remove(p)}>Delete</Button>}
                     </div>
                   ) }]
@@ -207,7 +207,7 @@ export function ExamPapers({ admin = false }: { admin?: boolean }) {
           classes={classes ?? []}
           scope={scope}
           onClose={() => setEditing(null)}
-          onSaved={(msg) => { toast(msg); setEditing(null); reload(); }}
+          onSaved={(msg, tone) => { toast(msg, tone); setEditing(null); reload(); }}
         />
       )}
       {scripts && <ExamScripts paper={scripts} onClose={() => setScripts(null)} onChanged={reload} />}
@@ -234,7 +234,7 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
   classes: Option[];
   scope: Scope;
   onClose: () => void;
-  onSaved: (message: string) => void;
+  onSaved: (message: string, tone?: "error") => void;
 }) {
   const { tenant } = useTenantSession();
   const caps = examPapersCapabilities();
@@ -339,7 +339,11 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
     }
   }
 
-  async function saveApi() {
+  /**
+   * The API build makes the paper in one call, then publishes it if asked. A paper cannot be edited afterwards, so a failed
+   * publish closes the editor (saving again would make a second paper) and points to the Publish button in the list.
+   */
+  async function saveApi(publish: boolean) {
     const cleanTitle = title.trim().replace(/\s+/g, " ");
     if (!classId) { setError("Pick the class."); return; }
     if (!subjectId) { setError("Pick the subject."); return; }
@@ -356,20 +360,36 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
         return;
       }
     }
+    if (publish) {
+      // A learner's Exams page leaves out a paper with no questions, so publishing one would show them nothing.
+      const problem = publishProblem({ mode: "online", hasContent: false, questionCount: qs.length });
+      if (problem) { setError(problem); return; }
+    }
     setSaving(true);
     setError("");
+    let id: string;
     try {
-      await createOnlineExamPaper(tenant.id, {
+      id = await createOnlineExamPaper(tenant.id, {
         classId,
         subjectId,
         title: cleanTitle,
         maxScore: qs.length > 0 ? totalPoints(qs) : Number(maxScore),
         questions: qs,
       });
-      onSaved("Paper created");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the paper.");
       setSaving(false);
+      return;
+    }
+    if (!publish) {
+      onSaved("Draft saved. Learners can't see it until you publish it.");
+      return;
+    }
+    try {
+      await setPaperPublished(id, true);
+      onSaved("Published. Learners in the class can see it.");
+    } catch (err) {
+      onSaved(`The paper was saved as a draft but not published: ${err instanceof Error ? err.message : "something went wrong"}. Press Publish in the list to try again.`, "error");
     }
   }
 
@@ -388,20 +408,25 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
       onClose={onClose}
       eyebrow={PAPER_KIND_LABEL[kind]}
       title={paper ? "Edit paper" : "New paper"}
-      blurb={locked ? "Learners have already started this paper, so its class, subject, type and questions are fixed. You can still change the title, instructions and times." : undefined}
+      blurb={locked
+        ? "Learners have already started this paper, so its class, subject, type and questions are fixed. You can still change the title, instructions and times."
+        : caps.oneStepCreate && !caps.editPaper
+          ? "A paper can't be changed or removed once it is created, so check the questions first."
+          : undefined}
       footNote={mode === "online" && questions.length ? `${questions.length} question${questions.length === 1 ? "" : "s"} · ${totalPoints(questions)} marks` : undefined}
       width={820}
       actions={
-        caps.draftWorkflow ? (
+        caps.oneStepCreate ? (
           <>
             <Button onClick={onClose}>Cancel</Button>
-            <Button disabled={saving || noSubjects || contentLoading} onClick={() => void save(false)}>{saving ? "Saving…" : published ? "Save changes" : "Save draft"}</Button>
-            {!published && <Button variant="accent" disabled={saving || noSubjects || contentLoading} onClick={() => void save(true)}>Save and publish</Button>}
+            <Button disabled={saving || noSubjects} onClick={() => void saveApi(false)}>{saving ? "Saving…" : "Save draft"}</Button>
+            <Button variant="accent" disabled={saving || noSubjects} onClick={() => void saveApi(true)}>Save and publish</Button>
           </>
         ) : (
           <>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="accent" disabled={saving || noSubjects} onClick={() => void saveApi()}>{saving ? "Creating…" : "Create paper"}</Button>
+            <Button disabled={saving || noSubjects || contentLoading} onClick={() => void save(false)}>{saving ? "Saving…" : published ? "Save changes" : "Save draft"}</Button>
+            {!published && <Button variant="accent" disabled={saving || noSubjects || contentLoading} onClick={() => void save(true)}>Save and publish</Button>}
           </>
         )
       }
@@ -464,7 +489,7 @@ function PaperEditor({ paper, startImport = false, classes, scope, onClose, onSa
           />
         )}
 
-        {!caps.draftWorkflow && questions.length === 0 && (
+        {caps.oneStepCreate && questions.length === 0 && (
           <TextField
             id="ep-max-score"
             label="Total marks"

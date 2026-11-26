@@ -91,7 +91,7 @@ export {
 } from "./platformApi";
 export { OpenRidersError, isOpenRidersError } from "./fleetApi";
 export { feeTotalsFromInvoices } from "./adminOverviewApi";
-export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper, apiFetchMyTeachingPairs } from "./examPapersApi";
+export { apiQuestionsFromDrafts, apiCreateOnlineExamPaper, apiFetchMyTeachingPairs, apiPublishOnlineExamPaper } from "./examPapersApi";
 export { apiCreateLearningMaterial } from "./materialsApi";
 export { visitFromApi, apiSubscribeVisits } from "./visitorsApi";
 export { apiFetchMyHomework, apiCreateHomework, apiFetchHomeworkSubjectsForClass } from "./homeworkApi";
