@@ -11,6 +11,7 @@ import { ConsoleShell } from "../components/ConsoleShell";
 import { TenantTheme } from "../components/TenantTheme";
 import { Skeleton } from "../components/ui/Skeleton";
 import { useAsync } from "../lib/useAsync";
+import { Incidents as ApiPlatformIncidents } from "../screens/platform/pages";
 import { ApiPlatformAudit } from "../screens/platform/ApiPlatformAudit";
 import { ApiPlatformHealth } from "../screens/platform/ApiPlatformHealth";
 import { ApiPlatformInvoices } from "../screens/platform/ApiPlatformInvoices";
@@ -73,10 +74,12 @@ export function ApiPlatformShell() {
 
   const badges: Record<string, string> = {};
   if (counts?.tenants) badges["/platform/tenants"] = String(counts.tenants);
+  if (counts?.openIncidents) badges["/platform/incidents"] = String(counts.openIncidents);
 
-  if (page !== "tenants" && page !== "organizations" && page !== "health" && page !== "usage" && page !== "audit" && page !== "invoices") {
+  if (page !== "tenants" && page !== "organizations" && page !== "health" && page !== "usage" && page !== "audit" && page !== "incidents" && page !== "invoices") {
     return <Navigate to="/platform/tenants" replace />;
   }
+  if (page === "incidents" && !caps.incidentsPage) return <Navigate to="/platform/tenants" replace />;
 
   return (
     <TenantTheme tenant={null}>
@@ -91,7 +94,9 @@ export function ApiPlatformShell() {
         badges={badges}
         hiddenNav={hiddenNav}
       >
-        {page === "tenants" ? (
+        {page === "incidents" ? (
+          <ApiPlatformIncidents />
+        ) : page === "tenants" ? (
           <div className="h-screen"><ApiPlatformTenants /></div>
         ) : page === "organizations" ? (
           <div className="h-screen"><ApiPlatformOrganizations /></div>

@@ -32,6 +32,15 @@ export type ApiErrorCode =
   | "target_not_enabled"
   | "target_not_linked"
   | "target_no_handoff_url"
+  // HR leave approvals (apps/api/docs/HR-HANDOFF.md, section 10).
+  | "hr_leave_off"
+  | "approver_not_linked"
+  | "approver_no_access"
+  | "not_your_approval"
+  | "already_decided"
+  | "not_cancellable"
+  | "leave_rules"
+  | "document_too_large"
   // Not from the server: the request never got an answer.
   | "network_error"
   | "timeout"
@@ -42,6 +51,7 @@ const SERVER_CODES: readonly ApiErrorCode[] = [
   "conflict", "idempotency_key_reused", "service_unavailable", "internal_error",
   "my_hr_off", "school_not_linked", "not_linked", "pending_hr", "hr_off", "hr_forbidden", "hr_not_connected", "hr_unavailable", "hr_bad_answer",
   "handoff_off", "already_connected", "target_not_enabled", "target_not_linked", "target_no_handoff_url",
+  "hr_leave_off", "approver_not_linked", "approver_no_access", "not_your_approval", "already_decided", "not_cancellable", "leave_rules", "document_too_large",
 ];
 
 export interface ApiFieldError {

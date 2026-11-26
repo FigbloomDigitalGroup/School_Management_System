@@ -3,6 +3,7 @@ import { Lazy } from "./Lazy";
 import type { AreaPages } from "./types";
 
 const HrPayroll = lazy(() => import("../../screens/hr/HrPayroll").then((m) => ({ default: m.HrPayroll })));
+const LeaveToApprove = lazy(() => import("../../screens/leave/LeaveToApprove").then((m) => ({ default: m.LeaveToApprove })));
 
 /**
  * HR & Payroll (docs/web-on-api/hr-handoff.md): the connect page the sidebar's "HR & Payroll" item opens while HR is not yet there for
@@ -14,5 +15,8 @@ const HrPayroll = lazy(() => import("../../screens/hr/HrPayroll").then((m) => ({
  * The launch tab (`/hr/launch`) is not a page of a school's console: it is a route of the app (`ApiHrRoutes.tsx`).
  */
 export const pages: AreaPages = {
-  admin: [{ path: "admin/hr", inMenu: false, element: <Lazy><HrPayroll /></Lazy> }],
+  admin: [
+    { path: "admin/hr", inMenu: false, element: <Lazy><HrPayroll /></Lazy> },
+    { path: "admin/leave-to-approve", element: <Lazy><LeaveToApprove /></Lazy> },
+  ],
 };

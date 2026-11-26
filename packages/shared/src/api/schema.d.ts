@@ -352,6 +352,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/platform/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The platform incident list (platform)
+         * @description Super administrators only (`platform.incidents.manage`). Figbloom's hand-typed incident list (owner decision D5), newest first, keyset-paginated on `(openedAt, id)`, read through `platform_incidents_list()`. `state=open` lists the incidents not yet resolved, `state=resolved` the resolved ones. No school data. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
+        get: operations["listPlatformIncidents"];
+        put?: never;
+        /**
+         * Declare a platform incident (platform)
+         * @description Super administrators only (`platform.incidents.manage`), with a recently confirmed password (403 `reauth_required` otherwise; POST /v1/auth/reauth). Opens a new incident as `investigating`, now, by the caller, through `platform_incident_declare()`, which writes the audit row `platform.incident.declared` (ids, severity and count; never the title or summary) in the same transaction. Title and summary are trimmed and must not be blank.
+         */
+        post: operations["declarePlatformIncident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/incidents/{incidentId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve a platform incident (platform)
+         * @description Super administrators only (`platform.incidents.manage`), with a recently confirmed password (403 `reauth_required` otherwise). Marks the incident resolved now, by the caller, and writes the audit row `platform.incident.resolved` in the same transaction. Resolving an incident that is already resolved changes nothing (no new time, no second audit row) and answers `changed: false`. No request body.
+         */
+        post: operations["resolvePlatformIncident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/invitations": {
         parameters: {
             query?: never;
@@ -6533,6 +6577,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/me/hr/leave/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether the caller's school runs leave in Figbloom HR, and whether the caller approves it
+         * @description The rule of the Supabase database function `hr_leave_access()`, for the caller only (docs/HR-HANDOFF.md, slice L1). Any member of the school may ask; nothing is asked of HR. `approver` is true for the school's administrators and anyone holding the Leave or the Fees area (`resource.hr.leave_approvals`; an organisation administrator only with a delegation of one of those areas), never for Figbloom staff. `status` is `not_staff` for anyone who is neither a staff member of the school (teacher, driver, staff, school_admin) nor an approver (a parent, a learner, Figbloom staff, an organisation administrator without a delegation); otherwise `off` (leave through HR is not switched on for this API: `HR_LEAVE_ENABLED` is not `true`, or a platform or HR setting is missing; the default), `not_linked` (the platform does not know the school yet), `not_enabled` (the platform's last answer said HR is not on for the school; unlike My HR this does not wear off) or `available`. A client shows "Leave to approve" only for `available` with `approver` true.
+         */
+        get: operations["hrLeaveAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/leave/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Leave applications waiting on the caller in Figbloom HR (Leave to approve)
+         * @description The Supabase function `my-hr` with `{"route": "approvals"}` (docs/HR-HANDOFF.md, slice L1): HR's `GET approvals` for the caller's own HR user. HR decides which applications wait on the caller (its own chain and delegation); the API does not model the chain. For the school's administrators and anyone holding the Leave or the Fees area (`resource.hr.leave_approvals`, checked in code; an organisation administrator only with a delegation of one of them); never for Figbloom staff. Anyone else gets the standard audited 403 `forbidden`. 403 `hr_leave_off` while leave through HR is off for this API or the platform said HR is not on for the school; 409 `school_not_linked` when the platform does not know the school. HR's JSON is passed on as HR sent it (see `HrLeaveApprovals`), except that a document link that is not `https` loses its address. Document links are personal data and work for about 5 minutes: open them at once, never store or log them. HR's refusals: 409 `approver_not_linked` (the caller never opened HR & Payroll from Schools: "Open HR & Payroll once to connect your HR account."), 403 `approver_no_access`, 404 `pending_hr` / `not_linked`, and the rest as for My HR (`hr_forbidden`, 502 `hr_not_connected` / `hr_bad_answer`, 503 `hr_off` / `hr_unavailable`, 429). Rate limited per person, school and platform token (429 with Retry-After). Not audited (a read; HR audits every call).
+         */
+        get: operations["hrLeaveApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/hr/leave/approvals/{applicationId}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or decline a leave application in Figbloom HR, as the caller's HR user
+         * @description The Supabase function `my-hr` with `{"route": "approval_decide"}` (docs/HR-HANDOFF.md, slice L1): HR's `POST approvals/<id>/decide`, done in HR as the caller's own HR user, so HR's permissions, delegation and audit apply. The same people and the same refusals of the school's state as `GET .../leave/approvals`. `comment` is trimmed and sent only when not empty; a decline needs one (HR refuses it otherwise, answered as 400 `validation_error` with HR's sentence). Approving is final. HR's refusals: 403 `not_your_approval` (not the caller's step), 409 `already_decided`, 409 `approver_not_linked`, 403 `approver_no_access`, 404 `not_found` (the application is not there any more), and the rest as for My HR. HR's answer (`{request_status, application}`) is passed on as HR sent it. Audited as `hr.leave.decided` with HR's application id and the decision only (never the comment or a name). Never retried by the API (HR refuses a repeat with `already_decided`).
+         */
+        post: operations["hrLeaveDecide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/me/chat-contacts": {
         parameters: {
             query?: never;
@@ -6806,6 +6910,38 @@ export interface components {
         PlatformAuditEventList: {
             items: components["schemas"]["PlatformAuditEvent"][];
             page: components["schemas"]["PageInfo"];
+        };
+        PlatformIncident: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            severity: "SEV-1" | "SEV-2" | "SEV-3";
+            title: string;
+            summary: string;
+            affectedSchools: number;
+            /** @enum {string} */
+            status: "investigating" | "fix_in_review" | "resolved";
+            /** Format: date-time */
+            openedAt: string;
+            /** Format: uuid */
+            openedBy: string | null;
+            openedByName: string | null;
+            /** Format: date-time */
+            resolvedAt: string | null;
+            /** Format: uuid */
+            resolvedBy: string | null;
+            resolvedByName: string | null;
+        };
+        PlatformIncidentList: {
+            items: components["schemas"]["PlatformIncident"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        DeclarePlatformIncidentRequest: {
+            /** @enum {string} */
+            severity: "SEV-1" | "SEV-2" | "SEV-3";
+            title: string;
+            summary: string;
+            affected_schools: number;
         };
         PageInfo: {
             limit: number;
@@ -7273,7 +7409,7 @@ export interface components {
         Error: {
             error: {
                 /** @enum {string} */
-                code: "unauthorized" | "forbidden" | "reauth_required" | "mfa_required" | "not_found" | "validation_error" | "rate_limited" | "conflict" | "idempotency_key_reused" | "service_unavailable" | "internal_error" | "my_hr_off" | "school_not_linked" | "not_linked" | "pending_hr" | "hr_off" | "hr_forbidden" | "hr_not_connected" | "hr_unavailable" | "hr_bad_answer" | "handoff_off" | "already_connected" | "target_not_enabled" | "target_not_linked" | "target_no_handoff_url";
+                code: "unauthorized" | "forbidden" | "reauth_required" | "mfa_required" | "not_found" | "validation_error" | "rate_limited" | "conflict" | "idempotency_key_reused" | "service_unavailable" | "internal_error" | "my_hr_off" | "school_not_linked" | "not_linked" | "pending_hr" | "hr_off" | "hr_forbidden" | "hr_not_connected" | "hr_unavailable" | "hr_bad_answer" | "handoff_off" | "already_connected" | "target_not_enabled" | "target_not_linked" | "target_no_handoff_url" | "hr_leave_off" | "approver_not_linked" | "approver_no_access" | "not_your_approval" | "already_decided" | "not_cancellable" | "leave_rules" | "document_too_large";
                 message: string;
                 /** @description Correlation id of the request (additive, OI-4). Also returned in the X-Request-Id response header. An inbound X-Request-Id is honoured only if it matches [A-Za-z0-9._-]{8,64}; otherwise one is generated. */
                 request_id?: string;
@@ -9638,6 +9774,48 @@ export interface components {
             /** @description When the link stops working, as the platform said it (null if it did not) */
             expires_at: string | null;
         };
+        /** @description The Supabase function `hr_leave_access()`'s answer, field for field: which leave the caller's school uses, and whether the caller approves it. */
+        HrLeaveAccess: {
+            /** @enum {string} */
+            status: "not_staff" | "off" | "not_linked" | "not_enabled" | "available";
+            approver: boolean;
+        };
+        /** @description Figbloom HR's own answer to `GET approvals`, passed on as HR sent it (HR's field names; SCHOOLS_HR_LEAVE_CONTRACT.md section 2, as Schools' own code reads it, unverified against HR). The API reads only the document links: one that is not `https` has its `url` set to null. Each item is, as HR sends it: `application_id`, `employee` (`employee_number`, `name`, `external_id`), `leave_type`, `start_date`, `end_date`, `days`, `half_day`, `reason`, `step_label`, `document` and `followup_document` (`name`, `url`, `expires_at`: the link works for about 5 minutes), and `approval.steps[]` (`label`, `status`, `waiting_on`, `actor_name`, `comment`). */
+        HrLeaveApprovals: {
+            /** @description HR's own status for the answer (`active`). */
+            status?: string;
+            approvals?: ({
+                application_id?: string;
+                document?: components["schemas"]["HrLeaveDocumentLink"];
+                followup_document?: components["schemas"]["HrLeaveDocumentLink"];
+            } & {
+                [key: string]: unknown;
+            })[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description A document HR keeps with an application. `url` is HR's short-lived link (about 5 minutes), always `https` or null: open it directly, never store, show in full or log it. */
+        HrLeaveDocumentLink: ({
+            name?: string | null;
+            url?: string | null;
+            expires_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        }) | null;
+        HrLeaveDecideRequest: {
+            /** @enum {string} */
+            decision: "approve" | "decline";
+            comment?: string | null;
+        };
+        /** @description Figbloom HR's own answer to `POST approvals/<id>/decide`, passed on as HR sent it: `request_status` (`approved` or `declined`) and the `application` as HR now has it. */
+        HrLeaveDecision: {
+            request_status?: string;
+            application?: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        };
         /** @description One open issue held by the caller, with the item's name. No stock counts, location, cost or notes. */
         MyInventoryIssue: {
             /** Format: uuid */
@@ -10506,7 +10684,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Authenticated but not authorized (default deny). Also returned, for every authenticated route except POST /v1/auth/password/change, POST /v1/auth/logout and GET /v1/auth/me, while the user's `must_change_password` flag is set ("Password change required", FIG-1604). Sensitive operations (administrator password resets, membership deactivation, school provisioning, school-administrator invitations, guardian-link revocation, finance reconciliation resolution, unacknowledged-prompt withdrawal, operator M-Pesa reconciliation, unmatched-callback resolution/reopen, organization-delegation grant/revoke, guardian-access grant/revoke, staff-area changes and a change of the school name or timezone) answer 403 with code `reauth_required` when the session was not created or password-confirmed within the last 5 minutes: call POST /v1/auth/reauth and retry. */
+        /** @description Authenticated but not authorized (default deny). Also returned, for every authenticated route except POST /v1/auth/password/change, POST /v1/auth/logout and GET /v1/auth/me, while the user's `must_change_password` flag is set ("Password change required", FIG-1604). Sensitive operations (administrator password resets, membership deactivation, school provisioning, school-administrator invitations, guardian-link revocation, finance reconciliation resolution, unacknowledged-prompt withdrawal, operator M-Pesa reconciliation, unmatched-callback resolution/reopen, organization-delegation grant/revoke, guardian-access grant/revoke, staff-area changes, a change of the school name or timezone, and declaring or resolving a platform incident) answer 403 with code `reauth_required` when the session was not created or password-confirmed within the last 5 minutes: call POST /v1/auth/reauth and retry. */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -10602,6 +10780,24 @@ export interface components {
         };
         /** @description HR is already there for the school (`already_connected`), the platform does not know the school (`school_not_linked`), or the platform refused the sign-in (`target_not_enabled`, `target_not_linked`, `target_no_handoff_url`). */
         HrHandoffConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Not someone who approves leave at this school (`forbidden`: not the school's administrator, neither the Leave nor the Fees area, an organisation administrator without such a delegation, or Figbloom staff), leave through HR is off for this API or for the school (`hr_leave_off`), or HR refused the person (`approver_no_access`, `not_your_approval`, `hr_forbidden`). Also the usual 403 of an authenticated route (password change required, no membership, suspended school). */
+        HrLeaveForbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The platform does not know the school (`school_not_linked`), the caller has no HR user yet (`approver_not_linked`: open HR & Payroll once), the application was already decided (`already_decided`), or another conflict in HR (`conflict`). */
+        HrLeaveConflict: {
             headers: {
                 [name: string]: unknown;
             };
@@ -11192,6 +11388,95 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listPlatformIncidents: {
+        parameters: {
+            query?: {
+                state?: "open" | "resolved";
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform incidents page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformIncidentList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    declarePlatformIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclarePlatformIncidentRequest"];
+            };
+        };
+        responses: {
+            /** @description The incident as stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        incident: components["schemas"]["PlatformIncident"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    resolvePlatformIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                incidentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incident after the call, and whether this call resolved it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        incident: components["schemas"]["PlatformIncident"];
+                        changed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     accountsCreateInvitation: {
@@ -27399,6 +27684,106 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["HrHandoffForbidden"];
             409: components["responses"]["HrHandoffConflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["MyHrBadGateway"];
+            503: components["responses"]["MyHrUnavailable"];
+        };
+    };
+    hrLeaveAccess: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's leave access */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HrLeaveAccess"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    hrLeaveApprovals: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HR's answer, as HR sent it (document links https only) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HrLeaveApprovals"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["HrLeaveForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["HrLeaveConflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["MyHrBadGateway"];
+            503: components["responses"]["MyHrUnavailable"];
+        };
+    };
+    hrLeaveDecide: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                /** @description HR's id of the application (from `GET .../leave/approvals`) */
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HrLeaveDecideRequest"];
+            };
+        };
+        responses: {
+            /** @description HR's answer, as HR sent it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HrLeaveDecision"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["HrLeaveForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["HrLeaveConflict"];
             429: components["responses"]["RateLimited"];
             502: components["responses"]["MyHrBadGateway"];
             503: components["responses"]["MyHrUnavailable"];

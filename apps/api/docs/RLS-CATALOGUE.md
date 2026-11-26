@@ -139,6 +139,7 @@ no mode GUC and no application-settable bypass.
 | `learner_accounts` | **owner-only** (live login-to-learner links; the caller's own learner via `student_my_learner()`; made, reset, revoked and read by the school office only through the `student_account_*` SECURITY DEFINER functions) | same | 110 | `student.accounts` |
 | `finance_unmatched_cases` | **owner-only** (platform operators reach it only through the `finance_unmatched_*` SECURITY DEFINER functions; no school owns an unmatched callback) | same | 074 | `finance.unmatchedCallbacks` |
 | `finance_unmatched_case_notes` | **owner-only** (append-only operator notes) | same | 074 | `finance.unmatchedCallbacks` |
+| `platform_incidents` | **owner-only**, no `tenant_id` (Figbloom's hand-typed incident list; super administrators reach it only through `platform_incidents_list`, `platform_incident_declare` and `platform_incident_resolve`; no school sees it; never deleted) | same | 121 | `platform.incidents` |
 | `plan_pricing` | **owner-only** (Figbloom plan prices; read and written only through `platform_billing_*` SECURITY DEFINER functions) | same | 122 | `platform.billing` |
 | `platform_subscriptions` | **owner-only** (school subscription terms; read and written only through `platform_billing_*` SECURITY DEFINER functions) | same | 122 | `platform.billing` |
 | `platform_invoices` | **owner-only** (Figbloom invoices for schools; read and written only through `platform_billing_invoice_*` SECURITY DEFINER functions) | same | 123 | `platform.billing` |
