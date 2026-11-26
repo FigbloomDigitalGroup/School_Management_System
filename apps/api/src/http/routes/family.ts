@@ -11,6 +11,7 @@ import {
   childResults,
   childTimetable,
 } from "../../modules/family/academics.js";
+import { familyBehaviour } from "../../modules/behaviour/behaviour.js";
 import { childAiHelper, childFees } from "../../modules/family/fees.js";
 import { childActivities, childHealth, childItems } from "../../modules/family/life.js";
 import { myChatContacts, studentChatContacts } from "../../modules/family/contacts.js";
@@ -133,6 +134,13 @@ export async function registerFamilyRoutes(app: FastifyInstance, pool: AppPool):
   app.get(`${C}/fees`, async (request) =>
     inChild(app, pool, request, async ({ tx, tenantId, learnerId }) => ({
       invoices: await childFees(tx, { tenantId, learnerId }),
+    })),
+  );
+
+  // Behaviour (docs/BEHAVIOUR.md, S2b): what the school shares with the family, for a parent's child and a learner's own record.
+  app.get(`${C}/behaviour`, async (request) =>
+    inChild(app, pool, request, async ({ tx, tenantId, learnerId }) => ({
+      behaviour: await familyBehaviour(tx, { tenantId, learnerId }),
     })),
   );
 

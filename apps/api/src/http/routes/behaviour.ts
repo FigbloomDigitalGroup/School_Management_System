@@ -17,6 +17,7 @@ import {
   requireBehaviourReader,
   requireBehaviourWriter,
   saveBehaviourSettings,
+  setBehaviourIncident,
   updateBehaviourCategory,
   voidBehaviourEntry,
   type BehaviourKind,
@@ -70,7 +71,8 @@ const RecordBody = z.strictObject({
   learner_ids: z.array(z.guid()).min(1).max(80),
   kind: z.enum(["merit", "demerit", "incident"]),
   category_id: z.guid().nullable().optional(),
-  points: z.number().int().min(1).max(100).nullable().optional(),
+  // 0 is for an incident with no category (what the record form sends); the database refuses 0 for a merit or a demerit.
+  points: z.number().int().min(0).max(100).nullable().optional(),
   note: z.string().max(1000).nullable().optional(),
   staff_note: z.string().max(1000).nullable().optional(),
   occurred_on: calendarDateString.nullable().optional(),
@@ -79,6 +81,12 @@ const RecordBody = z.strictObject({
 });
 
 const VoidBody = z.strictObject({ reason: z.string().min(3).max(300) });
+
+const IncidentBody = z.strictObject({
+  action_taken: z.enum(["warning", "detention", "parent_called", "parent_meeting", "suspension", "counsellor", "other"]).nullable(),
+  follow_up_status: z.enum(["open", "resolved"]),
+  parent_notified: z.boolean(),
+});
 
 const P = "/v1/tenants/:tenantId/behaviour";
 
@@ -227,6 +235,26 @@ export async function registerBehaviourRoutes(app: FastifyInstance, pool: AppPoo
           scope,
           entryId: params.entryId,
           reason: body.reason,
+        }),
+      };
+    });
+  });
+
+  // The office's record of an incident: the action taken, open or resolved, whether the parents were told. Office only.
+  app.put(`${P}/entries/:entryId/incident`, async (request) => {
+    const params = request.params as { tenantId: string; entryId: string };
+    assertUuid(params.entryId, "entryId");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requireBehaviourWriter(tx, auth.authz, ip);
+      const body = parseOrThrow(IncidentBody, request.body, "action_taken, follow_up_status and parent_notified are required");
+      return {
+        entry: await setBehaviourIncident(tx, {
+          tenantId: params.tenantId,
+          actorUserId: auth.user.id,
+          entryId: params.entryId,
+          action: body.action_taken,
+          status: body.follow_up_status,
+          parentNotified: body.parent_notified,
         }),
       };
     });

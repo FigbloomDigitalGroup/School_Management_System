@@ -20450,6 +20450,120 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/behaviour/entries/{entryId}/incident:
+    put:
+      tags:
+        - behaviour
+      summary: Record what was done about an incident
+      description: "The office's record of an incident (S2b): the action taken, open or resolved, and whether the parents were
+        told. Any entry that is not voided can be followed up (a serious one starts open); a voided one is 409. \"Parent
+        told\" keeps the time it was first set; `false` clears it. Who resolved it, and when, are stamped from the request
+        by the database, never taken from the client. Office only (`resource.discipline.write`). Audited
+        (`academics.behaviour.incident_updated`)."
+      operationId: behaviourSetIncident
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.discipline.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: entryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BehaviourIncidentRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - entry
+                properties:
+                  entry:
+                    $ref: "#/components/schemas/BehaviourEntry"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/me/children/{learnerId}/behaviour:
+    get:
+      tags:
+        - family
+      summary: What the school shares about a child's behaviour (a parent's child, or a learner's own record)
+      description: "The learner's points in the period holding today, the school's display settings (mode, reset, thresholds,
+        what families may see) and the entries the school lets families see: merits always; demerits and incidents only
+        when the school turns them on; never a voided entry, never the staff-only note, never who recorded it. The points
+        count every entry that is not voided, whatever is shown. Newest first, at most 500. The same rule as the other
+        per-child reads: a parent for a linked child, a learner for themself; 404 for every other learner
+        (docs/FAMILY-READS.md, docs/STUDENT-ACCOUNTS.md)."
+      operationId: familyChildBehaviour
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.family.read
+        - resource.student.self.read
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Behaviour
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - behaviour
+                properties:
+                  behaviour:
+                    $ref: "#/components/schemas/FamilyBehaviour"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/behaviour/points:
     get:
       tags:
@@ -29305,9 +29419,9 @@ components:
           type:
             - integer
             - "null"
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: "The size, positive. Null or left out: the category's default."
+          description: "The size, positive (0 only for an incident with no category). Null or left out: the category's default."
         note:
           type:
             - string
@@ -29350,6 +29464,189 @@ components:
           type: string
           minLength: 3
           maxLength: 300
+    BehaviourIncidentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - action_taken
+        - follow_up_status
+        - parent_notified
+      properties:
+        action_taken:
+          type:
+            - string
+            - "null"
+          enum:
+            - warning
+            - detention
+            - parent_called
+            - parent_meeting
+            - suspension
+            - counsellor
+            - other
+            - null
+        follow_up_status:
+          type: string
+          enum:
+            - open
+            - resolved
+        parent_notified:
+          type: boolean
+          description: True stamps the time the parents were told (kept if already set); false clears it.
+    FamilyBehaviourEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - points
+        - severity
+        - note
+        - occurred_on
+        - category_name
+        - action_taken
+        - follow_up_status
+        - resolved_at
+        - parent_notified_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - merit
+            - demerit
+            - incident
+        points:
+          type: integer
+        severity:
+          type:
+            - string
+            - "null"
+          enum:
+            - minor
+            - major
+            - serious
+            - null
+        note:
+          type:
+            - string
+            - "null"
+        occurred_on:
+          type: string
+          format: date
+        category_name:
+          type:
+            - string
+            - "null"
+        action_taken:
+          type:
+            - string
+            - "null"
+          enum:
+            - warning
+            - detention
+            - parent_called
+            - parent_meeting
+            - suspension
+            - counsellor
+            - other
+            - null
+        follow_up_status:
+          type:
+            - string
+            - "null"
+          enum:
+            - open
+            - resolved
+            - null
+        resolved_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        parent_notified_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    FamilyBehaviour:
+      type: object
+      additionalProperties: false
+      required:
+        - settings
+        - points
+        - entries
+      properties:
+        settings:
+          type: object
+          additionalProperties: false
+          required:
+            - points_enabled
+            - mode
+            - starting_points
+            - reset
+            - thresholds
+            - parents_see_demerits
+            - parents_see_incidents
+          properties:
+            points_enabled:
+              type: boolean
+            mode:
+              type: string
+              enum:
+                - merits_only
+                - demerits_only
+                - both
+            starting_points:
+              type: integer
+            reset:
+              type: string
+              enum:
+                - term
+                - year
+                - never
+            thresholds:
+              type: array
+              items:
+                $ref: "#/components/schemas/BehaviourThreshold"
+            parents_see_demerits:
+              type: boolean
+            parents_see_incidents:
+              type: boolean
+        points:
+          type: object
+          additionalProperties: false
+          required:
+            - period_start
+            - period_end
+            - merit_points
+            - demerit_points
+            - balance
+          properties:
+            period_start:
+              type:
+                - string
+                - "null"
+              format: date
+            period_end:
+              type:
+                - string
+                - "null"
+              format: date
+            merit_points:
+              type: integer
+            demerit_points:
+              type: integer
+            balance:
+              type:
+                - integer
+                - "null"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/FamilyBehaviourEntry"
     BehaviourEntry:
       type: object
       additionalProperties: false

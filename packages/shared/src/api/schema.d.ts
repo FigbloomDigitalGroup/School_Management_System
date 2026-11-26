@@ -5965,6 +5965,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/behaviour/entries/{entryId}/incident": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record what was done about an incident
+         * @description The office's record of an incident (S2b): the action taken, open or resolved, and whether the parents were told. Any entry that is not voided can be followed up (a serious one starts open); a voided one is 409. "Parent told" keeps the time it was first set; `false` clears it. Who resolved it, and when, are stamped from the request by the database, never taken from the client. Office only (`resource.discipline.write`). Audited (`academics.behaviour.incident_updated`).
+         */
+        put: operations["behaviourSetIncident"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/me/children/{learnerId}/behaviour": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the school shares about a child's behaviour (a parent's child, or a learner's own record)
+         * @description The learner's points in the period holding today, the school's display settings (mode, reset, thresholds, what families may see) and the entries the school lets families see: merits always; demerits and incidents only when the school turns them on; never a voided entry, never the staff-only note, never who recorded it. The points count every entry that is not voided, whatever is shown. Newest first, at most 500. The same rule as the other per-child reads: a parent for a linked child, a learner for themself; 404 for every other learner (docs/FAMILY-READS.md, docs/STUDENT-ACCOUNTS.md).
+         */
+        get: operations["familyChildBehaviour"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/behaviour/points": {
         parameters: {
             query?: never;
@@ -9031,7 +9071,7 @@ export interface components {
             kind: "merit" | "demerit" | "incident";
             /** Format: uuid */
             category_id?: string | null;
-            /** @description The size, positive. Null or left out: the category's default. */
+            /** @description The size, positive (0 only for an incident with no category). Null or left out: the category's default. */
             points?: number | null;
             note?: string | null;
             /** @description Staff only: never shown to a family or a learner. */
@@ -9051,6 +9091,58 @@ export interface components {
         };
         BehaviourVoidRequest: {
             reason: string;
+        };
+        BehaviourIncidentRequest: {
+            /** @enum {string|null} */
+            action_taken: "warning" | "detention" | "parent_called" | "parent_meeting" | "suspension" | "counsellor" | "other" | null;
+            /** @enum {string} */
+            follow_up_status: "open" | "resolved";
+            /** @description True stamps the time the parents were told (kept if already set); false clears it. */
+            parent_notified: boolean;
+        };
+        FamilyBehaviourEntry: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "merit" | "demerit" | "incident";
+            points: number;
+            /** @enum {string|null} */
+            severity: "minor" | "major" | "serious" | null;
+            note: string | null;
+            /** Format: date */
+            occurred_on: string;
+            category_name: string | null;
+            /** @enum {string|null} */
+            action_taken: "warning" | "detention" | "parent_called" | "parent_meeting" | "suspension" | "counsellor" | "other" | null;
+            /** @enum {string|null} */
+            follow_up_status: "open" | "resolved" | null;
+            /** Format: date-time */
+            resolved_at: string | null;
+            /** Format: date-time */
+            parent_notified_at: string | null;
+        };
+        FamilyBehaviour: {
+            settings: {
+                points_enabled: boolean;
+                /** @enum {string} */
+                mode: "merits_only" | "demerits_only" | "both";
+                starting_points: number;
+                /** @enum {string} */
+                reset: "term" | "year" | "never";
+                thresholds: components["schemas"]["BehaviourThreshold"][];
+                parents_see_demerits: boolean;
+                parents_see_incidents: boolean;
+            };
+            points: {
+                /** Format: date */
+                period_start: string | null;
+                /** Format: date */
+                period_end: string | null;
+                merit_points: number;
+                demerit_points: number;
+                balance: number | null;
+            };
+            entries: components["schemas"]["FamilyBehaviourEntry"][];
         };
         BehaviourEntry: {
             /** Format: uuid */
@@ -26154,6 +26246,75 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    behaviourSetIncident: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviourIncidentRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        entry: components["schemas"]["BehaviourEntry"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    familyChildBehaviour: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Behaviour */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        behaviour: components["schemas"]["FamilyBehaviour"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     behaviourListPoints: {

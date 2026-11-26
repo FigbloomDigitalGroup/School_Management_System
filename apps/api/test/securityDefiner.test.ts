@@ -499,6 +499,12 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: [],
     why: "INVOKER trigger; locks the item FOR UPDATE under row security, refuses assets, written-off items and stock below 0 or below what issues owe, stamps the recorder from app.user_id, moves the count; refuses any UPDATE",
   },
+  // Migration 119 (behaviour notice to the family, docs/BEHAVIOUR.md).
+  "behaviour_notice_family_users(uuid)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "guardian_accounts is owner-only: the parent accounts to tell about ONE serious entry, and only for the person who recorded it in the last 10 minutes, when the school lets families see that kind of entry; opaque account ids only",
+  },
   // Migration 055 (leave).
   "leave_requests_guard()": {
     secdef: false,
@@ -557,6 +563,7 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "transport_fanout_notifications(uuid)",
   "transport_my_children()",
   "family_my_children()",
+  "behaviour_notice_family_users(uuid)",
   "student_my_learner()",
   "student_account_create(uuid,uuid,text)",
   "student_account_reset_password(uuid,uuid,text)",

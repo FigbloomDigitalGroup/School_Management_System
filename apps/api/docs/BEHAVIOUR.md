@@ -11,7 +11,7 @@ Four web pages wait on this: `admin/behaviour`, `teacher/behaviour` (S2c) and `p
 | Slice | Holds |
 |---|---|
 | **S2a** (this note, migration 118) | the `discipline` area and permissions; settings; categories (create, edit, archive, defaults); recording (several learners at once, with the staff-only note); the log; voiding; points; the three small reads the web forms need (classes, learners with their points, recorders) |
-| **S2b** (next PR) | the incident follow-up (action, open or resolved, "parent told"), the in-app notice to the class teacher and the family, and the family reads (`/me/children/{learnerId}/behaviour`, for a parent and for the learner's own record) |
+| **S2b** (migration 119) | the incident follow-up (action, open or resolved, "parent told"), the in-app notice to the class teacher and the family, and the family read (`/me/children/{learnerId}/behaviour`, for a parent and for the learner's own record). Written after S2a: see "S2b" below |
 
 The migration creates all four tables and every trigger once, so S2b adds routes only. The incident columns are in the table
 from the start and are not written by S2a (the guard refuses it).
@@ -126,9 +126,19 @@ A refusal is the usual audited 403.
 5. **`GET /recorders` lists the people who recorded something,** not every staff member.
 6. **Audit** is written by the route (`recordSecurityEvent`), as the rest of the API does, not by table triggers.
 
+## S2b: incidents, notices and the family read (migration 119)
+
+**Follow-up.** `PUT /entries/{entryId}/incident` (`resource.discipline.write`) sets `action_taken` (warning, detention, parent called, parent meeting, suspension, counsellor, other, or none), `follow_up_status` (open or resolved) and `parent_notified`. Any entry that is not voided can be followed up (a voided one is 409). "Parent told" keeps the time it was first set; `false` clears it. `resolved_by` and `resolved_at` are stamped by the guard trigger from the request, never from the client. Audited (`academics.behaviour.incident_updated`).
+
+**Notices.** When a serious entry is recorded, an in-app announcement (channel in_app only: no SMS, e-mail or push; audience one user; published at once) goes to the learner's class teacher, unless they recorded it, and, when the school lets families see that kind of entry (`parents_see_demerits` for a demerit, `parents_see_incidents` for an incident), to the learner's parents. The class teacher's notice carries the entry's note; a family's never does; the staff-only note is in neither. One audit event per recording (`academics.behaviour.notices_sent`: counts only). The parents' account ids come from one new definer function, `behaviour_notice_family_users(uuid)`, because `guardian_accounts` is owner-only. It returns nothing unless the caller IS the recorder of that entry, recorded it in the last 10 minutes, it is serious and not voided, and the school lets families see that kind of entry; then only opaque account ids of parents that are live by the rule of `family_my_children()`. It is not a way to ask who a learner's guardians are.
+
+**The family read.** `GET /me/children/{learnerId}/behaviour` is the one per-child path shared by a parent (their linked child) and a learner (themself): `settings` (without the maximum), `points` (the period holding today; counts every entry that is not voided, whatever is shown, as in Supabase) and `entries` (newest first, at most 500; merits always, demerits and incidents only when the school turns them on; never a voided entry, never the staff-only note, never who recorded it). 404 for every other learner (`FAMILY-READS.md`, `STUDENT-ACCOUNTS.md`).
+
+Differences from Supabase (S2b): notices are written by the route, in the same transaction, not by a trigger; a notice for each serious entry of a class-wide recording is still one per learner; a family read carries no recorder name.
+
 ## Not in S2a
 
-Incidents, the notices and the family reads (S2b). The web pages (S2c, S2d). The category order is fixed at creation (100); a
+The web pages (S2c, S2d). (Incidents, notices and the family read are S2b, above.) The category order is fixed at creation (100); a
 reordering control is not on the Supabase screens either.
 
 ## Open owner questions

@@ -45,7 +45,7 @@ const ANY_OF: Record<string, { reason: string; sets: string[][] }> = {
   // Student accounts (docs/STUDENT-ACCOUNTS.md): the per-learner reads are shared by a parent (their children) and a learner
   // (their own learner), and the two attempt endpoints by staff and a learner (their own attempt); test/student.accounts.test.ts
   ...Object.fromEntries(
-    ["attendance", "results", "report-cards", "homework", "materials", "timetable", "fees", "activities", "items"].map((leaf) => [
+    ["attendance", "results", "report-cards", "homework", "materials", "timetable", "fees", "activities", "items", "behaviour"].map((leaf) => [
       `GET /v1/tenants/{tenantId}/me/children/{learnerId}/${leaf}`,
       { reason: "a parent's child (family) OR a learner's own learner (student)", sets: [["resource.family.read"], ["resource.student.self.read"]] },
     ]),
