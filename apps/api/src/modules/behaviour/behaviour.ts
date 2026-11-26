@@ -407,7 +407,165 @@ export async function recordBehaviour(tx: Tx, input: RecordBehaviourInput): Prom
     tenantId: input.tenantId,
     detail: { kind: input.kind, count: created.length, entryIds: created },
   });
+  await sendSeriousNotices(tx, { tenantId: input.tenantId, actorUserId: input.actorUserId, entryIds: created });
   return created;
+}
+
+// ---------------------------------------------------------------- notices (S2b)
+
+const DAY = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+const niceDay = (ymd: string) => DAY.format(new Date(`${ymd}T00:00:00Z`));
+
+/**
+ * In-app notices when a serious entry is recorded (the Supabase `behaviour_entry_notify` trigger): to the learner's class teacher
+ * (unless they recorded it) and, when the school lets families see that kind of entry, to the learner's parents. Channel in_app
+ * only: no SMS, e-mail or push. The staff-only note is never in a notice. The parents come from the definer function
+ * `behaviour_notice_family_users` (migration 119), which answers only for the person who recorded the entry, just now.
+ * One audit event per recording (`academics.behaviour.notices_sent`), ids and counts only.
+ */
+async function sendSeriousNotices(tx: Tx, input: { tenantId: string; actorUserId: string; entryIds: string[] }): Promise<void> {
+  if (input.entryIds.length === 0) return;
+  const rows = await tx.query<{
+    id: string; learner_name: string; category_name: string | null; occurred_on: string; note: string | null; kind: string; teacher_user_id: string | null; learner_id: string;
+  }>(
+    `SELECT e.id, e.learner_id, l.full_name AS learner_name, bc.name AS category_name, e.occurred_on::text AS occurred_on, e.note, e.kind,
+            sm.user_id AS teacher_user_id
+       FROM behaviour_entries e
+       JOIN learners l ON l.tenant_id = e.tenant_id AND l.id = e.learner_id
+       LEFT JOIN behaviour_categories bc ON bc.tenant_id = e.tenant_id AND bc.id = e.category_id
+       LEFT JOIN classes c ON c.tenant_id = e.tenant_id AND c.id = e.class_id
+       LEFT JOIN staff_members sm ON sm.tenant_id = c.tenant_id AND sm.id = c.class_teacher_staff_id AND sm.active = true AND sm.archived_at IS NULL
+      WHERE e.tenant_id = $1 AND e.id = ANY($2::uuid[]) AND e.severity = 'serious' AND e.voided_at IS NULL`,
+    [input.tenantId, input.entryIds],
+  );
+  let teachers = 0;
+  let families = 0;
+  const insert = async (userId: string, subject: string, body: string) => {
+    await tx.query(
+      `INSERT INTO communications_announcements (tenant_id, author_id, subject, body, audience, channels, published_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, ARRAY['in_app']::text[], now())`,
+      [input.tenantId, input.actorUserId, subject, body, JSON.stringify({ kind: "user", user_id: userId })],
+    );
+  };
+  for (const r of rows.rows) {
+    const what = r.category_name ?? "An incident";
+    const when = niceDay(r.occurred_on);
+    if (r.teacher_user_id !== null && r.teacher_user_id !== input.actorUserId) {
+      await insert(
+        r.teacher_user_id,
+        `Serious incident: ${r.learner_name}`,
+        `${what} was recorded for ${r.learner_name} on ${when}.${r.note ? `\n\n${r.note}` : ""}\n\nThe office follows it up on the Behaviour page.`,
+      );
+      teachers++;
+    }
+    const parents = await tx.query<{ user_id: string }>(`SELECT user_id FROM public.behaviour_notice_family_users($1::uuid)`, [r.id]);
+    for (const p of parents.rows) {
+      await insert(p.user_id, `About ${r.learner_name}`, `${what} was recorded for ${r.learner_name} on ${when}. The school will be in touch about what happens next.`);
+      families++;
+    }
+  }
+  if (teachers + families > 0) {
+    await recordSecurityEvent(tx, {
+      eventType: "academics.behaviour.notices_sent",
+      actorUserId: input.actorUserId,
+      tenantId: input.tenantId,
+      detail: { entries: rows.rows.length, teachers, families },
+    });
+  }
+}
+
+// ---------------------------------------------------------------- incidents (S2b)
+
+export type IncidentAction = "warning" | "detention" | "parent_called" | "parent_meeting" | "suspension" | "counsellor" | "other";
+
+/**
+ * The office's record of an incident: the action taken, open or resolved, and whether the parents were told. Any entry that is not
+ * voided can be followed up (a serious one starts open). "Parent told" keeps its first time; false clears it. Who resolved it, and
+ * when, come from the request (the guard trigger), never from the client. Office only: the route checks `resource.discipline.write`.
+ */
+export async function setBehaviourIncident(
+  tx: Tx,
+  input: { tenantId: string; actorUserId: string; entryId: string; action: IncidentAction | null; status: "open" | "resolved"; parentNotified: boolean },
+): Promise<BehaviourEntry> {
+  const entry = await getBehaviourEntry(tx, { tenantId: input.tenantId, scope: { office: true }, entryId: input.entryId });
+  if (!entry) throw notFound("Behaviour entry not found");
+  if (entry.voided_at !== null) throw conflict("This entry was voided");
+  try {
+    const res = await tx.query(
+      `UPDATE behaviour_entries
+          SET action_taken = $3, follow_up_status = $4, parent_notified_at = CASE WHEN $5::boolean THEN now() ELSE NULL END
+        WHERE tenant_id = $1 AND id = $2 AND voided_at IS NULL`,
+      [input.tenantId, input.entryId, input.action, input.status, input.parentNotified],
+    );
+    if ((res.rowCount ?? 0) !== 1) throw conflict("This entry was voided");
+  } catch (err) {
+    mapBehaviourDbError(err);
+  }
+  await recordSecurityEvent(tx, {
+    eventType: "academics.behaviour.incident_updated",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { entryId: input.entryId, status: input.status, action: input.action },
+  });
+  return (await getBehaviourEntry(tx, { tenantId: input.tenantId, scope: { office: true }, entryId: input.entryId }))!;
+}
+
+// ---------------------------------------------------------------- the family's view (S2b)
+
+export interface FamilyBehaviourEntry {
+  id: string;
+  kind: BehaviourKind;
+  points: number;
+  severity: BehaviourSeverity | null;
+  note: string | null;
+  occurred_on: string;
+  category_name: string | null;
+  action_taken: string | null;
+  follow_up_status: "open" | "resolved" | null;
+  resolved_at: string | null;
+  parent_notified_at: string | null;
+}
+
+export interface FamilyBehaviour {
+  settings: Omit<BehaviourSettings, "max_points_per_entry">;
+  /** Counts every entry that is not voided, whatever the family may be shown of them (a total that hid demerits would be wrong). */
+  points: { period_start: string | null; period_end: string | null; merit_points: number; demerit_points: number; balance: number | null };
+  entries: FamilyBehaviourEntry[];
+}
+
+/**
+ * What the school shares with a learner's family (a parent for their child, a learner for themself): the points, the school's
+ * display settings, and the entries the school lets families see: merits always, demerits and incidents only when the school turns
+ * them on, never a voided entry, never the staff-only note, never who recorded it. The caller proved the learner is theirs.
+ */
+export async function familyBehaviour(tx: Tx, input: { tenantId: string; learnerId: string }): Promise<FamilyBehaviour> {
+  const settings = await getBehaviourSettings(tx, input.tenantId);
+  const kinds: BehaviourKind[] = ["merit", ...(settings.parents_see_demerits ? (["demerit"] as const) : []), ...(settings.parents_see_incidents ? (["incident"] as const) : [])];
+  const res = await tx.query<Omit<FamilyBehaviourEntry, "resolved_at" | "parent_notified_at"> & { resolved_at: Date | null; parent_notified_at: Date | null }>(
+    `SELECT e.id, e.kind, e.points, e.severity, e.note, e.occurred_on::text AS occurred_on, bc.name AS category_name, e.action_taken,
+            e.follow_up_status, e.resolved_at, e.parent_notified_at
+       FROM behaviour_entries e
+       LEFT JOIN behaviour_categories bc ON bc.tenant_id = e.tenant_id AND bc.id = e.category_id
+      WHERE e.tenant_id = $1 AND e.learner_id = $2 AND e.voided_at IS NULL AND e.kind = ANY($3::text[])
+      ORDER BY e.occurred_on DESC, e.created_at DESC, e.id DESC
+      LIMIT 500`,
+    [input.tenantId, input.learnerId, kinds],
+  );
+  const pts = await listLearnerPoints(tx, {
+    tenantId: input.tenantId,
+    scope: { office: true },
+    learnerIds: [input.learnerId],
+    page: { limit: 1, rawCursor: undefined },
+  });
+  const p = pts.items[0];
+  const { max_points_per_entry: _max, ...display } = settings;
+  return {
+    settings: display,
+    points: p
+      ? { period_start: p.period_start, period_end: p.period_end, merit_points: p.merit_points, demerit_points: p.demerit_points, balance: p.balance }
+      : { period_start: null, period_end: null, merit_points: 0, demerit_points: 0, balance: null },
+    entries: res.rows.map((r) => ({ ...r, resolved_at: iso(r.resolved_at), parent_notified_at: iso(r.parent_notified_at) })),
+  };
 }
 
 // ---------------------------------------------------------------- the log

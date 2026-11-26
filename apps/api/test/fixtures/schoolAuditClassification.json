@@ -6,6 +6,8 @@
   "academics.behaviour.category_restored": "academic",
   "academics.behaviour.category_updated": "academic",
   "academics.behaviour.defaults_added": "academic",
+  "academics.behaviour.incident_updated": "academic",
+  "academics.behaviour.notices_sent": "academic",
   "academics.behaviour.recorded": "academic",
   "academics.behaviour.settings_updated": "academic",
   "academics.behaviour.voided": "academic",

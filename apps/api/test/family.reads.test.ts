@@ -15,7 +15,7 @@ const NEW_PW = "brand-new-passw0rd";
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;
 
 /** Every per-child GET path, relative to /v1/tenants/{t}/me/children/{learnerId}. */
-const CHILD_PATHS: string[] = ["/attendance", "/results", "/report-cards", "/homework", "/materials", "/timetable", "/fees", "/activities", "/items", "/health", "/ai-helper"];
+const CHILD_PATHS: string[] = ["/attendance", "/results", "/report-cards", "/homework", "/materials", "/timetable", "/fees", "/activities", "/items", "/behaviour", "/health", "/ai-helper"];
 
 function isoDay(offsetDays: number): string {
   const d = new Date();

@@ -162,6 +162,8 @@ export type SecurityEventType =
   | "academics.behaviour.defaults_added"
   | "academics.behaviour.recorded"
   | "academics.behaviour.voided"
+  | "academics.behaviour.incident_updated"
+  | "academics.behaviour.notices_sent"
   | "inventory.item.created"
   | "inventory.item.retired"
   | "inventory.issue.created"

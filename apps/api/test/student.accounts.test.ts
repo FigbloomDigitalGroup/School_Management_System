@@ -18,7 +18,7 @@ const OWN_PW = "my-own-passw0rd-1";
 type Ctx = Awaited<ReturnType<typeof createTestApp>>;
 
 /** The shared per-learner reads a learner may use, relative to /me/children/{learnerId}. */
-const SHARED_PATHS = ["/attendance", "/results", "/report-cards", "/homework", "/materials", "/timetable", "/fees", "/activities", "/items"];
+const SHARED_PATHS = ["/attendance", "/results", "/report-cards", "/homework", "/materials", "/timetable", "/fees", "/activities", "/items", "/behaviour"];
 
 function isoDay(offsetDays: number): string {
   const d = new Date();

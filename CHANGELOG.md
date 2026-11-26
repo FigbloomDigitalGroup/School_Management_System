@@ -61,6 +61,10 @@ On `main` or in an open PR, not live in production yet.
   `/v1/tenants/{tenantId}/behaviour`: `settings`, `categories` (create, edit, archive, defaults), `entries` (record for 1 to 80
   learners, list, void), `points`, `classes`, `recorders`. Nothing live changes; the web pages follow in S2c and S2d. The area is not
   delegable to an organisation administrator until the owner decides. Incidents, notices and the family reads are part 2.
+- **Behaviour log on the new API, part 2 (S2b, `apps/api/docs/BEHAVIOUR.md`)**: migration `119_behaviour_family_notice.sql` (one
+  narrow definer function, `behaviour_notice_family_users`). `PUT /v1/tenants/{tenantId}/behaviour/entries/{entryId}/incident` (the
+  office's follow-up), in-app notices to the class teacher and the family when a serious entry is recorded, and
+  `GET /v1/tenants/{tenantId}/me/children/{learnerId}/behaviour` (a parent's child, a learner's own record). Nothing live changes.
 - **`main` brought into `dev-joe`** (PR `sync/main-into-dev-joe`). Nothing live changes. On the API build the paged Fees and
   Inventory screens from #375 now work too (`feesPaging.ts`, `inventoryPaging.ts` answer from the API's own lists and page them
   in the browser); the stock overview, the behaviour log and the HR & Payroll screens stay Supabase-only and are hidden on the
@@ -215,7 +219,7 @@ screens:
 
 | Live feature | What `apps/api` has | What's missing |
 |---|---|---|
-| Behaviour log | Settings, categories, recording, voiding, points, staff notes (S2a, migration 118) | Incidents and their follow-up, the notices to the class teacher and family, the family and learner reads (S2b) |
+| Behaviour log | All of it: settings, categories, recording, voiding, points, staff notes (S2a, migration 118), incidents and their follow-up, the notices, the family and learner read (S2b, migration 119) | Nothing (the web pages still run on Supabase) |
 | Inventory stock | `items` and `issues` routes | Stock movements (in, used, wasted, adjusted), `unit` / `consumable` / `reorder_level`, the ledger, usage, spend, cost per meal, stock levels, headcount and flags reports |
 | AI stock insights | `ai/query` | The `stock_insights` task |
 | M-Pesa | STK push and query in `finance.ts`, callback in `mpesa.ts` | The `DARAJA_TENANTS` allowlist, and retrying the STK query when Daraja answers 429 |
