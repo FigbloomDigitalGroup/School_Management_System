@@ -13,6 +13,7 @@ import { Skeleton } from "../components/ui/Skeleton";
 import { useAsync } from "../lib/useAsync";
 import { ApiPlatformAudit } from "../screens/platform/ApiPlatformAudit";
 import { ApiPlatformHealth } from "../screens/platform/ApiPlatformHealth";
+import { ApiPlatformInvoices } from "../screens/platform/ApiPlatformInvoices";
 import { ApiPlatformOrganizations } from "../screens/platform/ApiPlatformOrganizations";
 import { ApiPlatformTenants } from "../screens/platform/ApiPlatformTenants";
 import { ApiPlatformUsage } from "../screens/platform/ApiPlatformUsage";
@@ -73,7 +74,7 @@ export function ApiPlatformShell() {
   const badges: Record<string, string> = {};
   if (counts?.tenants) badges["/platform/tenants"] = String(counts.tenants);
 
-  if (page !== "tenants" && page !== "organizations" && page !== "health" && page !== "usage" && page !== "audit") {
+  if (page !== "tenants" && page !== "organizations" && page !== "health" && page !== "usage" && page !== "audit" && page !== "invoices") {
     return <Navigate to="/platform/tenants" replace />;
   }
 
@@ -98,6 +99,8 @@ export function ApiPlatformShell() {
           <ApiPlatformUsage />
         ) : page === "audit" ? (
           <ApiPlatformAudit />
+        ) : page === "invoices" ? (
+          <div className="h-screen"><ApiPlatformInvoices /></div>
         ) : (
           <ApiPlatformHealth />
         )}

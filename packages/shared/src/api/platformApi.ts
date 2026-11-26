@@ -367,6 +367,51 @@ export async function apiFetchPlatformAuditEvents(opts?: {
   };
 }
 
+// ---------------------------------------------------------------- Figbloom billing invoices (migration 123)
+
+export type PlatformBillingInvoiceStatus = "due" | "paid";
+
+export interface PlatformBillingInvoice {
+  invoiceId: string;
+  tenantId: string;
+  tenantName: string;
+  amountCents: number;
+  dueDate: string;
+  status: PlatformBillingInvoiceStatus;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+/** All Figbloom invoices for schools, ordered by due date and invoice id. */
+export async function apiFetchPlatformInvoices(): Promise<PlatformBillingInvoice[]> {
+  return listAllPages(async (cursor) => {
+    const res = await apiClient().get("/v1/platform/invoices", {
+      query: { limit: API_PAGE_LIMIT, ...(cursor ? { cursor } : {}) },
+      tenantId: null,
+    });
+    return { items: res.items, page: res.page };
+  });
+}
+
+/** Creates a Figbloom school invoice; recent password confirmation is handled by the API client. */
+export async function apiCreatePlatformInvoice(input: {
+  tenantId: string;
+  amountCents: number;
+  dueDate: string;
+}): Promise<string> {
+  const res = await apiClient().post("/v1/platform/invoices", { body: input, tenantId: null });
+  return res.invoiceId;
+}
+
+/** Records a manually reconciled payment and returns whether the invoice changed to paid. */
+export async function apiMarkPlatformInvoicePaid(invoiceId: string): Promise<boolean> {
+  const res = await apiClient().put("/v1/platform/invoices/{invoiceId}/mark-paid", {
+    path: { invoiceId },
+    tenantId: null,
+  });
+  return res.changed;
+}
+
 // ---------------------------------------------------------------- provisioning (POST /v1/platform/schools)
 
 export interface ProvisionSchoolInput {

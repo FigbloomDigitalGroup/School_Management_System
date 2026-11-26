@@ -66,6 +66,9 @@ On `main` or in an open PR, not live in production yet.
   `PUT /v1/platform/invoices/{invoiceId}/mark-paid`. Create and mark-paid require recent password confirmation, audit the
   money action in the same transaction, and do not connect overdue invoices to school suspension. Nothing changes the
   Supabase build. The API table starts empty; historical Supabase invoice rows need a separate transfer before a production API cutover.
+- **Platform invoices API page (slice S6c)**: routes /platform/invoices to the new API list and school directory, and
+  uses API writes to create invoices and record manual payments. Overdue state comes from the due date; the page shows
+  no estimated MRR or seat counts.
 - **Behaviour log on the new API, part 1 (S2a, `apps/api/docs/BEHAVIOUR.md`)**: a port of the live behaviour log, with the same rules.
   Migration `118_behaviour_log.sql`: the `discipline` admin area, permissions `resource.discipline.read`, `resource.discipline.write` and
   `resource.behaviour.record` (teachers), tables `behaviour_settings`, `behaviour_categories`, `behaviour_entries` and

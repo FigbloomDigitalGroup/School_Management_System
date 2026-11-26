@@ -131,7 +131,7 @@ transaction. The old price rows were explicitly placeholders, so no prices are s
 `POST /v1/platform/invoices` and `PUT /v1/platform/invoices/{invoiceId}/mark-paid`. Create and mark-paid require recent
 re-authentication; each money action writes an audit event in the same transaction. Invoice status is `due` or `paid`;
 overdue is derived from the due date and does not suspend a school. The API table starts empty; this migration does not copy
-existing Supabase invoice rows, so they need a separate transfer before any production API cutover. The API web page follows as S6c.
+existing Supabase invoice rows, so they need a separate transfer before any production API cutover. The API web page is S6c. It reads invoices and schools from the API, then creates invoices and records manually reconciled payments through the API.
 
 The API stores subscription terms and invoices in platform tables; it does not add billing columns to `tenants`.
 
@@ -262,4 +262,5 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
 | Table | `platform_invoices` mirrors the live Figbloom invoice fields (`tenant_id`, integer `amount_cents`, `due_date`, `due`/`paid` status, `paid_at`, `created_at`) in an owner-only, forced-RLS table with no runtime table grants. The API table starts empty; migration 123 does not copy existing Supabase rows. |
 | Reads | `GET /v1/platform/invoices` returns school name, amount, due date, stored payment state, and timestamps; overdue is derived from `due_date` by the caller. Keyset order is due date then invoice id. |
 | Writes | `POST /v1/platform/invoices` creates a due invoice. `PUT /v1/platform/invoices/{invoiceId}/mark-paid` records a manual bank reconciliation. Both require `platform.billing.manage` and recent password confirmation; audit is written in the same transaction. A repeated mark-paid is a no-op. |
+| UI | The API page at /platform/invoices uses the API invoice list and school directory for its table and creation form. It records payments after manual bank reconciliation and does not show MRR or seat estimates. |
 | Separation | These are Figbloom invoices for schools, separate from school fee invoices. No payment gateway is wired, and overdue invoices do not suspend a school. |
