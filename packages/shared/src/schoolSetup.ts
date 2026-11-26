@@ -1,6 +1,7 @@
 import {
-  apiCreateClass, apiCreateClasses, apiCreateSubject, apiCreateSubjects, apiFetchClassSubjects, apiFetchClassesOverview, apiFetchSubjects,
-  apiFetchTermSetup, apiSaveSchoolAccent, apiSaveSchoolDetails, apiSetClassSubjectTeacher, apiStartTerm,
+  apiArchiveClass, apiCreateClass, apiCreateClasses, apiCreateSubject, apiCreateSubjects, apiFetchClassSubjects, apiFetchClassesOverview, apiFetchSubjects,
+  apiFetchTermSetup, apiSaveSchoolAccent, apiSaveSchoolDetails, apiSetClassRoom, apiSetClassSubjectTeacher, apiSetClassTeacher, apiStartTerm,
+  apiUpdateSubject,
 } from "./api/setupApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
@@ -98,15 +99,30 @@ export async function createClasses(tenantId: string, classes: NewClass[]): Prom
   if (error) throw error;
 }
 
-/** Gives a class its class teacher, or takes the teacher off with null. */
+/** Gives a class its class teacher, or takes the teacher off with null. On the API the teacher must be an active member of staff. */
 export async function setClassTeacher(classId: string, teacherId: string | null): Promise<void> {
-  if (onApi()) throw new NotOnApiError("Changing a class's teacher");
+  if (onApi()) return apiSetClassTeacher(classId, teacherId);
   const { error } = await supabase().from("classes").update({ class_teacher_id: teacherId }).eq("id", classId);
   if (error) throw error;
 }
 
+/**
+ * Sets a class's room, or clears it with null. The screens offer it only where `setupCapabilities().editClassRoom` is on (the API
+ * build): the Supabase screens never edited a room once the class was made, and keep not doing so.
+ */
+export async function setClassRoom(classId: string, room: string | null): Promise<void> {
+  if (onApi()) return apiSetClassRoom(classId, room);
+  const { error } = await supabase().from("classes").update({ room }).eq("id", classId);
+  if (error) throw error;
+}
+
+/**
+ * Takes a class off the list. On Supabase it is deleted. On the API it is ARCHIVED, not deleted: the API refuses (409, "The class still has
+ * N learners. Move them to another class first.") while an active learner is in the class, ends the class's teaching assignments, keeps its
+ * timetable and history, and has no restore. The screens word it "Archive" on the API build.
+ */
 export async function deleteClass(classId: string): Promise<void> {
-  if (onApi()) throw new NotOnApiError("Deleting a class");
+  if (onApi()) return apiArchiveClass(classId);
   const { error } = await supabase().from("classes").delete().eq("id", classId);
   if (error) throw error;
 }
@@ -317,7 +333,7 @@ export interface NewSubject {
   level?: ClassLevel | null;
   minFormLevel: number | null;
   maxFormLevel: number | null;
-  /** The KICD learning area it was added from. */
+  /** The KICD learning area it was added from. Supabase only: the API's subject has no such link, and refuses one (NotOnApiError). */
   learningAreaId?: string;
 }
 
@@ -343,14 +359,21 @@ export async function createSubjects(tenantId: string, subjects: NewSubject[]): 
   if (error) throw error;
 }
 
+/**
+ * Changes a subject's name, code and year range. `level` (null = any level) and `isCore` are changed only when given: the Supabase screens
+ * never give them, the API screens do (`setupCapabilities().editSubjectLevelAndCore`). On the API a code another subject has is refused
+ * (409), years outside the level are refused (400), and a subject that was archived cannot be changed.
+ */
 export async function updateSubject(
   subjectId: string,
-  fields: { name: string; code: string; minFormLevel: number | null; maxFormLevel: number | null },
+  fields: { name: string; code: string; minFormLevel: number | null; maxFormLevel: number | null; level?: ClassLevel | null; isCore?: boolean },
 ): Promise<void> {
-  if (onApi()) throw new NotOnApiError("Editing a subject");
+  if (onApi()) return apiUpdateSubject(subjectId, fields);
   const { error } = await supabase().from("subjects").update({
     name: fields.name, code: fields.code,
     min_form_level: fields.minFormLevel, max_form_level: fields.maxFormLevel,
+    ...(fields.level !== undefined ? { level: fields.level } : {}),
+    ...(fields.isCore !== undefined ? { is_core: fields.isCore } : {}),
   }).eq("id", subjectId);
   if (error) throw error;
 }
@@ -363,7 +386,7 @@ export interface ClassSubjectsData {
 
 /** The subjects a class takes and who teaches each, with which teachers are qualified for which subject. */
 export async function fetchClassSubjects(tenantId: string, classId: string, classLevel: ClassLevel, formLevel: number): Promise<ClassSubjectsData> {
-  if (onApi()) return apiFetchClassSubjects(tenantId, classId);
+  if (onApi()) return apiFetchClassSubjects(tenantId, classId, classLevel, formLevel);
   const sb = supabase();
   const [{ data: subjects, error: e1 }, { data: assignments, error: e2 }, { data: specializations, error: e3 }] = await Promise.all([
     sb.from("subjects").select("*").eq("tenant_id", tenantId).order("name").returns<Subject[]>(),

@@ -21,23 +21,37 @@ export function isNotOnApiError(err: unknown): err is NotOnApiError {
   return err instanceof NotOnApiError;
 }
 
-/** The school-setup screens: School settings, Classes, Subjects. */
+/**
+ * The school-setup screens: School settings, Classes, Subjects. A flag is true where that backend offers the control. The API side is
+ * `PATCH` and `POST .../archive` on classes, `PATCH` on subjects, and `PATCH` and `POST .../archive` on teaching assignments (migration
+ * 101); all need the Academics area, which is what opens these pages, so nobody who sees a control here is refused for lack of it.
+ * What the API refuses for other reasons (a 400 or 409) reaches the person in the API's own words.
+ */
 export interface SetupCapabilities {
-  /** Change a class's teacher after the class was made (the API takes it at creation only). */
+  /** Change a class's teacher after it was made, in the Classes list and the setup checklist's "Assign class teachers" step. The new teacher must be an active member of staff (400 otherwise). */
   changeClassTeacher: boolean;
-  /** Remove a class (the API archives nothing yet). */
+  /**
+   * Take a class off the list. On Supabase it is deleted. On the API it is ARCHIVED (`POST .../classes/{classId}/archive`): refused with 409
+   * while an active learner is in the class, its teaching assignments end, and there is no restore. The screen words it "Archive" on the API.
+   */
   deleteClass: boolean;
-  /** A class's room (the API has no such field). */
+  /** A class's room: the Room column of the Classes list, and the Room field when a class is made. */
   classRoom: boolean;
-  /** Promote a class's learners at the year's end. */
+  /** API only: change a class's room after it was made, in the Classes list. Supabase never offered it. */
+  editClassRoom: boolean;
+  /** Promote a class's learners at the year's end. Not on the API: it has no bulk move that ends memberships and places learners in the next year's class. */
   promoteClass: boolean;
-  /** A class's weekly timetable. */
+  /** A class's weekly timetable grid editor. Not on the API: a timetable slot can be made and listed (`Timetable.classPeriods`) but not changed or removed. */
   classTimetable: boolean;
-  /** Edit a subject once made. */
+  /** Edit a subject once made: its name, code and, where `subjectDetails` is on, its years. The API refuses a code another subject has (409) and changes nothing on an archived subject. */
   editSubject: boolean;
-  /** A subject's level and year range, its core flag, and adding from the KICD catalogue (the API's subject is a code and a name). */
+  /** A subject's level and year range, shown and entered when a subject is made, and its core flag read. */
   subjectDetails: boolean;
-  /** Change or clear who teaches a subject in a class once one is set. */
+  /** API only: change a subject's level and its core flag once made, in the Subjects list. Supabase never offered either on a subject that was made. */
+  editSubjectLevelAndCore: boolean;
+  /** "Add from KICD": subjects made from the KICD catalogue, linked to a learning area. Not on the API: a subject there has no link to a learning area. */
+  kicdCatalogue: boolean;
+  /** Change or clear who teaches a subject in a class once one is set. The new teacher must be an active member of staff (400 otherwise). */
   changeSubjectTeacher: boolean;
   /** The fee structure step of the setup checklist, and the payment methods form. */
   feeSetup: boolean;
@@ -47,18 +61,20 @@ export interface SetupCapabilities {
   aiSettings: boolean;
 }
 
-const EVERYTHING: SetupCapabilities = {
-  changeClassTeacher: true, deleteClass: true, classRoom: true, promoteClass: true, classTimetable: true,
-  editSubject: true, subjectDetails: true, changeSubjectTeacher: true, feeSetup: true, schoolCrest: true, aiSettings: true,
+const SETUP_ON_SUPABASE: SetupCapabilities = {
+  changeClassTeacher: true, deleteClass: true, classRoom: true, editClassRoom: false, promoteClass: true, classTimetable: true,
+  editSubject: true, subjectDetails: true, editSubjectLevelAndCore: false, kicdCatalogue: true, changeSubjectTeacher: true,
+  feeSetup: true, schoolCrest: true, aiSettings: true,
 };
 
-const NOTHING_YET: SetupCapabilities = {
-  changeClassTeacher: false, deleteClass: false, classRoom: false, promoteClass: false, classTimetable: false,
-  editSubject: false, subjectDetails: false, changeSubjectTeacher: false, feeSetup: false, schoolCrest: false, aiSettings: false,
+const SETUP_ON_API: SetupCapabilities = {
+  changeClassTeacher: true, deleteClass: true, classRoom: true, editClassRoom: true, promoteClass: false, classTimetable: false,
+  editSubject: true, subjectDetails: true, editSubjectLevelAndCore: true, kicdCatalogue: false, changeSubjectTeacher: true,
+  feeSetup: false, schoolCrest: false, aiSettings: false,
 };
 
 export function setupCapabilities(): SetupCapabilities {
-  return onApi() ? NOTHING_YET : EVERYTHING;
+  return onApi() ? SETUP_ON_API : SETUP_ON_SUPABASE;
 }
 
 /** The People screen: learners, staff and guardians. A flag is true where that backend offers the control. */

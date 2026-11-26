@@ -69,7 +69,8 @@ function rangeLabel(s: Subject, unit: string): string {
 export function AdminSubjects() {
   const toast = useToast();
   const { tenant } = useTenantSession();
-  // On the new API a subject is a code and a name: no level or year range, no KICD catalogue, and no editing yet.
+  // What the backend can do (capabilities.ts). On the new API a subject has a code, a name, a level, a year range and a core flag, and
+  // can be changed; it has no link to a KICD learning area, so "Add from KICD" is not offered there.
   const caps = setupCapabilities();
   const unit = tenant.level === "primary" ? "Grade" : "Form";
   const [reloadKey, setReloadKey] = useState(0);
@@ -196,7 +197,7 @@ export function AdminSubjects() {
         actions={
           <>
             {subjects && subjects.length > 0 && <Button onClick={() => downloadSubjectsCsv(subjects, unit)}>Export CSV</Button>}
-            {caps.subjectDetails && <Button variant="accent" onClick={() => setKicdOpen(true)} disabled={!subjects}>Add from KICD</Button>}
+            {caps.kicdCatalogue && <Button variant="accent" onClick={() => setKicdOpen(true)} disabled={!subjects}>Add from KICD</Button>}
           </>
         }
       />
@@ -214,7 +215,7 @@ export function AdminSubjects() {
             ) : (
               <ul className="grid gap-1.5">
                 {subjects.map((s) => caps.editSubject ? (
-                  <SubjectRow key={s.id} subject={s} unit={unit} onSaved={reload} toast={toast} />
+                  <SubjectRow key={s.id} subject={s} unit={unit} editLevelAndCore={caps.editSubjectLevelAndCore} onSaved={reload} toast={toast} />
                 ) : (
                   <li key={s.id} className="flex items-center gap-2.5 rounded-lg border border-line-soft px-3 py-2">
                     <span className="min-w-0 flex-1 text-[13px] font-medium">{s.name}</span>
@@ -304,7 +305,7 @@ export function AdminSubjects() {
           </div>
         )}
       </div>
-      {kicdOpen && subjects && (
+      {kicdOpen && caps.kicdCatalogue && subjects && (
         <AddFromKicdModal
           existing={subjects}
           onClose={() => setKicdOpen(false)}
@@ -426,19 +427,28 @@ function AddFromKicdModal({ existing, onClose, onAdded, toast }: {
   );
 }
 
-function SubjectRow({ subject, unit, onSaved, toast }: {
-  subject: Subject; unit: string; onSaved: () => void; toast: ToastFn;
+function SubjectRow({ subject, unit, editLevelAndCore, onSaved, toast }: {
+  subject: Subject; unit: string;
+  /** API build: the row also changes the subject's level and core flag (`setupCapabilities().editSubjectLevelAndCore`). */
+  editLevelAndCore: boolean; onSaved: () => void; toast: ToastFn;
 }) {
+  const { tenant } = useTenantSession();
   const [name, setName] = useState(subject.name);
   const [code, setCode] = useState(subject.code);
   const [minForm, setMinForm] = useState(subject.min_form_level != null ? String(subject.min_form_level) : "");
   const [maxForm, setMaxForm] = useState(subject.max_form_level != null ? String(subject.max_form_level) : "");
+  // "" = any level (as in the New subject form).
+  const [level, setLevel] = useState<ClassLevel | "">(subject.level ?? "");
+  const [isCore, setIsCore] = useState(subject.is_core);
   const [saving, setSaving] = useState(false);
+  // A subject keeps its own level in the list even when this kind of school does not usually run it.
+  const levelChoices = [...new Set<ClassLevel>([...levelsForTenant(tenant.level), ...(subject.level ? [subject.level] : [])])];
 
   const dirty = name.trim() !== subject.name
     || code.trim().toUpperCase() !== subject.code
     || minForm !== (subject.min_form_level != null ? String(subject.min_form_level) : "")
-    || maxForm !== (subject.max_form_level != null ? String(subject.max_form_level) : "");
+    || maxForm !== (subject.max_form_level != null ? String(subject.max_form_level) : "")
+    || (editLevelAndCore && (level !== (subject.level ?? "") || isCore !== subject.is_core));
 
   async function save() {
     if (!name.trim() || !code.trim()) { toast("A subject needs both a name and a code.", "error"); return; }
@@ -446,12 +456,20 @@ function SubjectRow({ subject, unit, onSaved, toast }: {
     try {
       const parse = (raw: string) => { const n = parseInt(raw.trim(), 10); return Number.isFinite(n) ? n : null; };
       const lo = parse(minForm), hi = parse(maxForm);
+      if (editLevelAndCore && level && [lo, hi].some((n) => n != null && !isValidYear(level, n))) {
+        const { min, max } = LEVELS[level];
+        toast(`${LEVELS[level].label} runs ${yearLabel(level, min)} to ${yearLabel(level, max)} — pick years in that range.`, "error");
+        return;
+      }
       if (yearsBackwards(lo, hi)) {
-        const at = (n: number) => (subject.level ? yearLabel(subject.level, n) : `${unit} ${n}`);
+        const at = (n: number) => (level ? yearLabel(level, n) : `${unit} ${n}`);
         toast(`It starts in ${at(lo!)} but ends in ${at(hi!)}. The first can't be after the last: swap them, or leave one blank for no limit.`, "error");
         return;
       }
-      await updateSubject(subject.id, { name: name.trim(), code: code.trim().toUpperCase(), minFormLevel: lo, maxFormLevel: hi });
+      await updateSubject(subject.id, {
+        name: name.trim(), code: code.trim().toUpperCase(), minFormLevel: lo, maxFormLevel: hi,
+        ...(editLevelAndCore ? { level: level || null, isCore } : {}),
+      });
       onSaved();
     } catch (err) {
       toast(err instanceof Error ? `Could not save: ${err.message}` : "Could not save.", "error");
@@ -466,12 +484,25 @@ function SubjectRow({ subject, unit, onSaved, toast }: {
         className="min-w-0 flex-1 rounded-md border border-transparent px-1.5 py-1 text-[13px] font-medium outline-none hover:border-[#D3DAD5] focus:border-[#D3DAD5]" />
       <input value={code} onChange={(e) => setCode(e.target.value)} aria-label="Subject code"
         className="w-16 rounded-md border border-transparent px-1.5 py-1 font-mono text-[11px] uppercase text-ink-faint outline-none hover:border-[#D3DAD5] focus:border-[#D3DAD5]" />
+      {editLevelAndCore && (
+        <select value={level} onChange={(e) => setLevel(e.target.value as ClassLevel | "")} aria-label="Level"
+          className="rounded-md border border-[#D3DAD5] bg-white px-1.5 py-1 text-[11.5px]">
+          <option value="">Any level</option>
+          {levelChoices.map((l) => <option key={l} value={l}>{LEVELS[l].label}</option>)}
+        </select>
+      )}
       <input value={minForm} onChange={(e) => setMinForm(e.target.value)} placeholder="Any" inputMode="numeric" aria-label={`From ${unit.toLowerCase()}`}
         className="w-14 rounded-md border border-[#D3DAD5] px-1.5 py-1 text-center text-[11.5px] outline-none" />
       <span className="text-ink-faint">–</span>
       <input value={maxForm} onChange={(e) => setMaxForm(e.target.value)} placeholder="Any" inputMode="numeric" aria-label={`To ${unit.toLowerCase()}`}
         className="w-14 rounded-md border border-[#D3DAD5] px-1.5 py-1 text-center text-[11.5px] outline-none" />
-      <span className="text-[11px] text-ink-faint">{rangeLabel({ ...subject, min_form_level: parseInt(minForm, 10) || null, max_form_level: parseInt(maxForm, 10) || null }, unit)}</span>
+      {editLevelAndCore && (
+        <label className="flex items-center gap-1 text-[11.5px] text-ink-muted" title="A core subject is one every learner takes. Untick it for an optional subject.">
+          <input type="checkbox" checked={isCore} onChange={(e) => setIsCore(e.target.checked)} aria-label="Core subject" style={{ accentColor: "#17402A" }} />
+          Core
+        </label>
+      )}
+      <span className="text-[11px] text-ink-faint">{rangeLabel({ ...subject, level: level || null, min_form_level: parseInt(minForm, 10) || null, max_form_level: parseInt(maxForm, 10) || null }, unit)}</span>
       {dirty && (
         <button type="button" onClick={() => void save()} disabled={saving} className="text-[11.5px] font-semibold text-leaf hover:underline disabled:opacity-50">
           {saving ? "Saving…" : "Save"}

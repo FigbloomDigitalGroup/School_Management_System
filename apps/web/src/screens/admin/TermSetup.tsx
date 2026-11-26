@@ -26,7 +26,8 @@ export function TermSetup() {
   const toast = useToast();
   const navigate = useNavigate();
   const { tenant } = useTenantSession();
-  // What the backend can do: on the new API there are no fees, payment methods or crest yet, and a class teacher is chosen when the class is made.
+  // What the backend can do (capabilities.ts). On the new API there are no fees, payment methods, crest, AI settings or promotion here yet;
+  // a class's teacher can be set (the "Assign class teachers" step).
   const caps = setupCapabilities();
   const [open, setOpen] = useState<string | null>(caps.changeClassTeacher ? "teachers" : "term");
   const [reloadKey, setReloadKey] = useState(0);
