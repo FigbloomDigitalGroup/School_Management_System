@@ -16,7 +16,7 @@ rename it or change how it behaves without a PR that Mike approves.
    of these tables, functions or policies. Add new ones next to them instead. If one really has to change, say so in
    the PR description and add a line to this file.
 4. **New migrations get a timestamp later than the newest one on `main`.** The newest on `main` is
-   `20261124400000_behaviour_log.sql`, and `20261124500000` is taken by open PR #393. A migration dated earlier than
+   `20261125000000_behaviour_inventory_guards.sql`, and `20261125100000` is taken by open PR #393. A migration dated earlier than
    one already applied in production is skipped or refused when we deploy.
 5. **New row-level security policies use the once-per-query helpers** (`my_perm_tenant_ids`, `my_office_tenant_ids`,
    and the others under [RLS: once per query](#rls-work-out-rights-once-per-query-not-once-per-row-374)). Don't call
@@ -55,7 +55,7 @@ On `main` or in an open PR, not live in production yet.
 
   Code on your branch must work **with and without** them.
 - **Bus tick change (FIG-770, `48118fe`)**: on `main`, not deployed. Production `bus-tick` is still at `9d5e572`.
-- **#393 Performance round 2** (open): migration `20261124500000_perf_round2.sql` for activities, stock analytics,
+- **#393 Performance round 2** (open): migration `20261125100000_perf_round2.sql` (renamed from `20261124500000` so it is dated after #408) for activities, stock analytics,
   `my_students` and the remaining per-row checks. Database only.
 - **#390 Stock flags and paging** (open): stock flags always use the last 8 weeks, failed sections retry, and paging
   resets before refetching. Web only. Held back until after the 2026-11-25 demo.

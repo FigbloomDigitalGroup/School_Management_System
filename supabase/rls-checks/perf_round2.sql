@@ -1,4 +1,4 @@
--- Checks for 20261124500000_perf_round2:
+-- Checks for 20261125100000_perf_round2:
 --
 -- * the set-returning functions the activity policies now use give exactly the answers of
 --   may_manage_activity and may_manage_activity_event, for every kind of caller and every
@@ -120,7 +120,7 @@ insert into students (id, tenant_id, full_name, admission_no, profile_id, class_
 insert into guardians (tenant_id, profile_id, student_id) values
   ('00000000-0000-4000-8000-0000000d0a01', '00000000-0000-4000-8000-0000000d0b07', '00000000-0000-4000-8000-0000000d0902');
 
--- my_students() and my_family_students() as they were before 20261124500000.
+-- my_students() and my_family_students() as they were before 20261125100000.
 create function pg_temp.old_my_students() returns setof uuid language sql stable as $$
   select s.id from students s
   where (
