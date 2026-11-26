@@ -31,6 +31,12 @@ rename it or change how it behaves without a PR that Mike approves.
 
 ## Unreleased
 
+- **Organisation sign-up on the API build (slice S6b, `docs/web-on-api/signup.md`)**: `/signup` and `/signup/verify` open on
+  `VITE_BACKEND=api` (`apps/web/src/api/ApiSignup.tsx`; no password and no web address: the platform sets the address and the first
+  administrator chooses a password after approval), the sign-in page links to them, and `platform/organizations` gains a "Sign-up
+  requests" tab where a super administrator approves or rejects a request and can send a new password link
+  (`ApiPlatformOrgSignups.tsx`; a recent sign-in is asked for by itself). New shared module `packages/shared/src/api/orgSignupApi.ts`.
+  The Supabase build is unchanged. Off until the API's `ORG_SIGNUP_ENABLED` is switched on.
 - **Organisation sign-up on the new API (slice S6a, `apps/api/docs/ORG-SIGNUP.md`)**: the owner's decisions D8 (the platform
   approves; a rate-limited public route with an e-mail check) and D2 (this API's console approves and rejects). Migration
   `124_org_signup.sql`: permission `platform.org_signups.manage` (super administrators only), owner-only table

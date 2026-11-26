@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import {
+  apiFetchPlatformOrgSignups,
   apiFetchPlatformOrganizationAdmins,
   apiFetchPlatformOrganizations,
   apiFetchPlatformSchools,
   formatShortDate,
+  orgSignupAwaitsReview,
   tenantPath,
   userMessage,
   type Organization,
@@ -16,6 +18,7 @@ import { EmptyState } from "../../components/ui/DataTable";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { StatRow } from "../../components/ui/StatCard";
 import { useAsync } from "../../lib/useAsync";
+import { ApiPlatformOrgSignups } from "./ApiPlatformOrgSignups";
 import { STATUS_LABEL, STATUS_TONE } from "./Tenants";
 
 type Filter = "All" | "Active" | "Pending" | "Suspended";
@@ -50,11 +53,16 @@ function initials(name: string): string {
  *
  * Read-only directory: organizations (`GET /v1/platform/organizations`), their org_admin accounts
  * (`GET /v1/platform/organizations/{id}/admins`, read-audited), and their member schools
- * (`GET /v1/platform/schools?organizationId={id}`). Create/approve/suspend wait on owner decision Q1.
+ * (`GET /v1/platform/schools?organizationId={id}`). Suspend and creating one by hand wait on owner decision Q1. The second tab
+ * is the sign-up requests (owner decisions D2 and D8, apps/api/docs/ORG-SIGNUP.md): approving or rejecting a request is done there.
  */
 export function ApiPlatformOrganizations() {
-  const { data: organizations, loading: fetching, error } = useAsync(() => apiFetchPlatformOrganizations(), []);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [mode, setMode] = useState<"orgs" | "requests">("orgs");
+  const { data: organizations, loading: fetching, error } = useAsync(() => apiFetchPlatformOrganizations(), [reloadKey]);
+  const { data: signups, loading: signupsFetching, error: signupsError } = useAsync(() => apiFetchPlatformOrgSignups(), [reloadKey], { cache: false });
   const loading = fetching && !organizations;
+  const waiting = (signups ?? []).filter(orgSignupAwaitsReview).length;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("All");
   const [query, setQuery] = useState("");
@@ -84,7 +92,7 @@ export function ApiPlatformOrganizations() {
 
   const stats = [
     { label: "Organizations", value: String(all.length), sub: `${counts.Active} active`, loading },
-    { label: "Pending review", value: String(counts.Pending), sub: "awaiting approval", loading },
+    { label: "Sign-up requests", value: String(waiting), sub: "waiting for review", alarming: waiting > 0, loading: signupsFetching && !signups },
     { label: "Suspended / rejected", value: String(counts.Suspended), sub: "not active", alarming: counts.Suspended > 0, loading },
     {
       label: "Total schools",
@@ -106,6 +114,21 @@ export function ApiPlatformOrganizations() {
         </div>
       )}
 
+      <div role="tablist" aria-label="Organizations" className="flex shrink-0 gap-1 border-b border-line bg-white px-7">
+        {([["orgs", "Organizations"], ["requests", waiting > 0 ? `Sign-up requests (${waiting} waiting)` : "Sign-up requests"]] as const).map(([key, label]) => (
+          <button
+            key={key} type="button" role="tab" aria-selected={mode === key} onClick={() => setMode(key)}
+            className="-mb-px border-b-2 px-3 py-2.5 text-[13px] font-medium"
+            style={{ borderColor: mode === key ? "#F26A1B" : "transparent", color: mode === key ? "#17402A" : "#5F6B62" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "requests" ? (
+        <ApiPlatformOrgSignups signups={signups ?? []} loading={signupsFetching} error={signupsError} onChanged={() => setReloadKey((k) => k + 1)} />
+      ) : (
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex w-[320px] shrink-0 flex-col border-r border-line bg-[#FAFBFA]">
           <div className="border-b border-line px-4 py-4">
@@ -199,6 +222,7 @@ export function ApiPlatformOrganizations() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

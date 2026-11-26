@@ -182,6 +182,11 @@ function CredentialsStep({ onSignedIn }: { onSignedIn: () => Promise<void> }) {
           ? "Forgot your password or login ID? Ask the school office: they can give you a new one."
           : <Link to="/forgot-password" className="font-medium text-forest hover:underline">Forgot your password?</Link>}
       </p>
+      {!bySchool && (
+        <p className="mt-2 text-[12px] leading-relaxed text-ink-faint">
+          Registering an organization? <Link to="/signup" className="font-medium text-forest hover:underline">Get started</Link>
+        </p>
+      )}
     </Card>
   );
 }
