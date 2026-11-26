@@ -306,7 +306,16 @@ describe("student accounts", () => {
       draft = (await ok("POST", "/assessments", { class_id: class1A, subject_id: maths, term_id: term, title: "Unreleased test", kind: "exam", max_score: 100 })).assessment.id;
       for (const [a, l, score] of [[published, s1, 70], [published, s2, 50], [draft, s1, 99]] as const) await ok("POST", `/assessments/${a}/marks`, { learner_id: l, score });
       await ok("POST", `/assessments/${published}/publish`);
-      await ok("POST", "/homework-items", { class_id: class1A, subject_id: maths, term_id: term, title: "Fractions sheet", due_on: isoDay(3), body: "Page 12" });
+      await ok("POST", "/homework-items", {
+        class_id: class1A,
+        subject_id: maths,
+        term_id: term,
+        title: "Fractions sheet",
+        due_on: isoDay(3),
+        body: "Page 12",
+        hand_in: "paper",
+        parent_guide: { about: "Parent only context", needs: ["Exercise book"], help: "Parent help text", avoid: "Parent warning", minutes: 15 },
+      });
       await ok("POST", "/homework-items", { class_id: class2B, subject_id: maths, term_id: term, title: "2B essay", due_on: isoDay(3), body: "Write" });
       // fees: an invoice each; a voided charge never shows
       await ok("POST", "/finance/fee-items", { term_id: term, name: "Tuition", amount_minor: 500000, applies_to: "all" });
@@ -333,6 +342,10 @@ describe("student accounts", () => {
       expect(JSON.stringify(results)).not.toContain(draft);
       const hw = (await call("GET", t(`/me/children/${s1}/homework`), me.token)).json();
       expect(hw.homework.map((h: { title: string }) => h.title)).toEqual(["Fractions sheet"]);
+      expect(hw.homework[0]).toMatchObject({ hand_in: "paper", teacher_name: null, parent_guide: { needs: ["Exercise book"], minutes: 15 } });
+      expect(JSON.stringify(hw.homework[0])).not.toContain("Parent only context");
+      expect(JSON.stringify(hw.homework[0])).not.toContain("Parent help text");
+      expect(JSON.stringify(hw.homework[0])).not.toContain("Parent warning");
       const fees = (await call("GET", t(`/me/children/${s1}/fees`), me.token)).json();
       expect(fees.invoices.map((i: { id: string }) => i.id)).toEqual([inv1]);
       expect(fees.invoices[0].charges).toEqual([]); // the voided charge never appears

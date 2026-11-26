@@ -6290,8 +6290,7 @@ paths:
       tags:
         - academics
       summary: List homework items
-      description: "By due date. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed
-        sort (`sort` is refused)."
+      description: "By due date. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
       operationId: listHomeworkItems
       security:
         - bearerAuth: []
@@ -6336,6 +6335,112 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/homework-items/{homeworkId}:
+    patch:
+      tags:
+        - academics
+      summary: Update a homework item
+      description: "Partial update. The term, tenant, creator, and creation time cannot change. An archived item cannot be changed. `parent_guide: null` clears the guide; fields omitted from the request stay unchanged."
+      operationId: updateHomeworkItem
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: homeworkId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchHomeworkItemsRequest"
+      responses:
+        "200":
+          description: Updated homework item
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [homework]
+                properties:
+                  homework:
+                    $ref: "#/components/schemas/Homework"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    post:
+      tags:
+        - academics
+      summary: Archive a homework item
+      description: "One-way archive. The item leaves all lists and family reads; no data is deleted and there is no restore. Requires `resource.academics.write`."
+      operationId: archiveHomeworkItem
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.academics.write
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: homeworkId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Archived homework item
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [homework]
+                properties:
+                  homework:
+                    $ref: "#/components/schemas/Homework"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/IdempotencyKeyReused"
   /v1/tenants/{tenantId}/learning-materials:
     post:
       tags:
@@ -25651,7 +25756,11 @@ components:
         - title
         - due_on
         - body
+        - hand_in
+        - parent_guide
+        - teacher_name
         - created_at
+        - archived_at
       properties:
         id:
           type: string
@@ -25675,9 +25784,44 @@ components:
           format: date
         body:
           type: string
+          maxLength: 8000
+        hand_in:
+          type: string
+          enum: [paper, in_person, upload]
+        parent_guide:
+          $ref: "#/components/schemas/HomeworkParentGuideValue"
+        teacher_name:
+          type: [string, "null"]
         created_at:
           type: string
           format: date-time
+        archived_at:
+          type: [string, "null"]
+          format: date-time
+    HomeworkParentGuideValue:
+      anyOf:
+        - $ref: "#/components/schemas/HomeworkParentGuide"
+        - type: "null"
+    HomeworkParentGuide:
+      type: object
+      additionalProperties: false
+      properties:
+        about:
+          type: string
+        needs:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 80
+        help:
+          type: string
+        avoid:
+          type: string
+        minutes:
+          type: integer
+          minimum: 1
+          maximum: 600
     LearningMaterial:
       type: object
       additionalProperties: false
@@ -27689,8 +27833,34 @@ components:
           pattern: ^\d{4}-\d{2}-\d{2}$
         body:
           type: string
-          minLength: 1
           maxLength: 8000
+        hand_in:
+          type: string
+          enum: [paper, in_person, upload]
+        parent_guide:
+          anyOf:
+            - type: object
+              properties:
+                about:
+                  type: string
+                needs:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                    maxLength: 80
+                help:
+                  type: string
+                avoid:
+                  type: string
+                minutes:
+                  anyOf:
+                    - type: integer
+                      minimum: 1
+                      maximum: 600
+                    - type: "null"
+              additionalProperties: false
+            - type: "null"
       required:
         - class_id
         - subject_id
@@ -27698,6 +27868,55 @@ components:
         - title
         - due_on
         - body
+      additionalProperties: false
+    PatchHomeworkItemsRequest:
+      type: object
+      properties:
+        class_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        subject_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        due_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        body:
+          type: string
+          maxLength: 8000
+        hand_in:
+          type: string
+          enum: [paper, in_person, upload]
+        parent_guide:
+          anyOf:
+            - type: object
+              properties:
+                about:
+                  type: string
+                needs:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                    maxLength: 80
+                help:
+                  type: string
+                avoid:
+                  type: string
+                minutes:
+                  anyOf:
+                    - type: integer
+                      minimum: 1
+                      maximum: 600
+                    - type: "null"
+              additionalProperties: false
+            - type: "null"
       additionalProperties: false
     PostLearningMaterialsRequest:
       type: object
@@ -33539,7 +33758,8 @@ components:
                 type: string
     FamilyHomework:
       type: object
-      required: [id, title, body, due_on, term_id, subject, created_at]
+      description: "A parent's read includes all parent_guide fields; a learner's own read includes only needs and minutes. teacher_name is a name only."
+      required: [id, title, body, due_on, term_id, subject, hand_in, parent_guide, teacher_name, created_at]
       additionalProperties: false
       properties:
         id:
@@ -33557,6 +33777,13 @@ components:
           format: uuid
         subject:
           $ref: "#/components/schemas/FamilyRef"
+        hand_in:
+          type: string
+          enum: [paper, in_person, upload]
+        parent_guide:
+          $ref: "#/components/schemas/HomeworkParentGuideValue"
+        teacher_name:
+          type: [string, "null"]
         created_at:
           type: string
           format: date-time

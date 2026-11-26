@@ -69,8 +69,8 @@ describe("OA-1 static contract", () => {
     }
     expect(bad).toEqual([]);
     // 84 + migration 101: PATCH subject, PATCH class, class archive, PATCH teaching assignment, its archive; + migration 107: PATCH he-section;
-    // + migration 110: publish an online exam paper.
-    expect(stage910Ops().length).toBe(91);
+    // + migration 110: publish an online exam paper; + migration 125: PATCH and archive homework.
+    expect(stage910Ops().length).toBe(93);
   });
 });
 
@@ -187,8 +187,10 @@ describe("OA-1 runtime conformance tour", () => {
     await call("POST", `${T}/assessments/{assessmentId}/mark-corrections`, v, { learner_id: v.learnerId, score: 22, grade: "C", reason: "Tour correction", row_version: 1 });
     await call("POST", `${T}/assessments/{assessmentId}/close`, v);
     await call("GET", `${T}/assessments/{assessmentId}/mark-corrections`, v);
-    await call("POST", `${T}/homework-items`, v, { class_id: v.classId, subject_id: v.subjectId, term_id: v.termId, title: "Tour homework", due_on: "2030-01-01", body: "Read" });
+    v.homeworkId = (await call("POST", `${T}/homework-items`, v, { class_id: v.classId, subject_id: v.subjectId, term_id: v.termId, title: "Tour homework", due_on: "2030-01-01", body: "Read" })).homework.id;
+    await call("PATCH", `${T}/homework-items/{homeworkId}`, v, { body: "" });
     await call("GET", `${T}/homework-items`, v);
+    await call("POST", `${T}/homework-items/{homeworkId}/archive`, v);
     await call("POST", `${T}/learning-materials`, v, { title: "Tour notes", description: "Notes", class_id: v.classId, subject_id: v.subjectId });
     await call("GET", `${T}/learning-materials`, v);
     await call("POST", `${T}/grading-schemes`, v, { name: "Tour scheme", rules: { bands: [{ min: 0, max: 50, grade: "D" }, { min: 50, max: 100, grade: "A" }] } });

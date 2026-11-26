@@ -1,5 +1,12 @@
 import type { Tx } from "../../db/sql.js";
 import { validationError } from "../../http/errors.js";
+import {
+  HOMEWORK_TEACHER_NAME_SQL,
+  learnerParentGuide,
+  readParentGuide,
+  type HomeworkHandIn,
+  type HomeworkParentGuide,
+} from "../academics/assessments.js";
 import { schoolToday } from "../tenancy/schoolClock.js";
 import { currentClasses } from "./children.js";
 
@@ -306,38 +313,71 @@ export async function childReportCards(tx: Tx, input: { tenantId: string; learne
 export interface ChildHomework {
   id: string;
   title: string;
+  /** The instructions. May be empty. */
   body: string;
   due_on: string;
   term_id: string;
   subject: { id: string; name: string };
+  /** How learners hand it in. */
+  hand_in: HomeworkHandIn;
+  /** The guide written for parents. A learner is sent only what to bring and how long it takes (docs/HOMEWORK.md). */
+  parent_guide: HomeworkParentGuide | null;
+  /** The name of whoever set it, or null. A name only. */
+  teacher_name: string | null;
   created_at: string;
 }
 
-/** Homework of the child's current-year class, due on or after `from` (default 21 days before today). */
-export async function childHomework(tx: Tx, input: { tenantId: string; learnerId: string; from?: string }): Promise<{ from: string; homework: ChildHomework[] }> {
+/**
+ * Homework of the child's current-year class, due on or after `from` (default 21 days before today). Archived homework is never
+ * returned. `reader` is who is asking: a parent gets the whole "For parents" guide, a learner reading their own work only the
+ * parts meant for them (what to bring, how long it takes).
+ */
+export async function childHomework(
+  tx: Tx,
+  input: { tenantId: string; learnerId: string; reader: "family" | "student"; from?: string },
+): Promise<{ from: string; homework: ChildHomework[] }> {
   const from = input.from ?? addDays(await schoolToday(tx, input.tenantId), -21);
   const klass = (await currentClasses(tx, input.tenantId, [input.learnerId])).get(input.learnerId);
   if (!klass) return { from, homework: [] };
-  const res = await tx.query<{ id: string; title: string; body: string; due_on: string; term_id: string; subject_id: string; subject_name: string; created_at: Date }>(
-    `SELECT h.id, h.title, h.body, h.due_on::text AS due_on, h.term_id, s.id AS subject_id, s.name AS subject_name, h.created_at
+  const res = await tx.query<{
+    id: string;
+    title: string;
+    body: string;
+    due_on: string;
+    term_id: string;
+    hand_in: HomeworkHandIn;
+    parent_guide: unknown;
+    teacher_name: string | null;
+    subject_id: string;
+    subject_name: string;
+    created_at: Date;
+  }>(
+    `SELECT h.id, h.title, h.body, h.due_on::text AS due_on, h.term_id, h.hand_in, h.parent_guide,
+            ${HOMEWORK_TEACHER_NAME_SQL} AS teacher_name, s.id AS subject_id, s.name AS subject_name, h.created_at
        FROM homework_items h
        JOIN subjects s ON s.tenant_id = h.tenant_id AND s.id = h.subject_id
-      WHERE h.tenant_id = $1 AND h.class_id = $2 AND h.due_on >= $3::date
+      WHERE h.tenant_id = $1 AND h.class_id = $2 AND h.due_on >= $3::date AND h.archived_at IS NULL
       ORDER BY h.due_on, h.id
       LIMIT 200`,
     [input.tenantId, klass.id, from],
   );
   return {
     from,
-    homework: res.rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      body: r.body,
-      due_on: r.due_on,
-      term_id: r.term_id,
-      subject: { id: r.subject_id, name: r.subject_name },
-      created_at: r.created_at.toISOString(),
-    })),
+    homework: res.rows.map((r) => {
+      const guide = readParentGuide(r.parent_guide);
+      return {
+        id: r.id,
+        title: r.title,
+        body: r.body,
+        due_on: r.due_on,
+        term_id: r.term_id,
+        subject: { id: r.subject_id, name: r.subject_name },
+        hand_in: r.hand_in,
+        parent_guide: input.reader === "student" ? learnerParentGuide(guide) : guide,
+        teacher_name: r.teacher_name,
+        created_at: r.created_at.toISOString(),
+      };
+    }),
   };
 }
 
