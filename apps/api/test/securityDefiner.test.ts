@@ -481,12 +481,6 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: [],
     why: "INVOKER trigger; checks the learner, the category's kind, the sign and size of the points, the date and the class, stamps the recorder from app.user_id, and refuses every change to an entry except voiding it or following it up",
   },
-  // Migration 119 (behaviour notice to the family, docs/BEHAVIOUR.md).
-  "behaviour_notice_family_users(uuid)": {
-    secdef: true,
-    grantees: ["figbloom_app"],
-    why: "guardian_accounts is owner-only: the parent accounts to tell about ONE serious entry, and only for the person who recorded it in the last 10 minutes, when the school lets families see that kind of entry; opaque account ids only",
-  },
   // Migration 116 (stock reports, docs/INVENTORY-STOCK.md): a port of the Supabase report functions, all SECURITY INVOKER.
   "inventory_assert_tenant(uuid)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): refuses (42501) a school other than app.tenant_id; the first line of every stock report" },
   "inventory_price_on(uuid,date)": { secdef: false, grantees: ["figbloom_app"], why: "INVOKER (116): an item's unit price on a day (latest priced delivery on or before it, else the register's), under RLS" },
@@ -504,6 +498,12 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     secdef: false,
     grantees: [],
     why: "INVOKER trigger; locks the item FOR UPDATE under row security, refuses assets, written-off items and stock below 0 or below what issues owe, stamps the recorder from app.user_id, moves the count; refuses any UPDATE",
+  },
+  // Migration 119 (behaviour notice to the family, docs/BEHAVIOUR.md).
+  "behaviour_notice_family_users(uuid)": {
+    secdef: true,
+    grantees: ["figbloom_app"],
+    why: "guardian_accounts is owner-only: the parent accounts to tell about ONE serious entry, and only for the person who recorded it in the last 10 minutes, when the school lets families see that kind of entry; opaque account ids only",
   },
   // Migration 055 (leave).
   "leave_requests_guard()": {

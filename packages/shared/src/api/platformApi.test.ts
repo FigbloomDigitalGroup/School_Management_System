@@ -91,6 +91,18 @@ describe("platformApi mapping", () => {
     expect(tenant.licensed_seats).toBe(0);
   });
 
+  it("carries the HR & Payroll request (camelCase on the API): when the school asked, and the account that did", () => {
+    const asked = platformSchoolFromApi({ ...rawSchool(SCHOOL_A, "Alpha", "alpha"), hrRequestedAt: "2026-11-20T08:30:00.000Z", hrRequestedBy: ORG_1 });
+    expect(asked).toMatchObject({ hrRequestedAt: "2026-11-20T08:30:00.000Z", hrRequestedBy: ORG_1 });
+    // a school that never asked, a row from an older server, and an account that is gone since
+    expect(platformSchoolFromApi({ ...rawSchool(SCHOOL_A, "Alpha", "alpha"), hrRequestedAt: null, hrRequestedBy: null })).toMatchObject({ hrRequestedAt: null, hrRequestedBy: null });
+    expect(platformSchoolFromApi(rawSchool(SCHOOL_A, "Alpha", "alpha"))).toMatchObject({ hrRequestedAt: null, hrRequestedBy: null });
+    expect(platformSchoolFromApi({ ...rawSchool(SCHOOL_A, "Alpha", "alpha"), hrRequestedAt: "2026-11-20T08:30:00.000Z", hrRequestedBy: null }))
+      .toMatchObject({ hrRequestedAt: "2026-11-20T08:30:00.000Z", hrRequestedBy: null });
+    // nobody is recorded without a time
+    expect(platformSchoolFromApi({ ...rawSchool(SCHOOL_A, "Alpha", "alpha"), hrRequestedAt: null, hrRequestedBy: ORG_1 })).toMatchObject({ hrRequestedAt: null, hrRequestedBy: null });
+  });
+
   it("parses finance_ops_snapshot cleanly even with missing optional sections", () => {
     const parsed = parsePlatformOpsStatus({
       generated_at: "2026-11-25T10:00:00.000Z",
@@ -137,6 +149,24 @@ describe("platformApi HTTP calls", () => {
     const school = await apiFetchPlatformSchool(SCHOOL_A);
     expect(school.name).toBe("Alpha");
     expect(school.organization.name).toBe("Rift Group");
+    expect(school.hrRequestedAt).toBeNull();
+  });
+
+  it("lists the schools' HR & Payroll requests with the rest of the row", async () => {
+    boot({
+      "GET /v1/platform/schools": {
+        body: {
+          items: [
+            { ...rawSchool(SCHOOL_A, "Alpha", "alpha"), hrRequestedAt: "2026-11-20T08:30:00.000Z", hrRequestedBy: ORG_1 },
+            { ...rawSchool(SCHOOL_B, "Beta", "beta"), hrRequestedAt: null, hrRequestedBy: null },
+          ],
+          page: { limit: 200, next_cursor: null },
+        },
+      },
+    });
+    const schools = await apiFetchPlatformSchools();
+    expect(schools.map((s) => s.hrRequestedAt)).toEqual(["2026-11-20T08:30:00.000Z", null]);
+    expect(schools[0]!.hrRequestedBy).toBe(ORG_1);
   });
 
   it("provisions a school and returns one-time invitation token when email is not configured", async () => {

@@ -27,13 +27,23 @@ export const API_AUDIT_SEARCH_MAX = 80;
 /** Who an event with no actor is put down to. */
 export const AUDIT_SYSTEM_ACTOR = "System";
 
+/**
+ * Wording the web keeps for events the API words generically ("hr.handoff.opened" would read "Handoff opened"). These are the sentences
+ * the Supabase build's `open-hr` function writes, so the same event reads the same on both builds (docs/web-on-api/hr-handoff.md, hr-handoff-6).
+ * The API's own `label` is used for every other event.
+ */
+const WORDING: Readonly<Record<string, string>> = {
+  "hr.handoff.opened": "Opened HR & Payroll (one-time sign-in link)",
+  "hr.handoff.requested": "Asked Figbloom for HR & Payroll",
+};
+
 export function auditEventFromApi(tenantId: string, e: ApiAuditEvent): AuditEvent {
   return {
     id: e.id,
     tenant_id: tenantId,
     actor_id: e.actor_user_id,
     actor_label: e.actor_name ?? (e.actor_user_id ? "Unknown person" : AUDIT_SYSTEM_ACTOR),
-    event: e.label,
+    event: WORDING[e.event_type] ?? e.label,
     category: e.category,
     // The API returns no detail. The event's own name is kept (it is what `event` was worded from), nothing else.
     metadata: { event_type: e.event_type },
