@@ -9,6 +9,9 @@ import { ADMIN_AREAS } from "../identity/roles.js";
  * (owner, 2026-11-12, re-confirmed 2026-11-17): tenant.read, rbac.staff_areas.manage,
  * rbac.school_roles.manage, resource.learner.read and the admin areas EXCEPT `people`.
  *
+ * `area.discipline` (the behaviour log, docs/BEHAVIOUR.md) is not grantable either, until the owner says so: it holds staff-only notes
+ * about children. It is simply not in the approved list, so it is not added to the SQL twin.
+ *
  * `area.people` is not grantable (owner decision 2026-11-17): it makes the People set effective,
  * which includes learner, staff and document WRITES. Existing active area.people delegations are
  * not revoked (no silent loss of access); they keep working (see loadActiveDelegations) and stay
@@ -29,7 +32,7 @@ export const DELEGABLE_PERMISSIONS: ReadonlySet<string> = new Set([
   "rbac.staff_areas.manage",
   "rbac.school_roles.manage",
   "resource.learner.read",
-  ...ADMIN_AREAS.filter((a) => a !== "people").map((a) => `area.${a}`),
+  ...ADMIN_AREAS.filter((a) => a !== "people" && a !== "discipline").map((a) => `area.${a}`),
 ]);
 
 export function isDelegablePermission(code: string): boolean {

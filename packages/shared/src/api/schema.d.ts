@@ -5833,6 +5833,198 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/behaviour/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The school's behaviour settings (defaults when the office has set none)
+         * @description Points on or off, the mode (merits only, demerits only, both), the starting balance of demerits-only, when points start again (term, year, never), the most points one entry may carry, the thresholds shown as badges, and what families may see (docs/BEHAVIOUR.md). Read by the office (the Discipline area) and by a teacher who records.
+         */
+        get: operations["behaviourGetSettings"];
+        /**
+         * Replace the school's behaviour settings
+         * @description Office only (`resource.discipline.write`). The whole settings object is replaced. At most 10 thresholds, each a non-zero whole number of points (negative for demerits) with a label of 1 to 60 characters. Audited (`academics.behaviour.settings_updated`).
+         */
+        put: operations["behaviourPutSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/behaviour/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The school's behaviour categories
+         * @description By kind, then order, then name (at most 500). A teacher who records sees the categories in use; only the office may ask for the archived ones too (`include_archived`).
+         */
+        get: operations["behaviourListCategories"];
+        put?: never;
+        /**
+         * Create a behaviour category
+         * @description Office only. A merit has no severity; a demerit takes one (default minor). 409 when the school already has a category of that kind with that name (any case). Audited.
+         */
+        post: operations["behaviourCreateCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/behaviour/categories/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add the suggested categories the school does not have
+         * @description The 14 suggested categories for a Kenyan school (5 merits, 9 demerits). One the school already has (same kind and name) is left alone. Returns how many were added. Office only. Audited.
+         */
+        post: operations["behaviourAddDefaultCategories"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/behaviour/categories/{categoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit, archive or restore a behaviour category
+         * @description Office only. A category is never deleted: archiving it keeps it on the entries that used it and stops it being chosen. Its kind cannot change. Audited.
+         */
+        patch: operations["behaviourUpdateCategory"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/behaviour/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The behaviour log, newest first
+         * @description The office reads every entry of the school; a teacher reads what they recorded and what is recorded for the learners they teach. Each entry carries the staff-only note. Voided entries are left out unless `include_voided`. Filters: `class_id` (the learner's class when it was recorded), `kind`, `category_id`, `recorded_by`, `learner_id`, `from` and `to` (days, inclusive), `open_only` (incidents still open), `serious_only`. Paged (FIG-1621): newest day first, then the latest recorded; the cursor is bound to the school, the caller's scope and every filter.
+         */
+        get: operations["behaviourListEntries"];
+        put?: never;
+        /**
+         * Record a merit, demerit or incident for one or more learners
+         * @description One entry for each of 1 to 80 learners, with the same note and staff-only note, all or none. The office records for any active learner of the school; a teacher only for the learners they teach (403 for any other, whatever the reason). `points` is the size, positive; the kind signs it; left out, the category's default is used. A merit and a demerit need a category of their kind; an incident takes a demerit category or, without one, a note. 409 for an archived category; 400 for points above the school's maximum, a date in the future or over a year old, or a category of the wrong kind. `occurred_on` defaults to the school's today. Audited (`academics.behaviour.recorded`: ids and the count, never the note).
+         */
+        post: operations["behaviourRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/behaviour/entries/{entryId}/void": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Void a behaviour entry (a mistake)
+         * @description The entry stays in the log, struck through for staff, and stops counting and showing to families. Whoever recorded it, or the office (`resource.discipline.write`). An entry the caller may not read is 404; one they may read but did not record is 403; one already voided is 409. The reason is 3 to 300 characters. Audited.
+         */
+        post: operations["behaviourVoidEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/behaviour/points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Learners with their behaviour points
+         * @description The active learners in the caller's scope (the office: the whole school; a teacher: the classes they teach), by name, with the points of the period holding `on` (the school's today by default): the merits' sum, the demerits' sum (0 or less) and the balance as the school's mode counts it (null when points are off). Voided entries never count; every other entry does, whatever families may see. `class_id` narrows to one class (a class a teacher does not teach gives an empty page); `learner_ids` is a comma-separated list of at most 100. Paged.
+         */
+        get: operations["behaviourListPoints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/behaviour/classes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The classes the caller works with in the behaviour log
+         * @description The office: every active class of the current academic year. A teacher: the classes they teach. By name; at most 500; not paged.
+         */
+        get: operations["behaviourListClasses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/behaviour/recorders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The people who have recorded a behaviour entry
+         * @description The log's teacher filter: users who have recorded at least one entry in this school, by name (at most 500). Office only.
+         */
+        get: operations["behaviourListRecorders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/audit-events": {
         parameters: {
             query?: never;
@@ -8782,6 +8974,158 @@ export interface components {
         };
         ChatSendMessageRequest: {
             body: string;
+        };
+        BehaviourThreshold: {
+            /** @description A whole number other than 0: negative counts demerits, positive counts merits. */
+            points: number;
+            label: string;
+        };
+        BehaviourSettings: {
+            points_enabled: boolean;
+            /** @enum {string} */
+            mode: "merits_only" | "demerits_only" | "both";
+            /** @description Where a learner starts each period in demerits_only mode. */
+            starting_points: number;
+            /** @enum {string} */
+            reset: "term" | "year" | "never";
+            max_points_per_entry: number;
+            thresholds: components["schemas"]["BehaviourThreshold"][];
+            parents_see_demerits: boolean;
+            parents_see_incidents: boolean;
+        };
+        BehaviourCategory: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "merit" | "demerit";
+            name: string;
+            /** @description The default size of an entry (positive; a demerit's entry is stored negative). */
+            points: number;
+            /**
+             * @description Null for a merit.
+             * @enum {string|null}
+             */
+            severity: "minor" | "major" | "serious" | null;
+            sort_order: number;
+            /** Format: date-time */
+            archived_at: string | null;
+        };
+        BehaviourCategoryCreateRequest: {
+            /** @enum {string} */
+            kind: "merit" | "demerit";
+            name: string;
+            points: number;
+            /** @enum {string} */
+            severity?: "minor" | "major" | "serious";
+        };
+        BehaviourCategoryUpdateRequest: {
+            name?: string;
+            points?: number;
+            /** @enum {string} */
+            severity?: "minor" | "major" | "serious";
+            archived?: boolean;
+        };
+        BehaviourRecordRequest: {
+            learner_ids: string[];
+            /** @enum {string} */
+            kind: "merit" | "demerit" | "incident";
+            /** Format: uuid */
+            category_id?: string | null;
+            /** @description The size, positive. Null or left out: the category's default. */
+            points?: number | null;
+            note?: string | null;
+            /** @description Staff only: never shown to a family or a learner. */
+            staff_note?: string | null;
+            /**
+             * Format: date
+             * @description Default: the school's today.
+             */
+            occurred_on?: string | null;
+            /** Format: uuid */
+            subject_id?: string | null;
+            /**
+             * @description Incidents only; default serious.
+             * @enum {string|null}
+             */
+            severity?: "minor" | "major" | "serious" | null;
+        };
+        BehaviourVoidRequest: {
+            reason: string;
+        };
+        BehaviourEntry: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            learner_id: string;
+            learner_name: string;
+            admission_no: string;
+            /** Format: uuid */
+            category_id: string | null;
+            category_name: string | null;
+            /** @enum {string} */
+            kind: "merit" | "demerit" | "incident";
+            /** @description Signed: positive for a merit, negative for a demerit, 0 or negative for an incident. */
+            points: number;
+            /** @enum {string|null} */
+            severity: "minor" | "major" | "serious" | null;
+            note: string | null;
+            /** Format: date */
+            occurred_on: string;
+            /**
+             * Format: uuid
+             * @description The learner's class when it was recorded.
+             */
+            class_id: string | null;
+            class_name: string | null;
+            /** Format: uuid */
+            subject_id: string | null;
+            /** Format: uuid */
+            recorded_by: string | null;
+            recorder_name: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            voided_at: string | null;
+            void_reason: string | null;
+            /** @enum {string|null} */
+            action_taken: "warning" | "detention" | "parent_called" | "parent_meeting" | "suspension" | "counsellor" | "other" | null;
+            /** @enum {string|null} */
+            follow_up_status: "open" | "resolved" | null;
+            /** Format: date-time */
+            resolved_at: string | null;
+            /** Format: date-time */
+            parent_notified_at: string | null;
+            /** @description Staff only. */
+            staff_note: string | null;
+        };
+        BehaviourLearnerPoints: {
+            /** Format: uuid */
+            learner_id: string;
+            full_name: string;
+            admission_no: string;
+            /** Format: uuid */
+            class_id: string | null;
+            class_name: string | null;
+            /** Format: date */
+            period_start: string | null;
+            /** Format: date */
+            period_end: string | null;
+            merit_points: number;
+            demerit_points: number;
+            /** @description As the school's mode counts it; null when points are off. */
+            balance: number | null;
+        };
+        BehaviourClass: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            form_level: number | null;
+            stream: string | null;
+        };
+        BehaviourRecorder: {
+            /** Format: uuid */
+            user_id: string;
+            full_name: string;
         };
         InventoryItem: {
             /** Format: uuid */
@@ -25488,6 +25832,425 @@ export interface operations {
                 };
             };
             400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    behaviourGetSettings: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        settings: components["schemas"]["BehaviourSettings"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    behaviourPutSettings: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviourSettings"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        settings: components["schemas"]["BehaviourSettings"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    behaviourListCategories: {
+        parameters: {
+            query?: {
+                /** @description Include archived categories (the office only; ignored for a teacher). */
+                include_archived?: boolean;
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Categories */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        categories: components["schemas"]["BehaviourCategory"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    behaviourCreateCategory: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviourCategoryCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        category: components["schemas"]["BehaviourCategory"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    behaviourAddDefaultCategories: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Added */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        added: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    behaviourUpdateCategory: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                categoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviourCategoryUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        category: components["schemas"]["BehaviourCategory"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    behaviourListEntries: {
+        parameters: {
+            query?: {
+                class_id?: string;
+                kind?: "merit" | "demerit" | "incident";
+                category_id?: string;
+                /** @description A user id (see /behaviour/recorders). */
+                recorded_by?: string;
+                learner_id?: string;
+                /** @description First day, inclusive. */
+                from?: string;
+                /** @description Last day, inclusive. Not before `from`. */
+                to?: string;
+                open_only?: boolean;
+                serious_only?: boolean;
+                include_voided?: boolean;
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        entries: components["schemas"]["BehaviourEntry"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    behaviourRecord: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviourRecordRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        count: number;
+                        entry_ids: string[];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    behaviourVoidEntry: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BehaviourVoidRequest"];
+            };
+        };
+        responses: {
+            /** @description Voided */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        entry: components["schemas"]["BehaviourEntry"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    behaviourListPoints: {
+        parameters: {
+            query?: {
+                class_id?: string;
+                /** @description Comma-separated learner ids, at most 100. */
+                learner_ids?: string;
+                /** @description The day the period is taken from. Default: the school's today. */
+                on?: string;
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+            };
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Learners with points */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        learners: components["schemas"]["BehaviourLearnerPoints"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    behaviourListClasses: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Classes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        classes: components["schemas"]["BehaviourClass"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    behaviourListRecorders: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recorders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        recorders: components["schemas"]["BehaviourRecorder"][];
+                    };
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
         };

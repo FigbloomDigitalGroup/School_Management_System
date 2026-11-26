@@ -54,6 +54,13 @@ On `main` or in an open PR, not live in production yet.
   `114_platform_school_admins_read.sql` fixes the school administrators list, which always came back empty (row-level
   security hid the rows from a request with no school).
   Owner-decision-blocked pages (Q1–Q7) remain gated behind `platformCapabilities()`.
+- **Behaviour log on the new API, part 1 (S2a, `apps/api/docs/BEHAVIOUR.md`)**: a port of the live behaviour log, with the same rules.
+  Migration `118_behaviour_log.sql`: the `discipline` admin area, permissions `resource.discipline.read`, `resource.discipline.write` and
+  `resource.behaviour.record` (teachers), tables `behaviour_settings`, `behaviour_categories`, `behaviour_entries` and
+  `behaviour_staff_notes` (forced row security, an entry is only ever voided or followed up). Routes under
+  `/v1/tenants/{tenantId}/behaviour`: `settings`, `categories` (create, edit, archive, defaults), `entries` (record for 1 to 80
+  learners, list, void), `points`, `classes`, `recorders`. Nothing live changes; the web pages follow in S2c and S2d. The area is not
+  delegable to an organisation administrator until the owner decides. Incidents, notices and the family reads are part 2.
 - **`main` brought into `dev-joe`** (PR `sync/main-into-dev-joe`). Nothing live changes. On the API build the paged Fees and
   Inventory screens from #375 now work too (`feesPaging.ts`, `inventoryPaging.ts` answer from the API's own lists and page them
   in the browser); the stock overview, the behaviour log and the HR & Payroll screens stay Supabase-only and are hidden on the
@@ -244,7 +251,7 @@ screens:
 
 | Live feature | What `apps/api` has | What's missing |
 |---|---|---|
-| Behaviour log | Nothing | All of it: settings, categories, recording, voiding, incidents, points, staff notes, family view |
+| Behaviour log | Settings, categories, recording, voiding, points, staff notes (S2a, migration 118) | Incidents and their follow-up, the notices to the class teacher and family, the family and learner reads (S2b) |
 | Inventory stock | `items` and `issues` routes | Stock movements (in, used, wasted, adjusted), `unit` / `consumable` / `reorder_level`, the ledger, usage, spend, cost per meal, stock levels, headcount and flags reports |
 | AI stock insights | `ai/query` | The `stock_insights` task |
 | M-Pesa | STK push and query in `finance.ts`, callback in `mpesa.ts` | The `DARAJA_TENANTS` allowlist, and retrying the STK query when Daraja answers 429 |

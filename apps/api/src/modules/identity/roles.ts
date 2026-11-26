@@ -32,6 +32,7 @@ export const ADMIN_AREAS = [
   "medical",
   "leave",
   "audit",
+  "discipline",
 ] as const;
 
 export type AdminArea = (typeof ADMIN_AREAS)[number];

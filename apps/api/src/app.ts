@@ -35,6 +35,7 @@ import { registerVisitRoutes } from "./http/routes/visits.js";
 import { registerSchoolHealthRoutes } from "./http/routes/schoolHealth.js";
 import { registerMedicationRoutes } from "./http/routes/medication.js";
 import { registerChatRoutes } from "./http/routes/chat.js";
+import { registerBehaviourRoutes } from "./http/routes/behaviour.js";
 import { registerInventoryRoutes } from "./http/routes/inventory.js";
 import { registerLeaveRoutes } from "./http/routes/leave.js";
 import { registerActivitiesRoutes } from "./http/routes/activities.js";
@@ -236,6 +237,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerSchoolHealthRoutes(app, pool);
   await registerMedicationRoutes(app, pool);
   await registerChatRoutes(app, pool);
+  await registerBehaviourRoutes(app, pool);
   await registerInventoryRoutes(app, pool);
   await registerLeaveRoutes(app, pool);
   await registerActivitiesRoutes(app, pool);
