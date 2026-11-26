@@ -110,10 +110,8 @@ to `SECURITY-DEFINER-INVENTORY.md` and its tests. Seats need Q2.
 **Supabase does:** list incidents newest first (1), declare one (1 insert), resolve one (1 update). Staff type them in by
 hand; nothing writes them automatically. 3 calls.
 
-**API backs:** nothing. **Proposed (only if Q4 says keep it here):** a platform-only table `platform_incidents` (no
-`tenant_id`, owner-only, read and written through definer functions that check `super_admin`), `GET/POST
-/v1/platform/incidents`, `POST /v1/platform/incidents/{id}/resolve`, permission `platform.incidents.manage`, audit
-`platform.incident.declared` / `.resolved`. Schools do not see incidents today on either build.
+**API backs:** migration 121 and the platform-only, owner-controlled API in section 7.1. On the API web build, the existing
+hand-typed Incidents page uses those routes; schools do not see incidents on either build.
 
 ### 3.5 `platform/subscriptions` and 3.6 `platform/invoices` (pages.tsx)
 
@@ -215,8 +213,8 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
 3. **P3:** organisations read (`platform.organizations.read`, migration), school admins list; reuse S11's org-admin functions.
 4. **P4:** usage counts (owner function, counts only).
 5. **P5:** audit read, together with S11's school audit read.
-6. After decisions only: suspend and reactivate (Q1), billing (Q2), impersonation or support sessions (Q3), incidents (Q4),
-   curriculum (Q6), live provider checks (Q7).
+6. After decisions only: suspend and reactivate (Q1), billing (Q2), impersonation or support sessions (Q3), and live provider
+   checks (Q7). Incidents (Q4) and curriculum (Q6) have been decided and are documented as built/closed above.
 
 ## 6. Questions for the owner
 

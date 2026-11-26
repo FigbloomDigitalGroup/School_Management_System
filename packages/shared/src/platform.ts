@@ -1,11 +1,14 @@
 import type { FunctionInvokeOptions } from "@supabase/supabase-js";
 import {
+  apiDeclarePlatformIncident,
   apiFetchPlatformAuditEvents,
+  apiFetchPlatformIncidents,
   apiFetchPlatformOrganizationAdmins,
   apiFetchPlatformOrganizations,
   apiFetchPlatformSchoolAdmins,
   apiFetchPlatformSchools,
   apiFetchPlatformUsage,
+  apiResolvePlatformIncident,
   platformOrganizationToOrg,
   platformSchoolToTenant,
 } from "./api/platformApi";
@@ -562,8 +565,11 @@ export interface PlatformNavCounts { tenants: number; openIncidents: number; due
 export async function fetchPlatformNavCounts(): Promise<PlatformNavCounts> {
   if (onApi()) {
     try {
-      const schools = await apiFetchPlatformSchools();
-      return { tenants: schools.length, openIncidents: 0, dueInvoices: 0 };
+      const [schools, openIncidents] = await Promise.all([
+        apiFetchPlatformSchools(),
+        apiFetchPlatformIncidents("open"),
+      ]);
+      return { tenants: schools.length, openIncidents: openIncidents.length, dueInvoices: 0 };
     } catch {
       return { tenants: 0, openIncidents: 0, dueInvoices: 0 };
     }
@@ -649,7 +655,7 @@ export async function fetchPlatformUsage(): Promise<PlatformUsageRow[]> {
 
 /** Newest first. */
 export async function fetchPlatformIncidents(): Promise<PlatformIncident[]> {
-  if (onApi()) throw new NotOnApiError("Platform incidents");
+  if (onApi()) return apiFetchPlatformIncidents();
   const { data, error } = await supabase()
     .from("platform_incidents")
     .select("*")
@@ -660,7 +666,7 @@ export async function fetchPlatformIncidents(): Promise<PlatformIncident[]> {
 }
 
 export async function resolvePlatformIncident(id: string): Promise<void> {
-  if (onApi()) throw new NotOnApiError("Platform incidents");
+  if (onApi()) return apiResolvePlatformIncident(id);
   const { error } = await supabase()
     .from("platform_incidents").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", id);
   if (error) throw error;
@@ -674,7 +680,7 @@ export interface NewPlatformIncident {
 }
 
 export async function declarePlatformIncident(input: NewPlatformIncident): Promise<void> {
-  if (onApi()) throw new NotOnApiError("Platform incidents");
+  if (onApi()) return apiDeclarePlatformIncident(input);
   const { error } = await supabase().from("platform_incidents").insert({
     severity: input.severity, title: input.title, summary: input.summary,
     affected_schools: input.affected_schools,
