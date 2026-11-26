@@ -572,7 +572,6 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "platform_incidents_list(uuid,text,timestamp with time zone,uuid,integer)",
   "platform_incident_declare(text,text,text,integer)",
   "platform_incident_resolve(uuid)",
-  "platform_subscription_seed()",
   "platform_billing_subscriptions_list(uuid,integer)",
   "platform_billing_plan_prices()",
   "platform_billing_subscription_update(uuid,text,text,integer,timestamp with time zone,date)",
@@ -689,7 +688,8 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
     // four: users (status), organizations (status) and organization_memberships (UPDATE and DELETE).
     // Migration 029 adds class_memberships_integrity_guard. Later attendance triggers are invokers.
     // Migration 110 adds learner_accounts_on_membership_archive (school_memberships).
-    expect(r.rows.length).toBe(18);
+    // Migration 122 adds platform_subscription_seed (tenants).
+    expect(r.rows.length).toBe(19);
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 
