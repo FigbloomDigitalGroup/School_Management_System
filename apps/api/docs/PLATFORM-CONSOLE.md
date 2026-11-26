@@ -94,6 +94,9 @@ status (1 RPC). 6 calls + 1 edge call.
 member schools come from `GET /v1/platform/schools?organizationId=` (P1). Org admins list and invite overlap with slice
 S11 (org-admin management): reuse its functions. Create, approve, suspend and reject only after Q1.
 
+**Update 2026-11-26 (D2, D8):** approving and rejecting an organisation's *sign-up request* is built (section 7.4). Suspending,
+reactivating and creating an organisation by hand are still not.
+
 ### 3.3 `platform/usage` (pages.tsx `Usage`)
 
 **Supabase does:** every school's licensed seats and status (1) and learners plus staff per school (1 RPC
@@ -282,3 +285,19 @@ over, but no route sets it (no Supabase screen did either). Not built: editing a
 | Writes | `POST /v1/platform/invoices` creates a due invoice. `PUT /v1/platform/invoices/{invoiceId}/mark-paid` records a manual bank reconciliation. Both require `platform.billing.manage` and recent password confirmation; audit is written in the same transaction. A repeated mark-paid is a no-op. |
 | UI | The API page at /platform/invoices uses the API invoice list and school directory for its table and creation form. It records payments after manual bank reconciliation and does not show MRR or seat estimates. |
 | Separation | These are Figbloom invoices for schools, separate from school fee invoices. No payment gateway is wired, and overdue invoices do not suspend a school. |
+
+### 7.4 Organisation sign-up requests (migration 124, `docs/ORG-SIGNUP.md`)
+
+The owner answered D8 (the platform approves; the public route is rate limited and checks the e-mail address) and the part of D2
+that says this API's console owns approve and reject. The part that says "and seen in console.figbloom.org" is not built (it needs
+that console's contract: `ORG-SIGNUP.md` finding signup-6).
+
+| What | As built |
+|---|---|
+| Table | `organization_signups`: name, kind, county, phone, the administrator's name and address, status, a hashed confirmation token, who decided and why. **No `tenant_id`.** Owner-only: forced RLS, no privilege for `figbloom_app` or `figbloom_worker` |
+| Public routes | `POST /v1/signup/organizations` (a request; always the same 202) and `POST /v1/signup/organizations/verify` (the e-mailed link; once). Off unless `ORG_SIGNUP_ENABLED=true`, and closed while e-mail is not configured |
+| Platform routes | `GET /v1/platform/org-signups`, `POST .../{signupId}/approve`, `.../reject` and `.../reissue-setup` |
+| Who | `platform.org_signups.manage`, `super_admin` only, checked with no school. Approve, reject and re-issue need a recent sign-in. Reading the list is audited (a count) |
+| Approve | one transaction creates the organisation (active, an address made from the name or typed by the reviewer), the administrator (`invited`) with an `org_admin` membership, and a 7-day password link e-mailed to the confirmed address. An address that already has an account is a 409 |
+| Reject | a plain notice is e-mailed only if the address had been confirmed; the reason stays with the platform |
+| Not built | suspend and reactivate, editing or deleting a request, retention of old requests, the console.figbloom.org link |

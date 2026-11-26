@@ -247,7 +247,9 @@ export type SecurityEventType =
   | "reporting.teacher_report.reviewed"
   | "platform.organization.admins_read"
   | "platform.school.admins_read"
-  | "platform.audit.read";
+  | "platform.audit.read"
+  // Organisation sign-up (docs/ORG-SIGNUP.md): a super administrator read the request list (names, addresses, phones). Count only.
+  | "platform.org_signup.listed";
 
 export async function recordSecurityEvent(
   db: Db,

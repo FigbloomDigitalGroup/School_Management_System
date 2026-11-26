@@ -31,6 +31,17 @@ rename it or change how it behaves without a PR that Mike approves.
 
 ## Unreleased
 
+- **Organisation sign-up on the new API (slice S6a, `apps/api/docs/ORG-SIGNUP.md`)**: the owner's decisions D8 (the platform
+  approves; a rate-limited public route with an e-mail check) and D2 (this API's console approves and rejects). Migration
+  `124_org_signup.sql`: permission `platform.org_signups.manage` (super administrators only), owner-only table
+  `organization_signups` (no `tenant_id`, no privilege for the runtime role) and six SECURITY DEFINER functions. New endpoints
+  `POST /v1/signup/organizations` and `POST /v1/signup/organizations/verify` (public: they store a request and prove the mailbox;
+  they never create an account, an organisation or a school) and `GET /v1/platform/org-signups`, `POST .../{signupId}/approve`,
+  `.../reject` and `.../reissue-setup` (super administrators, a recent sign-in for the writes). Approving creates the organisation, an
+  `invited` administrator with an `org_admin` membership and a 7-day password link. New settings `ORG_SIGNUP_ENABLED` (**off by
+  default**) and `ORG_SIGNUP_DAILY_CAP` (50). New audit events `org_signup.*` and `platform.org_signup.*`, hidden from schools. The
+  account notifier gains three message kinds and a `configured` flag. Nothing on Supabase changes. The console.figbloom.org link
+  that D2 mentions is not built (finding signup-6).
 - **Leave approvals on the new API (L1)**: migration `120_hr_leave_approvals.sql` adds `resource.hr.leave_approvals`; school administrators and Leave or Fees area holders may approve, and organisation administrators need a matching area delegation. `GET /v1/tenants/{tenantId}/me/hr/leave/access`, `GET .../approvals` and `POST .../approvals/{applicationId}/decide` use the caller's own HR identity. The switch defaults off (`HR_LEAVE_ENABLED`); comments and HR response text are not audited or logged, and document URLs are forwarded only over HTTPS. This is the approvals side only: staff leave submission and HR decision events (L3/L4) must exist before enabling it for a school. See `apps/api/docs/HR-HANDOFF.md` section 10.
 
 On `main` or in an open PR, not live in production yet.
