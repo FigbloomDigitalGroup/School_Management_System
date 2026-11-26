@@ -219,6 +219,16 @@ describe("organisation sign-up (slice S6a, migration 124)", () => {
       expect(JSON.stringify(stored[0])).not.toContain(sent[0]!.token);
     });
 
+    it("answers without waiting for the e-mail to go out, so the answer's timing does not say which case it was", async () => {
+      let started = 0;
+      setAccountNotifier({ configured: true, send: () => (started += 1, new Promise<DeliveryResult>(() => undefined)) });
+      const t0 = Date.now();
+      const res = await submit(fresh());
+      expect(res.statusCode).toBe(202);
+      expect(Date.now() - t0).toBeLessThan(5000);
+      expect(started).toBe(1);
+    });
+
     it("creates no organisation, user, membership, school or password link", async () => {
       const count = async () =>
         (await ctx.pool.query(

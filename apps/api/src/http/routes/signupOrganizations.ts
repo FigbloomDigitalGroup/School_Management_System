@@ -30,7 +30,8 @@ import { junkBucketAddress } from "./mpesa.js";
  *  - Nothing typed by the person is logged or put in an audit row; the audit row names the request's id and kind only.
  */
 
-const noControl = (v: string) => !/[\u0000-\u001f\u007f]/.test(v);
+/** No control character (the database refuses them too): a name or an address is one line of ordinary text. */
+const noControl = (v: string) => ![...v].some((c) => { const n = c.codePointAt(0)!; return n < 32 || n === 127; });
 const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 const SubmitBody = z.strictObject({
@@ -85,7 +86,10 @@ export async function registerSignupOrganizationRoutes(app: FastifyInstance, poo
       opts(),
     );
     if (result.outcome === "capped") throw serviceUnavailable("Sign-up is busy right now. Try again tomorrow.", 3600);
-    if (result.token) await notifier.send({ kind: "org_signup_verify", email, token: result.token });
+    // Not awaited: a new address, a replaced link and an address whose request is already confirmed (no message at all) must take
+    // the same time to answer, or the answer's timing says which one it was. The notifier logs its own failures (never a token or an
+    // address), and a message that did not arrive is answered by sending the form again, which replaces the link.
+    if (result.token) void notifier.send({ kind: "org_signup_verify", email, token: result.token }).catch(() => undefined);
     return reply.status(202).send({ status: "received" });
   });
 

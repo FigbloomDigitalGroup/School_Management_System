@@ -64,6 +64,7 @@ lapses (24 hours) makes it `expired` (read as expired even before anything marks
 | Order | body check, then the switch and e-mail check, then the two buckets, then the database. A bad body costs no token |
 | Confirmation | its own bucket (`org_signup_verify:ip`, the login numbers); every failure is the same 400 |
 | Tokens | never returned, never logged (the access log carries no bodies), never audited, only their hash stored |
+| Timing | the confirmation e-mail is started but not awaited, so a new address, a replaced link and a confirmed request (no message) answer in the same time. A message that never arrives is answered by sending the form again, which replaces the link |
 | Enumeration | one 202 for new, waiting, confirmed and "has an account"; the only other answers are ones everyone gets (400, 429, 503) |
 | E-mail | the three messages carry no text the person typed. A rejection notice goes only to a mailbox that was confirmed (an unconfirmed address may be someone else's) |
 
