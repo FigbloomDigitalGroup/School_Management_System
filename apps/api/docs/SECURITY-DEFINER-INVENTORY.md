@@ -167,3 +167,16 @@ school administrator).
 |---|---|---|---|
 | `hr_record_request()` | DEFINER (117), `VOLATILE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | the one write path to `tenants.hr_requested_at` / `hr_requested_by` ("Request Figbloom HR"); `tenants` stays `SELECT`-only for the runtime role. No argument: the school is `app_current_tenant_id()` and the person `app_current_user_id()`, set by the API after it checked `resource.hr.handoff`, the switch and that HR is not already there. Defence in depth: `42501` without them, for an inactive account, a platform super administrator, a suspended school, or anyone who is neither an active `school_admin`, `teacher` or `staff` member of the school nor an organisation administrator with a live `area.fees` delegation there. Keeps the first request and returns its time with `recorded` (false for a repeat) |
 | `school_audit_events(text, timestamptz, text, timestamptz, uuid, integer)` | DEFINER (106, replaced in 117) | `figbloom_app` | unchanged but for one line: `hr.handoff.*` (opening HR, asking Figbloom for it) is shown under `access`, as Supabase files it. Same signature, grants and pinned classification fixture |
+
+## Addendum 2026-11-26 — migration 121 (the platform incident list, `docs/PLATFORM-CONSOLE.md` section 3.4)
+
+`platform_incidents` has no `tenant_id` and is owner-only (forced RLS, owner policy, no privilege for `figbloom_app` or
+`figbloom_worker`). These three functions are the only way to it. Each re-checks `app_current_user_id()` against
+`platform_roles` (`super_admin`) and raises `42501` otherwise; the route has already checked `platform.incidents.manage`
+with no school, and a recent sign-in for the two writes.
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `platform_incidents_list(uuid, text, timestamptz, uuid, integer)` | DEFINER (121), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | one incident by id, or the list newest first with keyset `(opened_at, id)`, `open` / `resolved` filter, at most 201 rows. Returns who declared and resolved it (id and name) and no school data |
+| `platform_incident_declare(text, text, text, integer)` | DEFINER (121), `VOLATILE` | `figbloom_app` | checks severity, trimmed title (1 to 200) and summary (1 to 2,000), schools affected (0 to 100,000); inserts as `investigating`, opened now by the caller; audit row `platform.incident.declared` (`incidentId`, `severity`, `affectedSchools`; never the text) in the same transaction |
+| `platform_incident_resolve(uuid)` | DEFINER (121), `VOLATILE` | `figbloom_app` | locks the row; `P0002` for an unknown id; `false` and no change for one already resolved; otherwise resolved now by the caller and audit row `platform.incident.resolved` (`incidentId`, `severity`, `previousStatus`) in the same transaction |

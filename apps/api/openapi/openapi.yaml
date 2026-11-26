@@ -570,6 +570,137 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/platform/incidents:
+    get:
+      tags:
+        - platform
+      summary: The platform incident list (platform)
+      description: >
+        Super administrators only (`platform.incidents.manage`). Figbloom's hand-typed incident list (owner decision D5),
+        newest first, keyset-paginated on `(openedAt, id)`, read through `platform_incidents_list()`. `state=open` lists
+        the incidents not yet resolved, `state=resolved` the resolved ones. No school data. The caller's school (session or
+        `X-Tenant-Id`) is ignored.
+      operationId: listPlatformIncidents
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.incidents.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - open
+              - resolved
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: Platform incidents page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformIncidentList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - platform
+      summary: Declare a platform incident (platform)
+      description: >
+        Super administrators only (`platform.incidents.manage`), with a recently confirmed password (403
+        `reauth_required` otherwise; POST /v1/auth/reauth). Opens a new incident as `investigating`, now, by the caller,
+        through `platform_incident_declare()`, which writes the audit row `platform.incident.declared` (ids, severity and
+        count; never the title or summary) in the same transaction. Title and summary are trimmed and must not be blank.
+      operationId: declarePlatformIncident
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.incidents.manage
+      x-figbloom-tenantScope: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeclarePlatformIncidentRequest"
+      responses:
+        "201":
+          description: The incident as stored
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - incident
+                properties:
+                  incident:
+                    $ref: "#/components/schemas/PlatformIncident"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/platform/incidents/{incidentId}/resolve:
+    post:
+      tags:
+        - platform
+      summary: Resolve a platform incident (platform)
+      description: >
+        Super administrators only (`platform.incidents.manage`), with a recently confirmed password (403
+        `reauth_required` otherwise). Marks the incident resolved now, by the caller, and writes the audit row
+        `platform.incident.resolved` in the same transaction. Resolving an incident that is already resolved changes
+        nothing (no new time, no second audit row) and answers `changed: false`. No request body.
+      operationId: resolvePlatformIncident
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.incidents.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: incidentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The incident after the call, and whether this call resolved it
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - incident
+                  - changed
+                properties:
+                  incident:
+                    $ref: "#/components/schemas/PlatformIncident"
+                  changed:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/invitations:
     post:
       tags:
@@ -21862,8 +21993,8 @@ components:
         is set ("Password change required", FIG-1604). Sensitive operations (administrator password resets, membership
         deactivation, school provisioning, school-administrator invitations, guardian-link revocation, finance
         reconciliation resolution, unacknowledged-prompt withdrawal, operator M-Pesa reconciliation, unmatched-callback
-        resolution/reopen, organization-delegation grant/revoke, guardian-access grant/revoke, staff-area changes and a
-        change of the school name or timezone) answer 403 with code `reauth_required` when the session was not created
+        resolution/reopen, organization-delegation grant/revoke, guardian-access grant/revoke, staff-area changes, a
+        change of the school name or timezone, and declaring or resolving a platform incident) answer 403 with code `reauth_required` when the session was not created
         or password-confirmed within the last 5 minutes: call POST /v1/auth/reauth and retry.
       content:
         application/json:
@@ -22432,6 +22563,113 @@ components:
             $ref: "#/components/schemas/PlatformAuditEvent"
         page:
           $ref: "#/components/schemas/PageInfo"
+    PlatformIncident:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - severity
+        - title
+        - summary
+        - affectedSchools
+        - status
+        - openedAt
+        - openedBy
+        - openedByName
+        - resolvedAt
+        - resolvedBy
+        - resolvedByName
+      properties:
+        id:
+          type: string
+          format: uuid
+        severity:
+          type: string
+          enum:
+            - SEV-1
+            - SEV-2
+            - SEV-3
+        title:
+          type: string
+        summary:
+          type: string
+        affectedSchools:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum:
+            - investigating
+            - fix_in_review
+            - resolved
+        openedAt:
+          type: string
+          format: date-time
+        openedBy:
+          type:
+            - string
+            - "null"
+          format: uuid
+        openedByName:
+          type:
+            - string
+            - "null"
+        resolvedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        resolvedBy:
+          type:
+            - string
+            - "null"
+          format: uuid
+        resolvedByName:
+          type:
+            - string
+            - "null"
+    PlatformIncidentList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformIncident"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    DeclarePlatformIncidentRequest:
+      type: object
+      properties:
+        severity:
+          type: string
+          enum:
+            - SEV-1
+            - SEV-2
+            - SEV-3
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: \S
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          pattern: \S
+        affected_schools:
+          type: integer
+          minimum: 0
+          maximum: 100000
+      required:
+        - severity
+        - title
+        - summary
+        - affected_schools
+      additionalProperties: false
     PageInfo:
       type: object
       required:

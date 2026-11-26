@@ -139,6 +139,7 @@ no mode GUC and no application-settable bypass.
 | `learner_accounts` | **owner-only** (live login-to-learner links; the caller's own learner via `student_my_learner()`; made, reset, revoked and read by the school office only through the `student_account_*` SECURITY DEFINER functions) | same | 110 | `student.accounts` |
 | `finance_unmatched_cases` | **owner-only** (platform operators reach it only through the `finance_unmatched_*` SECURITY DEFINER functions; no school owns an unmatched callback) | same | 074 | `finance.unmatchedCallbacks` |
 | `finance_unmatched_case_notes` | **owner-only** (append-only operator notes) | same | 074 | `finance.unmatchedCallbacks` |
+| `platform_incidents` | **owner-only**, no `tenant_id` (Figbloom's hand-typed incident list; super administrators reach it only through `platform_incidents_list`, `platform_incident_declare` and `platform_incident_resolve`; no school sees it; never deleted) | same | 121 | `platform.incidents` |
 | `finance_bank_statements` | tenant (`SELECT, INSERT` + column-level `UPDATE (matched_count, unmatched_count, status)`) | same | 097 | `bankReconciliation.unit` |
 | `finance_bank_statement_lines` | tenant (`SELECT, INSERT` + column-level `UPDATE (match_status, matched_payment_id, matched_invoice_id, matched_by, matched_at, match_note)`) | same | 097 | `bankReconciliation.unit` |
 | `teacher_reports` | tenant (`SELECT, INSERT` + column-level `UPDATE` on editable/review fields) | same | 098 | `teacherReports.unit` |
