@@ -290,8 +290,9 @@ select pg_temp.check('rice: no other weekday is flagged',
               and occurred_on not in (current_setting('t.spike')::date, current_setting('t.sports')::date)));
 select pg_temp.check('rice on a Saturday at a day school is flagged as a non-school day',
   exists (select 1 from f where kind = 'non_school_day' and item_name = 'Rice' and extract(isodow from occurred_on) = 6));
+-- the baseline is adjusted for headcount, so it can be 9.6 or 10.4 depending on which days fall in the window today
 select pg_temp.check('cooking oil: the slow creep is flagged as a trend (+30%), and no single day is',
-  exists (select 1 from f where kind = 'usage_trend' and item_name = 'Cooking oil' and not explained and actual = 13 and expected = 10)
+  exists (select 1 from f where kind = 'usage_trend' and item_name = 'Cooking oil' and not explained and actual = 13 and round(expected) = 10)
   and not exists (select 1 from f where kind = 'usage_up' and item_name = 'Cooking oil'));
 select pg_temp.check('sugar: the 8 kg stock-take shortfall is flagged',
   exists (select 1 from f where kind = 'shrinkage' and item_name = 'Sugar' and actual = 8));
