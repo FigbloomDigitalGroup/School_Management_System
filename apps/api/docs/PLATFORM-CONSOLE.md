@@ -110,10 +110,8 @@ to `SECURITY-DEFINER-INVENTORY.md` and its tests. Seats need Q2.
 **Supabase does:** list incidents newest first (1), declare one (1 insert), resolve one (1 update). Staff type them in by
 hand; nothing writes them automatically. 3 calls.
 
-**API backs:** nothing. **Proposed (only if Q4 says keep it here):** a platform-only table `platform_incidents` (no
-`tenant_id`, owner-only, read and written through definer functions that check `super_admin`), `GET/POST
-/v1/platform/incidents`, `POST /v1/platform/incidents/{id}/resolve`, permission `platform.incidents.manage`, audit
-`platform.incident.declared` / `.resolved`. Schools do not see incidents today on either build.
+**API backs:** migration 121 and the platform-only, owner-controlled API in section 7.1. On the API web build, the existing
+hand-typed Incidents page uses those routes; schools do not see incidents on either build.
 
 ### 3.5 `platform/subscriptions` and 3.6 `platform/invoices` (pages.tsx)
 
@@ -215,8 +213,8 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
 3. **P3:** organisations read (`platform.organizations.read`, migration), school admins list; reuse S11's org-admin functions.
 4. **P4:** usage counts (owner function, counts only).
 5. **P5:** audit read, together with S11's school audit read.
-6. After decisions only: suspend and reactivate (Q1), billing (Q2), impersonation or support sessions (Q3), incidents (Q4),
-   curriculum (Q6), live provider checks (Q7).
+6. After decisions only: suspend and reactivate (Q1), billing (Q2), impersonation or support sessions (Q3), and live provider
+   checks (Q7). Incidents (Q4) and curriculum (Q6) have been decided and are documented as built/closed above.
 
 ## 6. Questions for the owner
 
@@ -235,3 +233,24 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
    API's current model)?
 7. **Q7 Health:** is worker and queue status enough, or do you want live checks of M-Pesa, e-mail, storage and Bloom?
 8. **Q8 Org-and-platform accounts:** may one person be both a super admin and an org admin (risk R4)?
+
+## 7. As built: slice S5 (after the owner's decisions of 2026-11-25)
+
+The owner answered Q2 (D3: the API owns Figbloom's billing of schools, KES only, invoices marked paid by hand), Q3 (D4: no
+impersonation page), Q4 (D5: keep a hand-typed incident list) and Q6 (D6: each school verifies its own catalogue). Q1 (D2,
+school and organisation lifecycle) is still open, so nothing in S5 links billing to suspension or to a school's status.
+
+### 7.1 Incidents (migration 121)
+
+| What | As built |
+|---|---|
+| Table | `platform_incidents`: severity (`SEV-1` to `SEV-3`), title (1 to 200), summary (1 to 2,000), schools affected (0 to 100,000), status, opened at and by, resolved at and by. **No `tenant_id`.** Owner-only: forced RLS with only the owner policy, no privilege for `figbloom_app` or `figbloom_worker` (`RLS-CATALOGUE.md`) |
+| Functions | `platform_incidents_list`, `platform_incident_declare`, `platform_incident_resolve` (SECURITY DEFINER, each re-checks `super_admin` from `app.user_id`; `SECURITY-DEFINER-INVENTORY.md`) |
+| Routes | `GET /v1/platform/incidents?state=open\|resolved` (newest first, keyset on `(openedAt, id)`), `POST /v1/platform/incidents` (201), `POST /v1/platform/incidents/{incidentId}/resolve` (`{incident, changed}`) |
+| Who | `platform.incidents.manage`, `super_admin` only, checked with no school (`X-Tenant-Id` ignored). The two writes need a recent sign-in (`assertRecentAuth`) |
+| Audit | `platform.incident.declared` and `platform.incident.resolved`, written by the definer in the same transaction. Detail: ids, severity, count, previous status; never the title or summary. Hidden from every school's log |
+
+Differences from the Supabase screen (`20260914000000_platform_ops_tables.sql`): resolving stamps the server's time and who
+resolved it (Supabase wrote the browser's clock and kept no name), and a second resolve changes nothing (Supabase overwrote the
+time); title, summary and the count have upper bounds; `fix_in_review` stays a valid status so the Supabase rows can be carried
+over, but no route sets it (no Supabase screen did either). Not built: editing an incident, re-opening one, deleting one.

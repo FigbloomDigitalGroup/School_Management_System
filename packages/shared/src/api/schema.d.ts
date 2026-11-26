@@ -248,6 +248,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/platform/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The platform incident list (platform)
+         * @description Super administrators only (`platform.incidents.manage`). Figbloom's hand-typed incident list (owner decision D5), newest first, keyset-paginated on `(openedAt, id)`, read through `platform_incidents_list()`. `state=open` lists the incidents not yet resolved, `state=resolved` the resolved ones. No school data. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
+        get: operations["listPlatformIncidents"];
+        put?: never;
+        /**
+         * Declare a platform incident (platform)
+         * @description Super administrators only (`platform.incidents.manage`), with a recently confirmed password (403 `reauth_required` otherwise; POST /v1/auth/reauth). Opens a new incident as `investigating`, now, by the caller, through `platform_incident_declare()`, which writes the audit row `platform.incident.declared` (ids, severity and count; never the title or summary) in the same transaction. Title and summary are trimmed and must not be blank.
+         */
+        post: operations["declarePlatformIncident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/incidents/{incidentId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve a platform incident (platform)
+         * @description Super administrators only (`platform.incidents.manage`), with a recently confirmed password (403 `reauth_required` otherwise). Marks the incident resolved now, by the caller, and writes the audit row `platform.incident.resolved` in the same transaction. Resolving an incident that is already resolved changes nothing (no new time, no second audit row) and answers `changed: false`. No request body.
+         */
+        post: operations["resolvePlatformIncident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/invitations": {
         parameters: {
             query?: never;
@@ -6692,6 +6736,38 @@ export interface components {
             items: components["schemas"]["PlatformAuditEvent"][];
             page: components["schemas"]["PageInfo"];
         };
+        PlatformIncident: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            severity: "SEV-1" | "SEV-2" | "SEV-3";
+            title: string;
+            summary: string;
+            affectedSchools: number;
+            /** @enum {string} */
+            status: "investigating" | "fix_in_review" | "resolved";
+            /** Format: date-time */
+            openedAt: string;
+            /** Format: uuid */
+            openedBy: string | null;
+            openedByName: string | null;
+            /** Format: date-time */
+            resolvedAt: string | null;
+            /** Format: uuid */
+            resolvedBy: string | null;
+            resolvedByName: string | null;
+        };
+        PlatformIncidentList: {
+            items: components["schemas"]["PlatformIncident"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        DeclarePlatformIncidentRequest: {
+            /** @enum {string} */
+            severity: "SEV-1" | "SEV-2" | "SEV-3";
+            title: string;
+            summary: string;
+            affected_schools: number;
+        };
         PageInfo: {
             limit: number;
             next_cursor: string | null;
@@ -10433,7 +10509,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Authenticated but not authorized (default deny). Also returned, for every authenticated route except POST /v1/auth/password/change, POST /v1/auth/logout and GET /v1/auth/me, while the user's `must_change_password` flag is set ("Password change required", FIG-1604). Sensitive operations (administrator password resets, membership deactivation, school provisioning, school-administrator invitations, guardian-link revocation, finance reconciliation resolution, unacknowledged-prompt withdrawal, operator M-Pesa reconciliation, unmatched-callback resolution/reopen, organization-delegation grant/revoke, guardian-access grant/revoke, staff-area changes and a change of the school name or timezone) answer 403 with code `reauth_required` when the session was not created or password-confirmed within the last 5 minutes: call POST /v1/auth/reauth and retry. */
+        /** @description Authenticated but not authorized (default deny). Also returned, for every authenticated route except POST /v1/auth/password/change, POST /v1/auth/logout and GET /v1/auth/me, while the user's `must_change_password` flag is set ("Password change required", FIG-1604). Sensitive operations (administrator password resets, membership deactivation, school provisioning, school-administrator invitations, guardian-link revocation, finance reconciliation resolution, unacknowledged-prompt withdrawal, operator M-Pesa reconciliation, unmatched-callback resolution/reopen, organization-delegation grant/revoke, guardian-access grant/revoke, staff-area changes, a change of the school name or timezone, and declaring or resolving a platform incident) answer 403 with code `reauth_required` when the session was not created or password-confirmed within the last 5 minutes: call POST /v1/auth/reauth and retry. */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -10958,6 +11034,95 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listPlatformIncidents: {
+        parameters: {
+            query?: {
+                state?: "open" | "resolved";
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform incidents page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformIncidentList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    declarePlatformIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclarePlatformIncidentRequest"];
+            };
+        };
+        responses: {
+            /** @description The incident as stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        incident: components["schemas"]["PlatformIncident"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    resolvePlatformIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                incidentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incident after the call, and whether this call resolved it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        incident: components["schemas"]["PlatformIncident"];
+                        changed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     accountsCreateInvitation: {

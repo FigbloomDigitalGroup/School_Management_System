@@ -950,7 +950,7 @@ export interface PlatformCapabilities {
   curriculumPage: boolean;
   /** `/platform/usage` — needs counts-only owner function (slice P4) and Q2 for licensed seats. */
   usagePage: boolean;
-  /** `/platform/incidents` — blocked on owner decision Q4 (hand-typed incident list vs external status/ops). */
+  /** `/platform/incidents` — hand-typed incident list backed by migration 121 and the platform incident routes. */
   incidentsPage: boolean;
   /** `/platform/subscriptions` — blocked on owner decision Q2 (whether the API owns Figbloom billing). */
   subscriptionsPage: boolean;
@@ -992,7 +992,7 @@ const PLATFORM_ON_API: PlatformCapabilities = {
   organizationsPage: true,
   curriculumPage: false,
   usagePage: true,
-  incidentsPage: false,
+  incidentsPage: true,
   subscriptionsPage: false,
   invoicesPage: false,
   impersonationPage: false,
