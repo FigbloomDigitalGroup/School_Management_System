@@ -84,6 +84,14 @@ describe("capabilities and the mapping", () => {
     });
   });
 
+  it("words the two HR & Payroll events as the Supabase build does, and leaves every other event's label alone", () => {
+    const words = (event_type: string, label: string) => auditEventFromApi(T, eventRow(4, { event_type, label, category: "access" }) as never).event;
+    expect(words("hr.handoff.opened", "Handoff opened")).toBe("Opened HR & Payroll (one-time sign-in link)");
+    expect(words("hr.handoff.requested", "Handoff requested")).toBe("Asked Figbloom for HR & Payroll");
+    expect(words("hr.handoff.refused", "Handoff refused")).toBe("Handoff refused");
+    expect(words("finance.payment.recorded", "Payment recorded")).toBe("Payment recorded");
+  });
+
   it("puts an event with no actor down to the system, and an actor with no name to an unknown person", () => {
     expect(auditEventFromApi(T, eventRow(2, { actor_user_id: null, actor_name: null }) as never)).toMatchObject({ actor_id: null, actor_label: AUDIT_SYSTEM_ACTOR });
     expect(auditEventFromApi(T, eventRow(3, { actor_name: null }) as never)).toMatchObject({ actor_id: U_ADMIN, actor_label: "Unknown person" });

@@ -77,6 +77,19 @@ On `main` or in an open PR, not live in production yet.
     its three HR-answer columns, `tenants.hr_requested_at` / `hr_requested_by` with the definer `hr_record_request()`, and
     `school_audit_events` filing `hr.handoff.*` under access.
   - Design and differences from the live rules: `apps/api/docs/HR-HANDOFF.md` section 9.
+- **HR & Payroll on the API build (slice H2, web only)**: the same HR screens run on `VITE_BACKEND=api`. Nothing live changes:
+  the Supabase paths of `hrHandoff.ts` are as before, and no database object or endpoint is added or changed. Off until the owner
+  switches the hand-off on for the API (H1).
+  - `hrHandoff.ts` (`fetchHrStatus`, `requestFigbloomHr`, `requestHrLink`, `fetchHrHandoffStatus`) gains `onApi()` branches over the
+    three routes of H1 (`packages/shared/src/api/hrHandoffApi.ts`). `requestHrLink`'s `expires_at` is now `string | null`. The API's
+    five new error codes are in `api/errors.ts`.
+  - The "HR & Payroll" side item is in the API build's admin, teacher and staff consoles (`sideActions` in `ApiConsole.tsx`: the
+    only edit to that file), shown only while the API says the hand-off is on; `admin/hr` (`api/pages/hr.pages.tsx`) and the
+    top-level `/hr/launch` (`api/ApiHrRoutes.tsx`) are registered for the API build.
+  - The school's audit log words `hr.handoff.opened` and `hr.handoff.requested` as the Supabase build does (`auditApi.ts`).
+    `platform/tenants` shows which schools asked for HR & Payroll (`hrRequestedAt`, `hrRequestedBy`): a badge, a filter and a block in
+    the detail.
+  - Write-up, findings `hr-handoff-1` to `-9` and what was not verified: `docs/web-on-api/hr-handoff.md`.
 - **Stock movements on the new API (slice S1a, `apps/api` only)**: a port of the live "stock in and out" feature, same
   rules (`apps/api/docs/INVENTORY-STOCK.md`, which also lists what differs and why). Migration
   `115_inventory_movements.sql`: `unit`, `consumable`, `reorder_level` on `inventory_items`; table `inventory_movements`
@@ -255,8 +268,8 @@ screens:
 | Inventory stock | `items` and `issues` routes | Stock movements (in, used, wasted, adjusted), `unit` / `consumable` / `reorder_level`, the ledger, usage, spend, cost per meal, stock levels, headcount and flags reports |
 | AI stock insights | `ai/query` | The `stock_insights` task |
 | M-Pesa | STK push and query in `finance.ts`, callback in `mpesa.ts` | The `DARAJA_TENANTS` allowlist, and retrying the STK query when Daraja answers 429 |
-| HR and Payroll | `GET .../me/hr/handoff-status`, `POST .../me/hr/handoff-request`, `POST .../me/hr/handoff` (slice H1, off by default) | The web screens on the API build (slice H2) |
-| Console: HR requests | `GET /v1/platform/schools` with `hrRequestedAt` / `hrRequestedBy` (slice H1) | Showing it on the API build's `platform/tenants` page |
+| HR and Payroll | `GET .../me/hr/handoff-status`, `POST .../me/hr/handoff-request`, `POST .../me/hr/handoff` (slice H1, off by default) | Nothing: the web screens run on it (slice H2, `docs/web-on-api/hr-handoff.md`). Switching it on for a real school needs the owner's answers on ids, credentials and network (`HR-HANDOFF.md` section 6) |
+| Console: HR requests | `GET /v1/platform/schools` with `hrRequestedAt` / `hrRequestedBy` (slice H1) | Nothing: `platform/tenants` on the API build shows it (slice H2) |
 | RLS performance | Its own RLS (`apps/api/migrations`) | Make sure the new policies don't check rights per row either |
 
 ## Catching up with main
