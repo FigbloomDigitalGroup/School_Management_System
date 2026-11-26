@@ -58,6 +58,7 @@ import { registerTeachingRoutes } from "./http/routes/teaching.js";
 import { registerSchoolAuditRoutes } from "./http/routes/schoolAudit.js";
 import { registerAiRoutes } from "./http/routes/ai.js";
 import { registerMyHrRoutes } from "./http/routes/myHr.js";
+import { registerHrHandoffRoutes } from "./http/routes/hrHandoff.js";
 import { mpesaProviderFromConfig, type MpesaProvider } from "./modules/finance/mpesaProvider.js";
 
 export interface RouteEntry {
@@ -259,6 +260,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerSchoolAuditRoutes(app, pool);
   await registerAiRoutes(app, pool);
   await registerMyHrRoutes(app, pool);
+  await registerHrHandoffRoutes(app, pool);
 
   return app;
 }

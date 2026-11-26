@@ -166,9 +166,14 @@ export type SecurityEventType =
   | "inventory.item.retired"
   | "inventory.issue.created"
   | "inventory.issue.closed"
+  // Stock in and out (docs/INVENTORY-STOCK.md): one delivery, use, waste or stock-take. Detail: movement id, item id, kind.
+  | "inventory.movement.recorded"
   | "hr.leave.submitted"
   | "hr.leave.reviewed"
   | "hr.leave.cancelled"
+  // The "HR & Payroll" hand-off (docs/HR-HANDOFF.md, H1). Never the one-time link or its code.
+  | "hr.handoff.opened"
+  | "hr.handoff.requested"
   | "activities.activity.created"
   | "activities.patron.added"
   | "activities.member.added"

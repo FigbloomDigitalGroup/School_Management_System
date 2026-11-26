@@ -141,10 +141,13 @@ export function planAttendance(query: unknown): MyHrPlan {
 
 const USER_LIMIT = 30;
 const SCHOOL_LIMIT = 300;
-const PLATFORM_LIMIT = 1_500;
+/** Calls made with the platform token, for the whole API: shared by My HR and the HR & Payroll hand-off. */
+export const PLATFORM_TOKEN_BUCKET = "my_hr:platform";
+export const PLATFORM_LIMIT = 1_500;
 const WINDOW_MS = 60_000;
 
-async function consumeBucket(tx: Tx, key: string, capacity: number, message: string): Promise<void> {
+/** One token from a per-minute bucket (`consume_rate_token`), or 429 with Retry-After. */
+export async function consumeBucket(tx: Tx, key: string, capacity: number, message: string): Promise<void> {
   const res = await tx.query<{ out_allowed: boolean; out_retry_after_ms: number | null }>(
     `SELECT out_allowed, out_retry_after_ms FROM public.consume_rate_token($1, 1, $2, $2, $3)`,
     [key, capacity, WINDOW_MS],
@@ -160,7 +163,7 @@ async function consumeBucket(tx: Tx, key: string, capacity: number, message: str
 export async function assertMyHrRateLimit(tx: Tx, input: { userId: string; tenantId: string }): Promise<void> {
   await consumeBucket(tx, `my_hr:user:${input.userId}`, USER_LIMIT, "Too many My HR requests. Try again in a minute.");
   await consumeBucket(tx, `my_hr:tenant:${input.tenantId}`, SCHOOL_LIMIT, "Too many My HR requests from this school. Try again in a minute.");
-  await consumeBucket(tx, "my_hr:platform", PLATFORM_LIMIT, "Too many My HR requests. Try again in a minute.");
+  await consumeBucket(tx, PLATFORM_TOKEN_BUCKET, PLATFORM_LIMIT, "Too many My HR requests. Try again in a minute.");
 }
 
 /**

@@ -319,6 +319,16 @@ describe("tenant isolation matrix at the database (figbloom_app)", () => {
       ["jobs_operator_cancel", "SELECT public.jobs_operator_cancel($1, $2, 'testing forged tenant', NULL) AS v", [B, u]],
       ["communications_audience_reaches", "SELECT public.communications_audience_reaches($1, '{}'::jsonb, $2) AS v", [B, u]],
       ["may_talk", "SELECT public.may_talk($1, $2, $3) AS v", [B, u, u]],
+      // migration 116: the stock reports refuse a school other than the request's (42501)
+      ["inventory_price_on", "SELECT public.inventory_price_on($1, current_date) AS v", [u]],
+      ["inventory_ledger", "SELECT * FROM public.inventory_ledger($1, '2026-01-01', '2026-12-31')", [B]],
+      ["inventory_usage", "SELECT * FROM public.inventory_usage($1, '2026-01-01', '2026-12-31', 'week')", [B]],
+      ["inventory_spend_by_month", "SELECT * FROM public.inventory_spend_by_month($1, '2026-01-01', '2026-12-31')", [B]],
+      ["inventory_cost_per_meal", "SELECT * FROM public.inventory_cost_per_meal($1, '2026-01-01', '2026-12-31', 'month')", [B]],
+      ["inventory_stock_levels", "SELECT * FROM public.inventory_stock_levels($1, current_date)", [B]],
+      ["inventory_headcount", "SELECT * FROM public.inventory_headcount($1, '2026-01-01', '2026-01-31')", [B]],
+      ["inventory_headcount_days", "SELECT * FROM public.inventory_headcount_days($1, '2026-01-01', '2026-01-31')", [B]],
+      ["inventory_consumption_flags", "SELECT * FROM public.inventory_consumption_flags($1, '2026-01-01', '2026-02-28')", [B]],
     ];
     // KNOWN / DOCUMENTED DESIGN R-10: the school directory (`tenants`: id, name, slug, timezone, status, organization_id) is an
     // identity-plane table, application-filtered by design (docs/RLS-CATALOGUE.md, TENANT-ISOLATION.md D-3): it has no row policy
