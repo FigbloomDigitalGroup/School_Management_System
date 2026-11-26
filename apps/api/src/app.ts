@@ -46,6 +46,7 @@ import { registerTeacherReportRoutes } from "./http/routes/teacherReports.js";
 import { registerImportRoutes } from "./http/routes/imports.js";
 import { registerOpsStatusRoutes } from "./http/routes/opsStatus.js";
 import { registerPlatformAuditRoutes } from "./http/routes/platformAudit.js";
+import { registerPlatformBillingRoutes } from "./http/routes/platformBilling.js";
 import { registerPlatformOrganizationRoutes } from "./http/routes/platformOrganizations.js";
 import { registerPlatformSchoolRoutes } from "./http/routes/platformSchools.js";
 import { registerPlatformUsageRoutes } from "./http/routes/platformUsage.js";
@@ -248,6 +249,7 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerImportRoutes(app, pool);
   await registerOpsStatusRoutes(app, pool);
   await registerPlatformAuditRoutes(app, pool);
+  await registerPlatformBillingRoutes(app, pool);
   await registerPlatformOrganizationRoutes(app, pool);
   await registerPlatformSchoolRoutes(app, pool);
   await registerPlatformUsageRoutes(app, pool);

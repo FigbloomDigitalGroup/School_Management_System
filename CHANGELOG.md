@@ -53,7 +53,14 @@ On `main` or in an open PR, not live in production yet.
   `platform/audit` (`GET /v1/platform/audit-events`, migration `113_platform_audit_read.sql`, read-audited). Migration
   `114_platform_school_admins_read.sql` fixes the school administrators list, which always came back empty (row-level
   security hid the rows from a request with no school).
-  Owner-decision-blocked pages (Q1–Q7) remain gated behind `platformCapabilities()`.
+  Pages waiting on their API slice or an open owner decision remain gated behind `platformCapabilities()`.
+- **Platform subscription billing API (slice S6a, migration `122_platform_billing_subscriptions.sql`)**: D3 makes the API the
+  source for Figbloom's school subscriptions and KES plan prices. Owner-only `platform_subscriptions` and `plan_pricing`
+  tables are read through audited-scope SECURITY DEFINER functions; no legacy placeholder prices are seeded. The
+  `platform.billing.read` and `.manage` permissions are super-admin only. `GET /v1/platform/subscriptions` lists terms and
+  configured prices; `PUT /v1/platform/subscriptions/{schoolId}` and `PUT /v1/platform/plan-pricing/{plan}` require recent
+  password confirmation and audit every money change in the same transaction. Nothing changes the Supabase build, and
+  overdue invoices do not suspend schools.
 - **Behaviour log on the new API, part 1 (S2a, `apps/api/docs/BEHAVIOUR.md`)**: a port of the live behaviour log, with the same rules.
   Migration `118_behaviour_log.sql`: the `discipline` admin area, permissions `resource.discipline.read`, `resource.discipline.write` and
   `resource.behaviour.record` (teachers), tables `behaviour_settings`, `behaviour_categories`, `behaviour_entries` and

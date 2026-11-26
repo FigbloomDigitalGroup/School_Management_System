@@ -203,6 +203,8 @@
   "notifications.device.revoked": "hidden",
   "notifications.outbox.enqueued": "hidden",
   "platform.audit.read": "hidden",
+  "platform.billing.plan_price.updated": "hidden",
+  "platform.billing.subscription.updated": "hidden",
   "platform.organization.admins_read": "hidden",
   "platform.school.admins_read": "hidden",
   "platform.school.provisioned": "hidden",

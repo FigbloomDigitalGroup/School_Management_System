@@ -167,3 +167,16 @@ school administrator).
 |---|---|---|---|
 | `hr_record_request()` | DEFINER (117), `VOLATILE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | the one write path to `tenants.hr_requested_at` / `hr_requested_by` ("Request Figbloom HR"); `tenants` stays `SELECT`-only for the runtime role. No argument: the school is `app_current_tenant_id()` and the person `app_current_user_id()`, set by the API after it checked `resource.hr.handoff`, the switch and that HR is not already there. Defence in depth: `42501` without them, for an inactive account, a platform super administrator, a suspended school, or anyone who is neither an active `school_admin`, `teacher` or `staff` member of the school nor an organisation administrator with a live `area.fees` delegation there. Keeps the first request and returns its time with `recorded` (false for a repeat) |
 | `school_audit_events(text, timestamptz, text, timestamptz, uuid, integer)` | DEFINER (106, replaced in 117) | `figbloom_app` | unchanged but for one line: `hr.handoff.*` (opening HR, asking Figbloom for it) is shown under `access`, as Supabase files it. Same signature, grants and pinned classification fixture |
+
+## Addendum 2026-11-26 — migration 122 (platform billing subscriptions, `docs/PLATFORM-CONSOLE.md` slice S6a)
+
+`plan_pricing` and `platform_subscriptions` are owner-only, forced-RLS tables with no `figbloom_app` or `figbloom_worker` grants.
+Every callable function sets `search_path = pg_catalog, pg_temp` and re-checks `super_admin` from `app.user_id`.
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `platform_subscription_seed()` | DEFINER trigger (122) | none | creates a new school's known default `standard` plan and current status; no price is invented |
+| `platform_billing_subscriptions_list(uuid, integer)` | DEFINER (122), `STABLE` | `figbloom_app` | returns school name/slug and subscription terms for the platform page, keyset by school name/id; effective price is the override, else an approved list price, else zero (displayed as unset) |
+| `platform_billing_plan_prices()` | DEFINER (122), `STABLE` | `figbloom_app` | reads only the owner-only Figbloom plan-price list |
+| `platform_billing_subscription_update(uuid, text, text, integer, timestamptz, date)` | DEFINER (122), `VOLATILE` | `figbloom_app` | re-checks super admin; updates one school's plan, status, price override, trial end and renewal; logs before/after fields to the platform audit log in the same transaction |
+| `platform_billing_plan_price_set(text, integer)` | DEFINER (122), `VOLATILE` | `figbloom_app` | re-checks super admin; upserts one approved plan price; logs the prior and new cents in the same transaction |

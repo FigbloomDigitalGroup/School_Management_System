@@ -122,11 +122,13 @@ list (1). Invoices: every invoice with the school's name (1), the school list fo
 (1 insert). 6 calls. Money is Figbloom's own billing of schools (KES), not school fees. There is no payment gateway: staff
 mark an invoice paid by hand.
 
-**API backs:** nothing. No plan, price, trial, renewal or invoice-to-school data exists in the API.
+**API backs:** migration 122 adds the owner-only `plan_pricing` and `platform_subscriptions` tables, with
+`GET /v1/platform/subscriptions`, `PUT /v1/platform/subscriptions/{schoolId}` and
+`PUT /v1/platform/plan-pricing/{plan}`. Both writes need recent re-authentication and audit their money changes in the same
+transaction. The old price rows were explicitly placeholders, so no prices are seeded; an unset price stays unset.
 
-**Proposed:** nothing until Q2 is answered. If the API owns it: `plan_pricing`, subscription fields (a platform table keyed
-by school, not new columns on `tenants`), `platform_invoices`, permissions `platform.billing.read` / `.manage`, audit on every
-money change, re-auth on mark-paid and create, and the overdue-to-suspension link decided by Q1.
+**Not built yet:** `platform_invoices` and its create/mark-paid endpoints (the next slice). Overdue invoices will not suspend
+a school. The API stores subscription terms in a platform table keyed by school; it does not add billing columns to `tenants`.
 
 ### 3.7 `platform/impersonation` (pages.tsx `Impersonation`)
 
@@ -215,16 +217,16 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
 3. **P3:** organisations read (`platform.organizations.read`, migration), school admins list; reuse S11's org-admin functions.
 4. **P4:** usage counts (owner function, counts only).
 5. **P5:** audit read, together with S11's school audit read.
-6. After decisions only: suspend and reactivate (Q1), billing (Q2), impersonation or support sessions (Q3), incidents (Q4),
-   curriculum (Q6), live provider checks (Q7).
+6. After decisions only: suspend and reactivate (Q1), invoices (D3), impersonation or support sessions (Q3), incidents (Q4),
+   curriculum (Q6), and live provider checks (Q7).
 
 ## 6. Questions for the owner
 
 1. **Q1 Which console owns school and organisation lifecycle on the API?** This app's platform console, or console.figbloom.org
    (as on Supabase today, through `platform-schools` and the decisions webhook)? If the other console, the API needs a
    server-to-server endpoint and webhook like Supabase's, and this console only shows status.
-2. **Q2 Does the API own Figbloom's billing of schools** (plans, prices, seats, trials, renewals, invoices), or does it stay
-   in another system (the platform, accounting)? Should an overdue invoice ever suspend a school, and who decides?
+2. **Q2 (answered D3, 2026-11-25):** the API owns Figbloom's billing of schools (plans, prices, trials, renewals and invoices), in
+   KES, with staff marking invoices paid by hand. Overdue invoices do not suspend a school.
 3. **Q3 Should impersonation exist at all?** If yes: read-only or write, longest session, and must the school be told (the
    Supabase page promised "schools can read their own entries")? If no: should a super admin keep full powers inside any
    school, as the API allows today, or be limited?
@@ -235,3 +237,15 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
    API's current model)?
 7. **Q7 Health:** is worker and queue status enough, or do you want live checks of M-Pesa, e-mail, storage and Bloom?
 8. **Q8 Org-and-platform accounts:** may one person be both a super admin and an org admin (risk R4)?
+
+## 7. As built
+
+### 7.2 Subscriptions and plan pricing (migration 122)
+
+| What | As built |
+|---|---|
+| Tables | `platform_subscriptions` (school-keyed: plan, status, price override, trial end and renewal date) and `plan_pricing`; both are owner-only, forced-RLS, and have no runtime table grants. |
+| Defaults | Existing and future API schools start on the documented `standard` plan and retain their current status. No price rows are seeded because the legacy numbers are placeholders, not approved KES prices. |
+| Reads | `GET /v1/platform/subscriptions` returns school name/slug and terms, plus the configured price list, keyset-paginated by school name/id. Effective price is override, else the configured plan price, else zero (displayed as unset). |
+| Writes | `PUT /v1/platform/subscriptions/{schoolId}` and `PUT /v1/platform/plan-pricing/{plan}` require `platform.billing.manage` and recent password confirmation. A changed record writes an immutable audit event in the same transaction; no-op updates add no event. |
+| Separation | These terms do not change a school's access status. An overdue Figbloom invoice does not suspend a school. No MRR or licensed-seat count is invented. |
