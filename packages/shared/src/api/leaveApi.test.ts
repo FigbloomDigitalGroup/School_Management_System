@@ -74,7 +74,7 @@ afterEach(() => {
 });
 
 describe("capabilities & mappers", () => {
-  it("disables hrLeave and optionalReason on API and enables both on Supabase", () => {
+  it("keeps HR staff applications off on API while enabling the approvals page", () => {
     initBackend({ kind: "supabase" });
     expect(leaveCapabilities()).toEqual({ hrLeave: true, optionalReason: true });
     initBackend({ kind: "api", apiUrl: BASE });
@@ -109,10 +109,10 @@ describe("capabilities & mappers", () => {
     });
   });
 
-  it("returns HR leave as off on API without making any request", async () => {
-    boot({});
-    expect(await fetchHrLeaveAccess()).toEqual({ status: "off", approver: false });
-    expect(api.calls).toHaveLength(0);
+  it("reads HR leave access from the API", async () => {
+    boot({ [`GET ${P}/me/hr/leave/access`]: { body: { status: "off", approver: true } } });
+    expect(await fetchHrLeaveAccess()).toEqual({ status: "off", approver: true });
+    expect(api.calls).toHaveLength(1);
   });
 });
 

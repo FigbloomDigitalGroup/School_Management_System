@@ -75,6 +75,16 @@ export const FEES_AREA_IMPLIED: readonly string[] = ["resource.finance.read", "r
  */
 export const HR_HANDOFF_IMPLIED: readonly string[] = ["resource.hr.handoff"];
 
+/**
+ * "Leave to approve" (docs/HR-HANDOFF.md, L1; migration 120): the approvers of leave run by Figbloom HR, as on Supabase
+ * (hr_leave_access()'s `approver`: the school's admin, or a holder of the Leave or the Fees area: the head teacher, deputy,
+ * bursar). Implied by EITHER area however it is held (a direct grant, a school role, or an organisation administrator's
+ * delegation of `area.leave` or `area.fees`; an organisation administrator without one does not get it, HR-HANDOFF.md R5).
+ * Kept apart from LEAVE_AREA_IMPLIED and FEES_AREA_IMPLIED, which are pinned on their own. School administrators hold it
+ * through the role catalogue. The routes still refuse a platform super administrator in code (HR has no account for them).
+ */
+export const HR_LEAVE_APPROVALS_IMPLIED: readonly string[] = ["resource.hr.leave_approvals"];
+
 /** Resource permissions implied by the Communication admin area (legacy announcements composer). */
 export const COMMUNICATION_AREA_IMPLIED: readonly string[] = [
   "resource.announcement.read",
@@ -273,6 +283,7 @@ export async function loadEffectivePermissions(
     if (areas.has("fees")) {
       for (const code of FEES_AREA_IMPLIED) perms.add(code);
       for (const code of HR_HANDOFF_IMPLIED) perms.add(code);
+      for (const code of HR_LEAVE_APPROVALS_IMPLIED) perms.add(code);
     }
     if (areas.has("communication")) {
       for (const code of COMMUNICATION_AREA_IMPLIED) perms.add(code);
@@ -288,6 +299,7 @@ export async function loadEffectivePermissions(
     }
     if (areas.has("leave")) {
       for (const code of LEAVE_AREA_IMPLIED) perms.add(code);
+      for (const code of HR_LEAVE_APPROVALS_IMPLIED) perms.add(code);
     }
     if (areas.has("activities")) {
       for (const code of ACTIVITIES_AREA_IMPLIED) perms.add(code);
@@ -324,6 +336,7 @@ export async function loadEffectivePermissions(
     }
     if (delegated.has("area.fees")) {
       for (const code of FEES_AREA_IMPLIED) perms.add(code);
+      for (const code of HR_LEAVE_APPROVALS_IMPLIED) perms.add(code);
     }
     if (delegated.has("area.communication")) {
       for (const code of COMMUNICATION_AREA_IMPLIED) perms.add(code);
@@ -339,6 +352,7 @@ export async function loadEffectivePermissions(
     }
     if (delegated.has("area.leave")) {
       for (const code of LEAVE_AREA_IMPLIED) perms.add(code);
+      for (const code of HR_LEAVE_APPROVALS_IMPLIED) perms.add(code);
     }
     if (delegated.has("area.activities")) {
       for (const code of ACTIVITIES_AREA_IMPLIED) perms.add(code);

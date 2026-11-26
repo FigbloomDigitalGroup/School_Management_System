@@ -180,6 +180,7 @@
   "hr.handoff.opened": "access",
   "hr.handoff.requested": "access",
   "hr.leave.cancelled": "operations",
+  "hr.leave.decided": "operations",
   "hr.leave.reviewed": "operations",
   "hr.leave.submitted": "operations",
   "identity.external.linked": "hidden",
