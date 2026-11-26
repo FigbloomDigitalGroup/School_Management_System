@@ -173,6 +173,9 @@ export type SecurityEventType =
   | "hr.leave.submitted"
   | "hr.leave.reviewed"
   | "hr.leave.cancelled"
+  // Leave to approve (docs/HR-HANDOFF.md, L1): a decision made in Figbloom HR through the API. Detail: HR's application id and
+  // the decision only; never the comment, the person's name or anything else HR sent.
+  | "hr.leave.decided"
   // The "HR & Payroll" hand-off (docs/HR-HANDOFF.md, H1). Never the one-time link or its code.
   | "hr.handoff.opened"
   | "hr.handoff.requested"

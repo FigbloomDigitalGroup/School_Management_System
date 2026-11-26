@@ -7,6 +7,7 @@ import { AI_REQUEST_SCHEMAS } from "../src/http/routes/ai.js";
 import { MFA_REQUEST_SCHEMAS } from "../src/http/routes/auth.js";
 import { CURRICULUM_CATALOGUE_REQUEST_SCHEMAS } from "../src/http/routes/curriculumCatalogue.js";
 import { GUARDIAN_INVITATION_REQUEST_SCHEMAS } from "../src/http/routes/guardianInvitations.js";
+import { HR_LEAVE_REQUEST_SCHEMAS } from "../src/http/routes/hrLeave.js";
 import { INVENTORY_STOCK_REQUEST_SCHEMAS } from "../src/http/routes/inventory.js";
 import { MEDICATION_REQUEST_SCHEMAS } from "../src/http/routes/medication.js";
 import { NOTIFICATION_REQUEST_SCHEMAS } from "../src/http/routes/notifications.js";
@@ -108,6 +109,7 @@ describe("Global OpenAPI parity, static schema completeness & Stage 12–16 runt
       ...MEDICATION_REQUEST_SCHEMAS,
       ...CURRICULUM_CATALOGUE_REQUEST_SCHEMAS,
       ...INVENTORY_STOCK_REQUEST_SCHEMAS,
+      ...HR_LEAVE_REQUEST_SCHEMAS,
     };
     const drift: string[] = [];
     for (const [key, schema] of Object.entries(registry)) {

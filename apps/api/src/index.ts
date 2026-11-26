@@ -8,6 +8,7 @@ import { setAccountNotifier } from "./modules/account/notifier.js";
 import { resendNotifierFromEnv } from "./modules/account/resendNotifier.js";
 import { myHrSetup } from "./modules/hr/myHr.js";
 import { handoffSetup } from "./modules/hr/handoff.js";
+import { hrLeaveSetup } from "./modules/hr/hrLeave.js";
 
 async function main(): Promise<void> {
   loadDotEnvForLocal();
@@ -25,6 +26,10 @@ async function main(): Promise<void> {
   const handoff = handoffSetup(config);
   if (handoff.state === "incomplete") logWarn("hr_handoff", { outcome: "incomplete", reason: `missing ${handoff.missing.join(", ")}` });
   else logInfo("hr_handoff", { outcome: handoff.state });
+  // Leave to approve (docs/HR-HANDOFF.md, L1): off unless HR_LEAVE_ENABLED=true and the platform and HR settings are set.
+  const hrLeave = hrLeaveSetup(config);
+  if (hrLeave.state === "incomplete") logWarn("hr_leave", { outcome: "incomplete", reason: `missing ${hrLeave.missing.join(", ")}` });
+  else logInfo("hr_leave", { outcome: hrLeave.state });
   const pool = createPool(runtimePoolOptions(config));
   try {
     const client = await acquireClient(pool, config.poolAcquireTimeoutMs);
