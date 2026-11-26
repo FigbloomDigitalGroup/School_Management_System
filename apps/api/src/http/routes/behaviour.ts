@@ -71,7 +71,8 @@ const RecordBody = z.strictObject({
   learner_ids: z.array(z.guid()).min(1).max(80),
   kind: z.enum(["merit", "demerit", "incident"]),
   category_id: z.guid().nullable().optional(),
-  points: z.number().int().min(1).max(100).nullable().optional(),
+  // 0 is for an incident with no category (what the record form sends); the database refuses 0 for a merit or a demerit.
+  points: z.number().int().min(0).max(100).nullable().optional(),
   note: z.string().max(1000).nullable().optional(),
   staff_note: z.string().max(1000).nullable().optional(),
   occurred_on: calendarDateString.nullable().optional(),

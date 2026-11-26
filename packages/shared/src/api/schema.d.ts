@@ -9071,7 +9071,7 @@ export interface components {
             kind: "merit" | "demerit" | "incident";
             /** Format: uuid */
             category_id?: string | null;
-            /** @description The size, positive. Null or left out: the category's default. */
+            /** @description The size, positive (0 only for an incident with no category). Null or left out: the category's default. */
             points?: number | null;
             note?: string | null;
             /** @description Staff only: never shown to a family or a learner. */

@@ -430,6 +430,9 @@ describe("behaviour and discipline log", () => {
       expect(rows.find((r) => r.id === withNote)).toMatchObject({ points: 0, severity: "serious", follow_up_status: "open", category_id: null });
       expect(rows.find((r) => r.id === minorOne)).toMatchObject({ points: 0, severity: "minor", follow_up_status: null });
       expect((await record("teacher", { learner_ids: [id.brian], kind: "incident" })).statusCode, "no category and no note").toBe(400);
+      // the record form sends 0 points for an incident with no category; a merit or a demerit still needs at least 1
+      const [zero] = await recordOk("teacher", { learner_ids: [id.brian], kind: "incident", note: "No points", points: 0 });
+      expect((await q(`SELECT points FROM behaviour_entries WHERE id = $1`, [zero])).rows[0].points).toBe(0);
       expect((await record("teacher", { learner_ids: [id.brian], kind: "incident", category_id: cat["Leadership"] })).statusCode, "a merit category").toBe(400);
     });
 
