@@ -83,6 +83,31 @@ On `main` or in an open PR, not live in production yet.
     `platform/tenants` shows which schools asked for HR & Payroll (`hrRequestedAt`, `hrRequestedBy`): a badge, a filter and a block in
     the detail.
   - Write-up, findings `hr-handoff-1` to `-9` and what was not verified: `docs/web-on-api/hr-handoff.md`.
+- **Stock movements on the new API (slice S1a, `apps/api` only)**: a port of the live "stock in and out" feature, same
+  rules (`apps/api/docs/INVENTORY-STOCK.md`, which also lists what differs and why). Migration
+  `115_inventory_movements.sql`: `unit`, `consumable`, `reorder_level` on `inventory_items`; table `inventory_movements`
+  (insert-only, forced RLS) with the `inventory_movements_apply` trigger that moves the count under a lock on the item.
+  New endpoints `POST` and `GET /v1/tenants/{t}/inventory/movements` and `GET /v1/tenants/{t}/inventory/stock-levels`
+  (existing `resource.inventory.read` / `.write`); `POST /inventory/items` takes the three new columns and a stock line may
+  start at 0. New audit event `inventory.movement.recorded`. Nothing on Supabase or the web changes.
+- **Stock reports on the new API (slice S1b, `apps/api` only)**: migration `116_inventory_stock_reports.sql` ports the
+  live report functions (`inventory_ledger`, `inventory_usage`, `inventory_spend_by_month`, `inventory_cost_per_meal`,
+  `inventory_stock_levels`, `inventory_headcount`, `inventory_consumption_flags`, `inventory_price_on`,
+  `inventory_qty_text`) as SECURITY INVOKER functions with the same maths (checked row for row against the live text), plus
+  `inventory_assert_tenant` and `inventory_headcount_days`. New read endpoints `GET /v1/tenants/{t}/inventory/reports/`
+  `ledger`, `usage`, `spend-by-month`, `cost-per-meal`, `headcount` and `flags` (`resource.inventory.read`; flags default
+  to the last 8 weeks). `GET /inventory/stock-levels` now reads `inventory_stock_levels`. The AI `stock_insights` task is
+  not ported: it needs a change to the Bloom contract (`apps/api/docs/INVENTORY-STOCK.md`).
+- **Stock screens on the new API build (slice S1c, web only)**: the Stock & kitchen tab, its nine pages
+  (`admin/inventory/stock/:section`, no menu entry of their own), Receive / Use / Stock-take and an item's movement history now
+  run on `VITE_BACKEND=api`, on the endpoints of slices S1a and S1b (`packages/shared/src/api/stockApi.ts`, branches in
+  `inventoryStock.ts` and `inventoryPaging.ts`; `inventoryCapabilities().stockMovements` is on). Nothing on Supabase changes.
+  Hidden on the API build, with the reason in `docs/web-on-api/inventory.md`: the AI briefing (`stockInsights`: not in the
+  Bloom contract), editing an existing item's unit, consumable flag or reorder level (`editItem`: no item PATCH), and, on
+  the Uniforms page, what was billed to families and uniforms that came back (`chargeToFees`, `issueHistory`). A report
+  period is cut to 366 days (`reportMaxDays`), "This term" is left out when the person may not read the term's dates (`termDatesNeedAcademics`), and
+  the Clinic page says sick-bay medicine is recorded by hand (`sickBayUsesStock`), as the API's sick bay does not take it
+  from stock. A new stock line may start at 0 on the API build.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:

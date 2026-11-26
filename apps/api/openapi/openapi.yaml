@@ -13046,6 +13046,603 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/inventory/movements:
+    get:
+      tags:
+        - inventory
+      summary: List stock movements
+      description: "Stock in and out (docs/INVENTORY-STOCK.md): deliveries, use, waste and stock-take corrections, newest day first
+        (then the latest recorded), optionally for one item and between two days (both inclusive). Keyset-paged; the cursor is
+        bound to the school and every filter."
+      operationId: inventoryListMovements
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.read
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: item_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          description: First day (YYYY-MM-DD), inclusive.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: Last day (YYYY-MM-DD), inclusive. Not before `from`.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Movements
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - movements
+                  - page
+                properties:
+                  movements:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryMovement"
+                  page:
+                    $ref: "#/components/schemas/PageInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - inventory
+      summary: Record a stock movement
+      description: "One delivery (`received`), a day's use (`used`), waste (`wasted`) or a stock-take correction (`adjusted`,
+        signed) of a stock line (docs/INVENTORY-STOCK.md). The item is locked while its count moves, so two people taking the last
+        stock at once cannot both succeed. 409 when the stock is not there (it may not fall below 0, nor below what is out, lost
+        or damaged on issues) or the item is written off; 400 for an asset item, a broken sign rule, a field that belongs to
+        another kind, or a day in the future. `occurred_on` defaults to the school's today. A movement is never changed or
+        deleted: correct a mistake with an `adjusted` movement. Audited (`inventory.movement.recorded`)."
+      operationId: inventoryRecordMovement
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.write
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryMovementCreateRequest"
+      responses:
+        "201":
+          description: Recorded; the item with its new count
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - movement
+                  - item
+                properties:
+                  movement:
+                    $ref: "#/components/schemas/InventoryMovement"
+                  item:
+                    $ref: "#/components/schemas/InventoryItem"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/inventory/stock-levels:
+    get:
+      tags:
+        - inventory
+      summary: Stock levels
+      description: "Every live stock line of the school (docs/INVENTORY-STOCK.md; Supabase inventory_stock_levels): on hand and
+        its value, use and waste over the 28 days to `as_of`, average daily use, days of cover, whether it is at or below its
+        reorder level, the last delivery and when the next usually comes (the last plus the median gap between delivery days in
+        the 120 days before). `quantity` is the register's count now. Not paged: one row per stock line, by store then name."
+      operationId: inventoryStockLevels
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.read
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: The day (YYYY-MM-DD) the use is counted to. Defaults to the school's today.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Stock levels
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - as_of
+                  - levels
+                properties:
+                  as_of:
+                    type: string
+                    format: date
+                  levels:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryStockLevel"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/inventory/reports/ledger:
+    get:
+      tags:
+        - inventory
+      summary: Stock ledger
+      description: "Every movement of the school's stock lines in a period, oldest day first (Supabase inventory_ledger; docs/INVENTORY-STOCK.md). Movements only: the API's sick bay does not take medicine from stock. At most 400 days."
+      operationId: inventoryReportLedger
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.read
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "First day (YYYY-MM-DD), inclusive."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "Last day (YYYY-MM-DD), inclusive. At most 400 days after from."
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Stock ledger
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - from
+                  - to
+                  - entries
+                properties:
+                  from:
+                    type: string
+                    format: date
+                  to:
+                    type: string
+                    format: date
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryLedgerEntry"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/inventory/reports/usage:
+    get:
+      tags:
+        - inventory
+      summary: Stock usage
+      description: "Use, waste, deliveries, shrinkage (stock-take shortfalls), spend and the cost of what was used, per item per day, week (from Monday), month or year (Supabase inventory_usage). Used stock is priced at the latest priced delivery on or before its day, else the register's price. At most 400 days."
+      operationId: inventoryReportUsage
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.read
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "First day (YYYY-MM-DD), inclusive."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "Last day (YYYY-MM-DD), inclusive. At most 400 days after from."
+          schema:
+            type: string
+            format: date
+        - name: bucket
+          in: query
+          required: false
+          description: "day, week (default), month or year."
+          schema:
+            type: string
+            enum:
+              - day
+              - week
+              - month
+              - year
+            default: week
+      responses:
+        "200":
+          description: Stock usage
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - from
+                  - to
+                  - bucket
+                  - usage
+                properties:
+                  from:
+                    type: string
+                    format: date
+                  to:
+                    type: string
+                    format: date
+                  bucket:
+                    type: string
+                    enum:
+                      - day
+                      - week
+                      - month
+                      - year
+                  usage:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryUsageRow"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/inventory/reports/spend-by-month:
+    get:
+      tags:
+        - inventory
+      summary: Delivery spend by month
+      description: "What deliveries cost, month by month and store by store (inventory_items.category; Supabase inventory_spend_by_month). At most 400 days."
+      operationId: inventoryReportSpendByMonth
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.read
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "First day (YYYY-MM-DD), inclusive."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "Last day (YYYY-MM-DD), inclusive. At most 400 days after from."
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Delivery spend by month
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - from
+                  - to
+                  - spend
+                properties:
+                  from:
+                    type: string
+                    format: date
+                  to:
+                    type: string
+                    format: date
+                  spend:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventorySpendRow"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/inventory/reports/cost-per-meal:
+    get:
+      tags:
+        - inventory
+      summary: Cost per meal
+      description: "Kitchen food used, priced at the day's delivery price, over meals served, per period and purpose (Supabase inventory_cost_per_meal). Meals count once per day and purpose (the largest meals_served of that day's lines); only days that recorded meals count towards the cost of a meal. At most 400 days."
+      operationId: inventoryReportCostPerMeal
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.read
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "First day (YYYY-MM-DD), inclusive."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "Last day (YYYY-MM-DD), inclusive. At most 400 days after from."
+          schema:
+            type: string
+            format: date
+        - name: bucket
+          in: query
+          required: false
+          description: "day, week, month (default) or year."
+          schema:
+            type: string
+            enum:
+              - day
+              - week
+              - month
+              - year
+            default: month
+      responses:
+        "200":
+          description: Cost per meal
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - from
+                  - to
+                  - bucket
+                  - cost_per_meal
+                properties:
+                  from:
+                    type: string
+                    format: date
+                  to:
+                    type: string
+                    format: date
+                  bucket:
+                    type: string
+                    enum:
+                      - day
+                      - week
+                      - month
+                      - year
+                  cost_per_meal:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryCostPerMealRow"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/inventory/reports/headcount:
+    get:
+      tags:
+        - inventory
+      summary: Headcount per day
+      description: "Learners on the roll, staff and gate visitors on each day, in the school's time zone (Supabase inventory_headcount): counts only, never a person. Learners and staff count until the day they were archived. At most 400 days."
+      operationId: inventoryReportHeadcount
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.read
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "First day (YYYY-MM-DD), inclusive."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "Last day (YYYY-MM-DD), inclusive. At most 400 days after from."
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Headcount per day
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - from
+                  - to
+                  - days
+                properties:
+                  from:
+                    type: string
+                    format: date
+                  to:
+                    type: string
+                    format: date
+                  days:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryHeadcountDay"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/inventory/reports/flags:
+    get:
+      tags:
+        - inventory
+      summary: Consumption flags
+      description: "The deterministic anomaly flags (Supabase inventory_consumption_flags, same thresholds and wording): usage_up, usage_down, usage_trend, non_school_day, shrinkage, price_jump, run_out. Item names and numbers, never a person. Without from and to: the last 8 weeks to the school's today; with to only: the 8 weeks to it. At most 366 days."
+      operationId: inventoryReportFlags
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.read
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          description: "First day (YYYY-MM-DD). Default: 8 weeks before to."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: "Last day (YYYY-MM-DD). Default: the school's today."
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Consumption flags
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - from
+                  - to
+                  - flags
+                properties:
+                  from:
+                    type: string
+                    format: date
+                  to:
+                    type: string
+                    format: date
+                  flags:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryConsumptionFlag"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/tenants/{tenantId}/leave-requests:
     get:
       tags:
@@ -27855,6 +28452,9 @@ components:
         - condition
         - created_at
         - updated_at
+        - unit
+        - consumable
+        - reorder_level
       properties:
         id:
           type: string
@@ -27914,6 +28514,20 @@ components:
         updated_at:
           type: string
           format: date-time
+        unit:
+          type:
+            - string
+            - "null"
+          description: What a stock line is counted in (kg, litres, bags). Null for an asset.
+        consumable:
+          type: boolean
+          description: Used up rather than handed out and returned (kitchen food, chalk). Always false for an asset.
+        reorder_level:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          description: Warn when stock falls to this. Null for an asset.
     InventoryItemCreateRequest:
       type: object
       additionalProperties: false
@@ -27948,7 +28562,9 @@ components:
             - stock
         quantity:
           type: integer
-          minimum: 1
+          minimum: 0
+          maximum: 2147483647
+          description: Copies or stock on hand. A stock line may start at 0; an asset is always 1.
         asset_tag:
           type:
             - string
@@ -27968,6 +28584,416 @@ components:
             - string
             - "null"
           maxLength: 120
+        unit:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 20
+          description: Stock lines only (an asset with a unit is 400). Trimmed.
+        consumable:
+          type: boolean
+          description: Stock lines only (an asset that is consumable is 400). Default false.
+        reorder_level:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          maximum: 2147483647
+          description: Stock lines only (an asset with a reorder level is 400).
+    InventoryMovementCreateRequest:
+      type: object
+      properties:
+        item_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        kind:
+          type: string
+          enum:
+            - received
+            - used
+            - wasted
+            - adjusted
+        quantity:
+          type: integer
+          minimum: -2147483648
+          maximum: 2147483647
+        occurred_on:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        unit_cost_cents:
+          anyOf:
+            - type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            - type: "null"
+        supplier:
+          anyOf:
+            - type: string
+              maxLength: 160
+            - type: "null"
+        reference:
+          anyOf:
+            - type: string
+              maxLength: 80
+            - type: "null"
+        purpose:
+          anyOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        meals_served:
+          anyOf:
+            - type: integer
+              minimum: 0
+              maximum: 2147483647
+            - type: "null"
+        note:
+          anyOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+      required:
+        - item_id
+        - kind
+        - quantity
+      additionalProperties: false
+    InventoryMovement:
+      type: object
+      additionalProperties: false
+      description: "One delivery, use, waste or stock-take correction. received, used and wasted are positive amounts; adjusted
+        is signed. unit_cost_cents and supplier belong to received only, meals_served to used only."
+      required:
+        - id
+        - tenant_id
+        - item_id
+        - kind
+        - quantity
+        - unit_cost_cents
+        - supplier
+        - reference
+        - occurred_on
+        - purpose
+        - meals_served
+        - note
+        - recorded_by
+        - recorded_by_name
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        item_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - received
+            - used
+            - wasted
+            - adjusted
+        quantity:
+          type: integer
+        unit_cost_cents:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        supplier:
+          type:
+            - string
+            - "null"
+        reference:
+          type:
+            - string
+            - "null"
+        occurred_on:
+          type: string
+          format: date
+        purpose:
+          type:
+            - string
+            - "null"
+        meals_served:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        note:
+          type:
+            - string
+            - "null"
+        recorded_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        recorded_by_name:
+          type:
+            - string
+            - "null"
+          description: The recorder's name, for the item's history.
+        created_at:
+          type: string
+          format: date-time
+    InventoryLedgerEntry:
+      type: object
+      additionalProperties: false
+      description: One movement in the ledger (Supabase inventory_ledger). source is always movement on the API.
+      required: [item_id, kind, quantity, occurred_on, purpose, meals_served, unit_cost_cents, supplier, created_at, source]
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [received, used, wasted, adjusted]
+        quantity:
+          type: integer
+        occurred_on:
+          type: string
+          format: date
+        purpose:
+          type:
+            - string
+            - "null"
+        meals_served:
+          type:
+            - integer
+            - "null"
+        unit_cost_cents:
+          type:
+            - integer
+            - "null"
+        supplier:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum: [movement]
+    InventoryUsageRow:
+      type: object
+      additionalProperties: false
+      required: [item_id, period_start, used, wasted, received, shrinkage, spend_cents, used_cost_cents]
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        period_start:
+          type: string
+          format: date
+        used:
+          type: integer
+        wasted:
+          type: integer
+        received:
+          type: integer
+        shrinkage:
+          type: integer
+          description: Stock-take shortfalls (negative adjustments), as a positive amount.
+        spend_cents:
+          type: integer
+          description: What the period's deliveries cost.
+        used_cost_cents:
+          type: integer
+          description: What was used, priced at the day's price.
+    InventorySpendRow:
+      type: object
+      additionalProperties: false
+      required: [month, category, spend_cents, deliveries]
+      properties:
+        month:
+          type: string
+          format: date
+          description: The first day of the month.
+        category:
+          type: string
+        spend_cents:
+          type: integer
+        deliveries:
+          type: integer
+    InventoryCostPerMealRow:
+      type: object
+      additionalProperties: false
+      required: [period_start, purpose, used_cost_cents, meals_served, cost_per_meal_cents]
+      properties:
+        period_start:
+          type: string
+          format: date
+        purpose:
+          type: string
+          description: The use's purpose, or Other.
+        used_cost_cents:
+          type: integer
+        meals_served:
+          type: integer
+        cost_per_meal_cents:
+          type:
+            - number
+            - "null"
+          description: To 2 decimals; null when no day of the period recorded meals.
+    InventoryHeadcountDay:
+      type: object
+      additionalProperties: false
+      required: [day, learners, staff, visitors]
+      properties:
+        day:
+          type: string
+          format: date
+        learners:
+          type: integer
+        staff:
+          type: integer
+        visitors:
+          type: integer
+    InventoryConsumptionFlag:
+      type: object
+      additionalProperties: false
+      description: "One finding. expected and actual are in the item's unit (cents for price_jump, days for run_out); headcount and
+        baseline_headcount are the driver (heads, meals, practicals or sick-bay visits). No person is named."
+      required: [kind, item_id, item_name, category, unit, purpose, occurred_on, period_from, expected, actual, headcount,
+        baseline_headcount, visitors, severity, explained, reason]
+      properties:
+        kind:
+          type: string
+          enum: [usage_up, usage_down, usage_trend, non_school_day, shrinkage, price_jump, run_out]
+        item_id:
+          type: string
+          format: uuid
+        item_name:
+          type: string
+        category:
+          type: string
+        unit:
+          type:
+            - string
+            - "null"
+        purpose:
+          type:
+            - string
+            - "null"
+        occurred_on:
+          type: string
+          format: date
+        period_from:
+          type:
+            - string
+            - "null"
+          format: date
+        expected:
+          type:
+            - number
+            - "null"
+        actual:
+          type:
+            - number
+            - "null"
+        headcount:
+          type:
+            - integer
+            - "null"
+        baseline_headcount:
+          type:
+            - integer
+            - "null"
+        visitors:
+          type:
+            - integer
+            - "null"
+        severity:
+          type: string
+          enum: [high, medium, low]
+        explained:
+          type: boolean
+          description: A rise that more people explains (listed as low, not an alarm).
+        reason:
+          type: string
+    InventoryStockLevel:
+      type: object
+      additionalProperties: false
+      description: One live stock line as of a day (Supabase inventory_stock_levels). Money in cents.
+      required:
+        - item_id
+        - name
+        - category
+        - unit
+        - consumable
+        - quantity
+        - reorder_level
+        - unit_cost_cents
+        - value_cents
+        - used_28d
+        - wasted_28d
+        - avg_daily_use
+        - days_of_cover
+        - low
+        - last_received_on
+        - next_delivery_on
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        category:
+          type: string
+        unit:
+          type:
+            - string
+            - "null"
+        consumable:
+          type: boolean
+        quantity:
+          type: integer
+          description: The register's count now.
+        reorder_level:
+          type:
+            - integer
+            - "null"
+        unit_cost_cents:
+          type:
+            - integer
+            - "null"
+          description: The item's price (the latest priced delivery, or the price it was added with).
+        value_cents:
+          type: integer
+          description: quantity times unit_cost_cents (0 without a price).
+        used_28d:
+          type: integer
+          description: Used in the 28 days to as_of.
+        wasted_28d:
+          type: integer
+        avg_daily_use:
+          type: number
+          description: used_28d / 28, to 2 decimals.
+        days_of_cover:
+          type:
+            - number
+            - "null"
+          description: How many days the stock lasts at that use, to 1 decimal. Null with no use.
+        low:
+          type: boolean
+          description: At or below its reorder level.
+        last_received_on:
+          type:
+            - string
+            - "null"
+          format: date
+        next_delivery_on:
+          type:
+            - string
+            - "null"
+          format: date
+          description: The last delivery plus the median gap between delivery days in the 120 days to as_of. Null with fewer than two.
     MyHrStatusResponse:
       type: object
       additionalProperties: false

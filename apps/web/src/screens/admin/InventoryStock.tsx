@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  fetchMovements, formatMoney, formatQty, formatShortDate, groupFlags, INVENTORY_CATEGORY_LABEL, MOVEMENT_KIND_LABEL,
+  fetchMovements, formatMoney, formatQty, formatShortDate, groupFlags, INVENTORY_CATEGORY_LABEL, inventoryCapabilities, MOVEMENT_KIND_LABEL,
   inStore, movementProblem, PURPOSE_SUGGESTIONS, recordStockMovement, severityCounts, spendByMonthFor, stockOverview, stockStatus, stockTakeDelta,
   storeOf, STORES, summariseStores, todayIso, usageByItem,
   type CostPerMealRow, type InventoryCategory, type InventoryItemRow, type ItemIndexRow, type MovementKind, type MovementRow,
@@ -56,6 +56,7 @@ export function MovementModal({ item, action, onClose, onDone }: {
   item: InventoryItemRow; action: MoveAction; onClose: () => void; onDone: (msg: string) => void;
 }) {
   const { tenant } = useTenantSession();
+  const caps = inventoryCapabilities();
   const [qty, setQty] = useState("");
   const [wasted, setWasted] = useState(false);
   const [date, setDate] = useState(todayIso());
@@ -106,7 +107,10 @@ export function MovementModal({ item, action, onClose, onDone }: {
       eyebrow={`${formatQty(item.quantity, unit)} in stock`}
       title={title}
       blurb={action === "adjusted" ? "Count what's on the shelf and enter it. The difference is recorded as a correction; nothing in the history is changed."
-        : action === "used" && item.category === "medical" ? "Medicine given in the sick bay comes off this stock by itself. Record only other use here (a first-aid kit, a trip)."
+        : action === "used" && item.category === "medical"
+          ? (caps.sickBayUsesStock
+            ? "Medicine given in the sick bay comes off this stock by itself. Record only other use here (a first-aid kit, a trip)."
+            : "The sick bay does not take medicine off this stock on the new system yet. Record every use here, including what is given in the sick bay.")
         : undefined}
       actions={
         <>
@@ -201,15 +205,17 @@ export function MovementList({ itemId, unit, reloadKey, country }: { itemId: str
 // ---------------------------------------------------------------- the Stock & kitchen view
 
 /** Period and store, kept in the URL. */
-export function StockFilters({ period, store, onPeriod, onStore, range, hidePeriod, hideStore }: {
+export function StockFilters({ period, store, onPeriod, onStore, range, hidePeriod, hideStore, hideTerm }: {
   period: ReportPeriod; store: StoreKey; onPeriod: (p: ReportPeriod) => void; onStore: (s: StoreKey) => void;
   range?: { from: string; to: string }; hidePeriod?: boolean; hideStore?: boolean;
+  /** Leave out "This term" (the term's dates are not known: on the API they need the Academics area). Kept when it is the chosen period, so the choice stays visible. */
+  hideTerm?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       {!hidePeriod && (
         <div role="group" aria-label="Period" className="flex rounded-md border border-[#D3DAD5] bg-white p-0.5">
-          {PERIODS.map((p) => (
+          {PERIODS.filter((p) => !(hideTerm && p.key === "term" && period !== "term")).map((p) => (
             <button key={p.key} type="button" aria-pressed={period === p.key} onClick={() => onPeriod(p.key)} className="rounded px-3 py-1.5 text-small"
               style={period === p.key ? { background: "#17402A", color: "#fff", fontWeight: 600 } : {}}>
               {p.label}
@@ -244,7 +250,8 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
   const { tenant } = useTenantSession();
   const base = useInventoryBase();
   const { period, store, setPeriod, setStore, qs } = useStockParams();
-  const { ready, range, flagFrom } = useStockRange(tenant.id, period);
+  const { ready, range, flagFrom, termAvailable } = useStockRange(tenant.id, period);
+  const caps = inventoryCapabilities();
   const to = (section: string) => `${base}/stock/${section}${qs ? `?${qs}` : ""}`;
 
   const index = useItemIndex(tenant.id);
@@ -286,7 +293,7 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
 
   return (
     <div className="grid gap-5">
-      <StockFilters period={period} store={store} onPeriod={setPeriod} onStore={setStore} range={range} />
+      <StockFilters period={period} store={store} onPeriod={setPeriod} onStore={setStore} range={range} hideTerm={!termAvailable} />
 
       <StatLinkGrid>
         <StatLink label="Stock value" to={to("levels")} loading={!overview} action="Open every stock line by value"
@@ -321,7 +328,7 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
         {(store === "all" || store === "uniforms") && (
           <StatLink label={`Uniforms, ${periodLabel}`} to={to("uniforms")} loading={uniforms.issues.loading} action="Open uniforms issued and billed"
             value={`${uniformIssued.toLocaleString()} issued`}
-            sub={uniformBilled == null ? "billed: loading" : `${money(uniformBilled)} billed to families`} />
+            sub={!caps.chargeToFees ? "still out with people" : uniformBilled == null ? "billed: loading" : `${money(uniformBilled)} billed to families`} />
         )}
       </StatLinkGrid>
 
@@ -345,7 +352,7 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
       ) : <TableSkeleton rows={4} />)}
 
       <FlagsPanel flags={flagRows} loading={flags.loading} error={flags.error} limit={8} moreTo={to("flags")} />
-      <InsightsPanel from={flagFrom} to={range.to} />
+      {caps.stockInsights && <InsightsPanel from={flagFrom} to={range.to} />}
 
       <div className="grid gap-5 lg:grid-cols-2">
         {spend.loading ? <TableSkeleton rows={4} /> : spendRows.length > 0 ? (
@@ -520,7 +527,7 @@ export function UsageTable({ rows, byId, series, money, onOpenItem, groupByStore
         rowKey={(u) => u.item_id}
         onRowClick={(u) => onOpenItem(u.item_id)}
         minWidth="760px"
-        empty={{ title: "Nothing used in this period", body: "Record use from an item's page (Use) and it shows up here. Sick-bay medicine counts by itself." }}
+        empty={{ title: "Nothing used in this period", body: `Record use from an item's page (Use) and it shows up here.${inventoryCapabilities().sickBayUsesStock ? " Sick-bay medicine counts by itself." : ""}` }}
       />
       {filtered.length > paging.size && <Pagination {...paging.props} />}
     </div>

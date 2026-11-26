@@ -157,6 +157,8 @@ export type SecurityEventType =
   | "inventory.item.retired"
   | "inventory.issue.created"
   | "inventory.issue.closed"
+  // Stock in and out (docs/INVENTORY-STOCK.md): one delivery, use, waste or stock-take. Detail: movement id, item id, kind.
+  | "inventory.movement.recorded"
   | "hr.leave.submitted"
   | "hr.leave.reviewed"
   | "hr.leave.cancelled"

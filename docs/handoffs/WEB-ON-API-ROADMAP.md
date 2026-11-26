@@ -17,11 +17,11 @@ Counted from the code on 2026-11-25: the page registry in `apps/web/src/api/page
 | 1 | `admin/leave-to-approve` | HR-run leave approvals: no API, and owner decisions open | S4 |
 | 2 | `teacher/loans` | A preview with sample data. No backend anywhere. Hidden by the owner's decision | S7 |
 | 3 | `staff/loans` | same | S7 |
-| 4 | `platform/curriculum` | Q6: who verifies the catalogue | S5 |
-| 5 | `platform/incidents` | Q4: keep a hand-typed list here? | S5 |
-| 6 | `platform/subscriptions` | Q2: does the API own Figbloom's billing? | S5 |
-| 7 | `platform/invoices` | Q2 | S5 |
-| 8 | `platform/impersonation` | Q3: should it exist? (Today it is an empty log: nothing writes it.) | S5 |
+| 4 | `platform/curriculum` | **Closed by decision (D6, 2026-11-25):** each school verifies its own catalogue, as the API does | S5 |
+| 5 | `platform/incidents` | To build (D5: keep a hand-typed list) | S5 |
+| 6 | `platform/subscriptions` | To build (D3: the API owns Figbloom's billing of schools) | S5 |
+| 7 | `platform/invoices` | To build (D3) | S5 |
+| 8 | `platform/impersonation` | **Closed by decision (D4, 2026-11-25):** no impersonation page. (It was an empty log: nothing writes it.) | S5 |
 | 9 | `/signup` | No self-service sign-up on the API (C15) | S6 |
 | 10 | `admin/behaviour` | On `main` only. The API has nothing for it | S2 |
 | 11 | `teacher/behaviour` | same | S2 |
@@ -50,8 +50,9 @@ These come from `CLAUDE.md`, `.agents/SECURITY.md`, `CHANGELOG.md` and the owner
   needs Mike's approval first. Add what a PR changes to `CHANGELOG.md` under "Unreleased".
 - **A port keeps the live rules.** Where a feature is live on Supabase (behaviour log, stock, HR), the API version follows
   the same rules, as `CHANGELOG.md` states them. It is a port, not a second design.
-- **API changes** go in their own PR, before the web slice that needs them. Forward-only numbered migrations (next free
-  number: 115). Every tenant table has forced RLS plus a `figbloom_app` policy. Minimal grants. Permissions through
+- **API changes** go in their own PR, before the web slice that needs them. Forward-only numbered migrations (115 to 118
+  are taken by open PRs #422, #425, #423 and #424; take the next free number above what is on `dev-joe` and the open PRs, and
+  check `gh pr list` first). Every tenant table has forced RLS plus a `figbloom_app` policy. Minimal grants. Permissions through
   `requirePermission`. Update OpenAPI, then `npm run api:types`. Every new `throw new Error(` goes in the
   `errors.inventory` test. Negative authorisation tests come before positive ones. Start each API slice with a short design
   note in `apps/api/docs/`.
@@ -106,8 +107,8 @@ API track:  S1a ► S1b ► S3 H1 ► S4 L1 ► S2a ► S2b ► (decisions) ► 
 5. **S5, S6** as the owner's decisions arrive. The cheap ones first (incidents).
 6. **Close-out:** re-run the page count, update `WEB-ON-API-TODO.md` and `CHANGELOG.md`, hand over Linear text.
 
-Expected: about 26 PRs if every decision goes toward "build it" (P1 1, S1 3, S2 4, S3 2, S4 2, S5 about 10, S6 2, docs 2),
-about 18 if billing, impersonation and curriculum are closed by decision (S5 is then 2).
+Expected after the decisions of 2026-11-25 (billing built; impersonation and curriculum closed): about 22 PRs (P1 1, S1 4,
+S2 4, S3 2, S4 2, S5 about 6, S6 2, docs 2).
 
 ## 5. Slices
 
@@ -135,7 +136,10 @@ about 18 if billing, impersonation and curriculum are closed by decision (S5 is 
   and list movements, stock levels. Same rules as `20261124200000_inventory_movements.sql` on `main`.
 - **S1b API:** the reports: ledger, usage, spend by month, cost per meal, headcount, consumption flags (last 8 weeks, as
   `main` has it after #390). `stock_insights` on `/ai/query`: the caller sends a period only; the answer has item names and
-  numbers, never people.
+  numbers, never people. **Not built (found while building S1b):** the Bloom contract `bloom-school/1` is chat only (no
+  instructions, no output schema, 4,000-character prompts, no per-school metering), so it cannot carry the figures. It needs a
+  new capability in a new contract version with about 64 KiB of server-built context and a JSON answer schema. It stays hidden
+  on the API build until the owner decides to ask for that.
 - **S1c web (after P1):** API branches in `inventoryStock.ts` and `inventoryPaging.ts`; register the stock pages in
   `inventory.pages.tsx`; flip the `INVENTORY_ON_API` flags the API now backs; extend `docs/web-on-api/inventory.md`.
 - **Size:** L, three PRs.
@@ -180,14 +184,14 @@ Follows `apps/api/docs/HR-HANDOFF.md` (slices H1, H2) and `CHANGELOG.md` ("HR an
 
 ### S5. Platform pages (pages 4 to 8)
 
-All five wait on the owner's answers (section 6). Each answer maps to one outcome:
+The owner answered four of these on 2026-11-25:
 
-| Page | If the owner says | Work | If not |
-|---|---|---|---|
-| `incidents` | keep a hand-typed list (Q4) | `platform_incidents` table, 3 routes, the page. Size S | closed by decision |
-| `curriculum` | Figbloom verifies one catalogue for every school (Q6) | platform catalogue table, `platform.curriculum.manage`, schools read from it. Size L | closed by decision (each school verifies its own, as the API does) |
-| `subscriptions`, `invoices` | the API owns Figbloom's billing (Q2) | plans, prices, trial and renewal fields, `platform_invoices`, permissions, audit, re-auth on money changes. Size L each | closed by decision |
-| `impersonation` | support sessions (Q3, option B) | reason, scope, at most 60 minutes, audited in the school's own log; acting in a school only while a session is open. Size L | closed by decision (option A: drop the page) |
+| Page | The owner said | Work |
+|---|---|---|
+| `incidents` | D5: keep a hand-typed list | `platform_incidents` table, 3 routes, the page. Size S |
+| `subscriptions`, `invoices` | D3: the API owns Figbloom's billing | plans, prices, trial and renewal fields, `platform_invoices`, permissions, audit, re-auth on money changes. Size L each |
+| `curriculum` | D6: each school verifies its own | none: **closed by decision** (the API already works this way) |
+| `impersonation` | D4: no impersonation | none: **closed by decision**. The open "a super admin can act in any school with full powers and no record the school can read" stays a separate question to decide |
 
 Also from the same note, on the connected Tenants page and not in the 16: suspend, reactivate and move between
 organisations (Q1).
@@ -214,10 +218,10 @@ others. Each line has my suggested answer; "no default" means I would not guess.
 |---|---|---|---|
 | D1 | Do Loans stay hidden? | 2, 3 | Yes. There is nothing to connect |
 | D2 | Q1: which console owns school and organisation lifecycle on the API? | Tenants controls, 9 | This API's console. The other path needs a server-to-server endpoint and a webhook that do not exist |
-| D3 | Q2: does the API own Figbloom's billing of schools? | 6, 7 | No default. Today staff mark invoices paid by hand, and there is no gateway |
-| D4 | Q3: should impersonation exist? | 8 | No (option A). The page is an empty log today. Also decide whether a super admin keeps full powers inside any school |
-| D5 | Q4: keep a hand-typed incident list here? | 5 | Yes. It is small |
-| D6 | Q6: does Figbloom verify one curriculum catalogue for all schools, or each school its own? | 4 | No default. Supabase does the first, the API the second |
+| D3 | Q2: does the API own Figbloom's billing of schools? | 6, 7 | **Answered 2026-11-25: yes, build it.** (Today staff mark invoices paid by hand, and there is no gateway) |
+| D4 | Q3: should impersonation exist? | 8 | **Answered 2026-11-25: no.** Still open: whether a super admin keeps full powers inside any school |
+| D5 | Q4: keep a hand-typed incident list here? | 5 | **Answered 2026-11-25: yes, keep it** |
+| D6 | Q6: does Figbloom verify one curriculum catalogue for all schools, or each school its own? | 4 | **Answered 2026-11-25: each school verifies its own** |
 | D7 | HR: ids, credentials, network, contracts, who sees the pages, approvals-only first (`HR-HANDOFF.md` section 6, questions 2 to 5, 7, 8, 9, 13) | 1, 14, 15 | Needed to switch on for a real school. Not needed to build. Suggested: leave documents out of L3 first |
 | D8 | Sign-up: who approves a new organisation, and what stops abuse? | 9 | The platform's Approve on `platform/organizations`, with a rate limit and an e-mail check |
 
