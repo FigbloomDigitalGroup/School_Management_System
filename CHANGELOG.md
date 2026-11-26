@@ -32,6 +32,15 @@ rename it or change how it behaves without a PR that Mike approves.
 ## Unreleased
 
 - **Leave approvals on the new API (L1)**: migration `120_hr_leave_approvals.sql` adds `resource.hr.leave_approvals`; school administrators and Leave or Fees area holders may approve, and organisation administrators need a matching area delegation. `GET /v1/tenants/{tenantId}/me/hr/leave/access`, `GET .../approvals` and `POST .../approvals/{applicationId}/decide` use the caller's own HR identity. The switch defaults off (`HR_LEAVE_ENABLED`); comments and HR response text are not audited or logged, and document URLs are forwarded only over HTTPS. This is the approvals side only: staff leave submission and HR decision events (L3/L4) must exist before enabling it for a school. See `apps/api/docs/HR-HANDOFF.md` section 10.
+- **Exam papers: publish on the API build (W0.1, web only, no database or endpoint change)**: a paper made from the API-build web
+  screen was never visible to learners, because the web showed it as published (`publishedAt` was its creation time) and never called
+  `POST /v1/tenants/{tenantId}/online-exam-papers/{paperId}/publish`, while migration `110_student_accounts.sql` makes a new paper
+  unpublished and learners read only published ones. `packages/shared/src/api/examPapersApi.ts` now reads `published_at`; the list
+  shows **Draft** or **Open now** and a **Publish** button; the editor offers **Save draft** and **Save and publish** (refused with no
+  questions). `examPapersCapabilities()`: `draftWorkflow` on the API build is now true, new `unpublishPaper` stays false there (the API
+  has no unpublish) and new API-only `oneStepCreate` switches the API editor. The Supabase build is unchanged (`unpublishPaper: true`,
+  `oneStepCreate: false`). Papers made on the API before migration 110 are unpublished and now show Draft. See
+  `docs/web-on-api/exam-papers.md`.
 
 On `main` or in an open PR, not live in production yet.
 
