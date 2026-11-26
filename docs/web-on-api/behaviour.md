@@ -60,9 +60,30 @@ On Supabase `fetchFamilyBehaviour` is the same three reads the component made be
 - `behaviour-2`: a teacher who also holds the Discipline area lands in the admin console and uses `admin/behaviour` (`teacher/behaviour` is
   registered with `inAdminConsole: false`).
 - `behaviour-3`: the pager's total is the number of entries read (capped at 5,000), not a database count.
+- `behaviour-4`: the teacher page asks `/staff` and `/learners` (through `fetchMyClasses`, `api/teachingApi.ts`), which a plain teacher may not read.
+  The shared code tolerates the 403 and the page works, but each visit shows two refused calls in the network log. Not part of this slice.
+- `behaviour-5`: every page of the API console asks `GET /school-profile` for the school's name; a role without the People area gets a tolerated 403.
+  Same cause, same status as the other pages.
+- **Found by the browser pass and fixed in the API (PR #429):** the office's record form logs an incident with no category and 0 points, and the
+  route took points of at least 1 (400). The route and the OpenAPI file now accept 0; the database still refuses 0 for a merit or a demerit.
 
 ## Tests
 
 `packages/shared/src/api/behaviourApi.test.ts` (12 tests against a fake API): the mappers, every request body, that a write forgets the kept
 reads, the paging and the cache, the 100-learner chunks, one read for the office's two lists, a failed read not being kept, and that the family
-branch makes one call and never asks for the settings route. A browser pass on a throwaway API is in the PR description.
+branch makes one call and never asks for the settings route. 
+## Browser pass
+
+36 checks on a freshly seeded throwaway API (the test harness's school with a year and term, two classes, six learners, a parent, a learner with a login, a
+teacher, and a teacher who holds the Discipline area), Vite on the worktree's own code, Edge through Playwright. All passed:
+
+- **Admin:** the page opens; the log shows a demerit with its note and the staff-only note; Serious incidents list an open one and "Follow up" saves it
+  (toast "Incident resolved."); Learners & points list a learner whose merits minus demerits equal the points shown, and a click opens the timeline;
+  the record form logs an incident with no category; Settings save, "Add the suggested categories" reports they are all there, a new category saves.
+- **Teacher:** the page opens with the class, lists only the learners they teach (a learner of another class is absent), and a merit records.
+- **Parent and student:** the page opens, the merit and (because the school allows demerits) the demerit show; the staff-only note never shows;
+  the incident stays hidden while the school keeps incidents back.
+- **Discipline-area holder:** the office page opens and shows the whole school's log.
+- No page errors; the only refused calls are the two tolerated ones above (`behaviour-4`, `behaviour-5`).
+
+Not covered by the browser: the Supabase build (CI's browser job runs it), the People page's behaviour tab, and a phone viewport.
