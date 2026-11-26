@@ -5,10 +5,11 @@ import {
 } from "@figbloom/shared";
 import { BarList } from "../../components/analytics/BarList";
 import { LineChart } from "../../components/analytics/LineChart";
+import { SectionError } from "../../components/ui/SectionError";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { useTenantSession } from "../../lib/sessionContext";
 import {
-  monthLabel, PERIODS, useDailyUsage, useFlags, useHeadcount, useItemIndex, useStockParams, useStockRange, useTwoMonths, useUsage, usageBucket,
+  firstFailure, monthLabel, PERIODS, useDailyUsage, useFlags, useHeadcount, useItemIndex, useStockParams, useStockRange, useTwoMonths, useUsage, usageBucket,
 } from "./inventoryStockData";
 
 /**
@@ -34,6 +35,8 @@ export function UseByStoreChart({ store }: { store: StoreKey }) {
   const usage = useUsage(tenant.id, period, ready, range);
   const index = useItemIndex(tenant.id);
   const bucket = usageBucket(period);
+  const failed = firstFailure(usage, index);
+  if (failed) return <SectionError what="load use by store" error={failed.error} onRetry={failed.retry} boxed />;
   if (usage.loading || index.loading || !ready) return <TableSkeleton rows={5} />;
   const rows = usage.data ?? [];
   const buckets = [...new Set(rows.map((r) => r.period_start.slice(0, 10)))].sort();
@@ -67,15 +70,14 @@ export function UseByStoreChart({ store }: { store: StoreKey }) {
 export function PerHeadCharts() {
   const { tenant } = useTenantSession();
   const { period } = useStockParams();
-  const { ready, range } = useStockRange(tenant.id, "month");
+  const { ready, range, flagFrom, flagTo } = useStockRange(tenant.id, "month");
   // always the last six weeks: long enough for a baseline either side of a spike, short enough to read day by day
   const from = todayIso(new Date(Date.now() - 41 * 86_400_000));
-  const flagFrom = from;
   void period;
   const index = useItemIndex(tenant.id);
   const daily = useDailyUsage(tenant.id, ready, from, range.to);
   const heads = useHeadcount(tenant.id, ready, from, range.to);
-  const flags = useFlags(tenant.id, ready, flagFrom, range.to);
+  const flags = useFlags(tenant.id, ready, flagFrom, flagTo);
   const used = useMemo(() => usageByItem(daily.data ?? []).filter((u) => u.used > 0), [daily.data]);
   const options = used.map((u) => index.byId.get(u.item_id)).filter((i): i is NonNullable<typeof i> => !!i && !!i.consumable).sort((a, b) => a.name.localeCompare(b.name));
   const [picked, setPicked] = useState<string | null>(null);
@@ -83,7 +85,8 @@ export function PerHeadCharts() {
   const item = itemId ? index.byId.get(itemId) : undefined;
 
   if (index.loading || daily.loading || heads.loading || !ready) return <TableSkeleton rows={6} />;
-  if (daily.error || heads.error) return <p className="text-[12.5px] text-warn-ink">Could not load use per head: {(daily.error ?? heads.error)!.message}</p>;
+  const failed = firstFailure(daily, heads, index);
+  if (failed) return <SectionError what="load use per head" error={failed.error} onRetry={failed.retry} boxed />;
   if (!item) return <section className="rounded-lg border border-line bg-white px-4 py-3 text-[13px] text-ink-muted">No consumables used in this window yet.</section>;
 
   const bucket: "day" | "week" = storeOf(item.category) === "kitchen" ? "day" : "week";
@@ -151,6 +154,8 @@ export function TopItemsCharts({ store }: { store: StoreKey }) {
   const usage = useUsage(tenant.id, period, ready, range);
   const two = useTwoMonths(tenant.id);
   const index = useItemIndex(tenant.id);
+  const failed = firstFailure(usage, two, index);
+  if (failed) return <SectionError what="load the top items" error={failed.error} onRetry={failed.retry} boxed />;
   if (usage.loading || two.loading || index.loading || !ready) return <TableSkeleton rows={6} />;
   const inScope = (id: string) => store === "all" || storeOf(index.byId.get(id)?.category) === store;
   const top = usageByItem(usage.data ?? []).filter((u) => inScope(u.item_id) && u.used_cost_cents > 0).slice(0, 10);

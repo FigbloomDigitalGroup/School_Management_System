@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
-  FLAG_KIND_LABEL, fetchStockInsights, flagCountsByStore, formatShortDate, groupFlags, severityCounts, STORES, storeOf,
+  FLAG_KIND_LABEL, FLAG_WINDOW_WEEKS, fetchStockInsights, flagCountsByStore, formatShortDate, groupFlags, severityCounts, STORES, storeOf,
   type ConsumptionFlag, type FlagSeverity, type StockInsights,
 } from "@figbloom/shared";
 import { Badge, type Tone } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Pagination } from "../../components/ui/Pagination";
+import { SectionError } from "../../components/ui/SectionError";
 import { TableSkeleton } from "../../components/ui/Skeleton";
 import { usePaging } from "../../components/ui/usePaging";
 
@@ -92,8 +93,8 @@ export function FlagSummary({ flags }: { flags: ConsumptionFlag[] }) {
  * behind "explained". With `limit` it shows the top few and links to `moreTo`;
  * without, it pages.
  */
-export function FlagsPanel({ flags, loading, error, limit, moreTo, title = "Worth a look" }: {
-  flags: ConsumptionFlag[]; loading: boolean; error: Error | null; limit?: number; moreTo?: string; title?: string;
+export function FlagsPanel({ flags, loading, error, onRetry, limit, moreTo, title = "Worth a look" }: {
+  flags: ConsumptionFlag[]; loading: boolean; error: Error | null; onRetry: () => void; limit?: number; moreTo?: string; title?: string;
 }) {
   const [showSmall, setShowSmall] = useState(false);
   const [showExplained, setShowExplained] = useState(false);
@@ -109,6 +110,7 @@ export function FlagsPanel({ flags, loading, error, limit, moreTo, title = "Wort
           <div className="min-w-0">
             <h2 className="text-body font-semibold">{title}</h2>
             <p className="mt-0.5 max-w-[720px] text-[12.5px] text-ink-muted">Each item's use against its own usual (kitchen per head each day; other stores week by week), stock-takes, delivery prices and days of stock left. Biggest first.</p>
+            <p className="mt-0.5 text-[12.5px] text-ink-faint">Flags look at the last {FLAG_WINDOW_WEEKS} weeks.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {small.length > 0 && <Button aria-pressed={showSmall} onClick={() => setShowSmall((v) => !v)}>{showSmall ? "Hide" : "Show"} {small.length} small clinic change{small.length === 1 ? "" : "s"}</Button>}
@@ -118,11 +120,11 @@ export function FlagsPanel({ flags, loading, error, limit, moreTo, title = "Wort
         {!loading && !error && <FlagSummary flags={flags} />}
       </header>
       <div className="px-4 py-2">
-        {error ? <p className="py-2 text-[12.5px] text-warn-ink">Could not work out the flags: {error.message}</p>
+        {error ? <SectionError what="work out the flags" error={error} onRetry={onRetry} />
           : loading ? <div className="py-2"><TableSkeleton rows={3} /></div>
           : shown.length === 0 ? (
             <p className="py-2 text-[13px] text-ink-muted">
-              Nothing unusual in this period.
+              Nothing unusual in the last {FLAG_WINDOW_WEEKS} weeks.
               {small.length ? ` ${small.length} small sick-bay change${small.length === 1 ? "" : "s"} (under 10 units either way).` : ""}
               {explained.length ? " Some rises were matched by more people eating." : ""}
             </p>

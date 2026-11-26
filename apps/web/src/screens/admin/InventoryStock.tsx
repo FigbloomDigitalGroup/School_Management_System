@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  fetchMovements, formatMoney, formatQty, formatShortDate, groupFlags, INVENTORY_CATEGORY_LABEL, MOVEMENT_KIND_LABEL,
+  FLAG_WINDOW_WEEKS, fetchMovements, formatMoney, formatQty, formatShortDate, groupFlags, INVENTORY_CATEGORY_LABEL, MOVEMENT_KIND_LABEL,
   inStore, movementProblem, PURPOSE_SUGGESTIONS, recordStockMovement, severityCounts, spendByMonthFor, stockOverview, stockStatus, stockTakeDelta,
   storeOf, STORES, summariseStores, todayIso, usageByItem,
   type CostPerMealRow, type InventoryCategory, type InventoryItemRow, type ItemIndexRow, type MovementKind, type MovementRow,
@@ -11,12 +11,13 @@ import { ColumnChart, shortNumber } from "../../components/analytics/ColumnChart
 import { LineChart } from "../../components/analytics/LineChart";
 import { Sparkline } from "../../components/analytics/Sparkline";
 import { Pagination } from "../../components/ui/Pagination";
+import { SectionError } from "../../components/ui/SectionError";
 import { StatLink, StatLinkGrid } from "../../components/ui/StatLink";
 import { usePaging } from "../../components/ui/usePaging";
 import { FlagsPanel, InsightsPanel, SeverityBadge } from "./InventoryFlags";
 import { UseByStoreChart } from "./InventoryTrends";
 import {
-  mealTrend, monthLabel, PERIODS, useFlags, useInventoryBase, useItemIndex, useLevels, useMealTrend, useSpend, useStockParams, useStockRange,
+  firstFailure, mealTrend, monthLabel, PERIODS, useFlags, useInventoryBase, useItemIndex, useLevels, useMealTrend, useSpend, useStockParams, useStockRange,
   useUniforms, useUsage, usageSeries,
 } from "./inventoryStockData";
 import { Badge, type Tone } from "../../components/ui/Badge";
@@ -244,14 +245,14 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
   const { tenant } = useTenantSession();
   const base = useInventoryBase();
   const { period, store, setPeriod, setStore, qs } = useStockParams();
-  const { ready, range, flagFrom } = useStockRange(tenant.id, period);
+  const { ready, range, flagFrom, flagTo } = useStockRange(tenant.id, period);
   const to = (section: string) => `${base}/stock/${section}${qs ? `?${qs}` : ""}`;
 
   const index = useItemIndex(tenant.id);
   const levels = useLevels(tenant.id);
   const spend = useSpend(tenant.id);
   const usage = useUsage(tenant.id, period, ready, range);
-  const flags = useFlags(tenant.id, ready, flagFrom, range.to);
+  const flags = useFlags(tenant.id, ready, flagFrom, flagTo);
   const meals = useMealTrend(tenant.id);
   const uniforms = useUniforms(tenant.id, ready, range);
 
@@ -280,6 +281,10 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
   const lastMeal = trend[trend.length - 1];
   const prevMeal = trend[trend.length - 2];
   const uniformIssued = (uniforms.issues.data ?? []).reduce((a, i) => a + i.quantity, 0);
+  const overviewFailed = firstFailure(levels, spend);
+  const storesFailed = firstFailure(levels, usage, index);
+  const usageFailed = firstFailure(usage, index);
+  const retryNote = "couldn't load; open to retry";
   const uniformBilled = uniforms.charges.data
     ? (uniforms.issues.data ?? []).reduce((a, i) => a + (uniforms.charges.data!.get(i.id)?.amountCents ?? 0), 0)
     : null;
@@ -289,19 +294,19 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
       <StockFilters period={period} store={store} onPeriod={setPeriod} onStore={setStore} range={range} />
 
       <StatLinkGrid>
-        <StatLink label="Stock value" to={to("levels")} loading={!overview} action="Open every stock line by value"
-          value={overview ? money(overview.valueCents) : ""} sub="on hand, at the latest prices" />
-        <StatLink label="Spent this month" to={to("spend")} loading={!overview} action="Open spend by month"
-          value={overview ? money(overview.spendThisMonthCents) : ""}
-          sub={overview ? (overview.spendChangePct == null ? "on deliveries" : `${overview.spendChangePct >= 0 ? "▲ +" : "▼ "}${overview.spendChangePct}% on last month`) : undefined}>
+        <StatLink label="Stock value" to={to("levels")} loading={!overview && !overviewFailed} action="Open every stock line by value"
+          value={overview ? money(overview.valueCents) : "—"} sub={overviewFailed ? retryNote : "on hand, at the latest prices"} />
+        <StatLink label="Spent this month" to={to("spend")} loading={!overview && !overviewFailed} action="Open spend by month"
+          value={overview ? money(overview.spendThisMonthCents) : "—"}
+          sub={overviewFailed ? retryNote : overview ? (overview.spendChangePct == null ? "on deliveries" : `${overview.spendChangePct >= 0 ? "▲ +" : "▼ "}${overview.spendChangePct}% on last month`) : undefined}>
           {spendRows.length > 1 && <Sparkline bars values={spendRows.map((s) => s.spend_cents / 100)} label={`Spend by month: ${spendRows.map((s) => `${monthLabel(s.month)} ${money(s.spend_cents)}`).join(", ")}`} />}
         </StatLink>
-        <StatLink label="Low / running out" to={to("low-stock")} loading={!levels.data} action="Open the low stock list"
-          value={levels.data ? String(lowRows.length) : ""} alarming={lowRows.length > 0}
-          sub={overview ? `${overview.lowCount} at reorder level · ${overview.shortCoverCount} under a week left` : undefined} />
+        <StatLink label="Low / running out" to={to("low-stock")} loading={!levels.data && !levels.error} action="Open the low stock list"
+          value={levels.data ? String(lowRows.length) : "—"} alarming={lowRows.length > 0}
+          sub={levels.error ? retryNote : overview ? `${overview.lowCount} at reorder level · ${overview.shortCoverCount} under a week left` : undefined} />
         <StatLink label="Worth a look" to={to("flags")} loading={flags.loading} action="Open every flag"
-          value={flags.data ? String(flagGroups.alarms.length) : ""} alarming={flagCounts.high > 0}
-          sub={flags.data ? `${flagGroups.small.length} small clinic · ${flagGroups.explained.length} explained` : undefined}>
+          value={flags.data ? String(flagGroups.alarms.length) : "—"} alarming={flagCounts.high > 0}
+          sub={flags.error ? retryNote : flags.data ? `last ${FLAG_WINDOW_WEEKS} weeks · ${flagGroups.small.length} small clinic · ${flagGroups.explained.length} explained` : undefined}>
           {flags.data && flagGroups.alarms.length > 0 && (
             <div className="flex flex-wrap gap-1">{(["high", "medium", "low"] as const).map((s) => flagCounts[s] > 0 && <SeverityBadge key={s} severity={s} count={flagCounts[s]} />)}</div>
           )}
@@ -342,13 +347,13 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
             empty={{ title: "No stock lines yet", body: "Add consumables to the register to see them here." }}
           />
         </section>
-      ) : <TableSkeleton rows={4} />)}
+      ) : storesFailed ? <SectionError what="work out the stores" error={storesFailed.error} onRetry={storesFailed.retry} boxed /> : <TableSkeleton rows={4} />)}
 
-      <FlagsPanel flags={flagRows} loading={flags.loading} error={flags.error} limit={8} moreTo={to("flags")} />
-      <InsightsPanel from={flagFrom} to={range.to} />
+      <FlagsPanel flags={flagRows} loading={flags.loading} error={flags.error} onRetry={flags.retry} limit={8} moreTo={to("flags")} />
+      <InsightsPanel from={flagFrom} to={flagTo} />
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {spend.loading ? <TableSkeleton rows={4} /> : spendRows.length > 0 ? (
+        {spend.loading ? <TableSkeleton rows={4} /> : spend.error ? <SectionError what="load the spend" error={spend.error} onRetry={spend.retry} boxed /> : spendRows.length > 0 ? (
           <ColumnChart
             title="Spend on deliveries, by month"
             summary={`${store === "all" ? "All stores" : STORES.find((st) => st.key === store)!.label}, the last six months.${overview?.spendChangePct != null ? ` This month is ${overview.spendChangePct >= 0 ? "up" : "down"} ${Math.abs(overview.spendChangePct)}% on last.` : ""}`}
@@ -362,7 +367,7 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
           <section className="rounded-lg border border-line bg-white px-4 py-3 text-[13px] text-ink-muted">No priced deliveries in the last six months yet.</section>
         )}
         {(store === "all" || store === "kitchen") && (meals.loading ? <TableSkeleton rows={4} /> : meals.error ? (
-          <section className="rounded-lg border border-line bg-white px-4 py-3 text-[12.5px] text-warn-ink">Could not work out the cost per meal: {meals.error.message}</section>
+          <SectionError what="work out the cost per meal" error={meals.error} onRetry={meals.retry} boxed />
         ) : (
           <MealTrendChart rows={meals.data ?? []} country={tenant.country} />
         ))}
@@ -378,7 +383,7 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
             <Link to={to("usage")} className="text-[13px] font-medium underline-offset-2 hover:underline">Open use per item →</Link>
           </span>
         </div>
-        {usage.error ? <p className="text-[12.5px] text-warn-ink">Could not load use: {usage.error.message}</p> : usage.loading || index.loading ? <TableSkeleton rows={6} /> : (
+        {usageFailed ? <SectionError what="load use" error={usageFailed.error} onRetry={usageFailed.retry} /> : usage.loading || index.loading ? <TableSkeleton rows={6} /> : (
           <UsageTable rows={usageRows} byId={byId} series={series} money={money} onOpenItem={onOpenItem} groupByStore={store === "all"} />
         )}
       </section>
@@ -388,7 +393,7 @@ export function StockView({ onOpenItem }: { onOpenItem: (itemId: string) => void
           <h2 className="text-body font-semibold">Low stock and days of cover</h2>
           <Link to={to("low-stock")} className="text-[13px] font-medium underline-offset-2 hover:underline">Open the full list →</Link>
         </div>
-        {levels.loading ? <TableSkeleton rows={4} /> : <LowStockTable rows={lowRows} onOpenItem={onOpenItem} />}
+        {levels.loading ? <TableSkeleton rows={4} /> : levels.error ? <SectionError what="load the stock levels" error={levels.error} onRetry={levels.retry} /> : <LowStockTable rows={lowRows} onOpenItem={onOpenItem} />}
       </section>
     </div>
   );

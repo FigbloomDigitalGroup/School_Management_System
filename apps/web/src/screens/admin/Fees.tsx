@@ -7,6 +7,7 @@ import {
 } from "@figbloom/shared";
 import type { CollectionFilter, CollectionRow, FeeItem, OutstandingRow, OverpaidRow, PayableInvoice, PendingProof } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
+import { SectionError } from "../../components/ui/SectionError";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -523,10 +524,13 @@ function CollectionTable({ tenantId, termId, filter, onFilter, query, onQuery, f
   const [typed, setTyped] = useState(query);
   const q = query.trim();
   const [total, setTotal] = useState(0);
-  const paging = usePaging(total, `${filter}|${q}`);
+  // the last page's error (a 416 when a filter left fewer pages) sends the list back to page 1
+  const [pageError, setPageError] = useState<Error | null>(null);
+  const paging = usePaging(total, `${filter}|${q}`, 25, pageError);
   const page = useQuery(feesKey(tenantId, "collection", termId, filter, q, paging.offset, paging.size),
     () => fetchCollectionPage(tenantId, termId, { filter, query: q, offset: paging.offset, limit: paging.size }), { staleTime: 30_000 });
   if (page.data && page.data.total !== total) setTotal(page.data.total);
+  if (page.error !== pageError) setPageError(page.error);
   const count = (f: CollectionFilter) => !figures ? null
     : f === "all" ? figures.invoices : f === "paid" ? figures.paid : f === "owing" ? figures.owing : f === "overdue" ? figures.overdue
     : f === "part_paid" ? figures.partPaid : figures.nothingPaid;
@@ -550,7 +554,7 @@ function CollectionTable({ tenantId, termId, filter, onFilter, query, onQuery, f
           {q && <Button onClick={() => { setTyped(""); onQuery(""); }}>Clear</Button>}
         </form>
       </div>
-      {page.error ? <p className="text-[12.5px] text-warn-ink">Could not load the invoices: {page.error.message}</p>
+      {page.error ? <SectionError what="load the invoices" error={page.error} onRetry={page.retry} />
         : page.loading ? <TableSkeleton rows={8} /> : (
           <DataTable
             columns={[

@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { fetchAllPages } from "./paging";
+import { fetchAllPages, pageError } from "./paging";
 import {
   availableCount, INVENTORY_CATEGORY_LABEL, isOverdue, todayIso,
   type InventoryCategory, type InventoryIssue, type InventoryIssueRow, type InventoryItem, type InventoryItemRow, type InventorySummary,
@@ -51,8 +51,8 @@ export async function fetchRegisterPage(tenantId: string, opts: { query?: string
   let q = supabase().from("inventory_items").select("*", { count: "exact" }).eq("tenant_id", tenantId);
   const filter = registerFilter(opts.query ?? "");
   if (filter) q = q.or(filter);
-  const { data, error, count } = await q.order("name").order("id").range(opts.offset, opts.offset + opts.limit - 1).returns<InventoryItem[]>();
-  if (error) throw new Error(error.message);
+  const { data, error, count, status } = await q.order("name").order("id").range(opts.offset, opts.offset + opts.limit - 1).returns<InventoryItem[]>();
+  if (error) throw pageError(error, status);
   const items = data ?? [];
   const out = await outCounts(tenantId, items.map((i) => i.id));
   return {
@@ -169,8 +169,8 @@ export async function fetchIssuesPage(tenantId: string, opts: { filter: IssueFil
   q = opts.filter === "all"
     ? q.order("issued_at", { ascending: false })
     : q.order("due_on", { ascending: true, nullsFirst: false }).order("issued_at", { ascending: false });
-  const { data, error, count } = await q.order("id").range(opts.offset, opts.offset + opts.limit - 1).returns<IssueJoin[]>();
-  if (error) throw new Error(error.message);
+  const { data, error, count, status } = await q.order("id").range(opts.offset, opts.offset + opts.limit - 1).returns<IssueJoin[]>();
+  if (error) throw pageError(error, status);
   return { rows: (data ?? []).map(toIssueRow), total: count ?? (data ?? []).length };
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  formatQty, inStore, monthsBack, movementDelta, movementProblem, periodRange, sortFlags, spendByMonthFor, stockOverview, stockStatus, stockTakeDelta,
+  flagWindow, formatQty, inStore, monthsBack, movementDelta, movementProblem, periodRange, sortFlags, spendByMonthFor, stockOverview, stockStatus, stockTakeDelta,
   storeOf, summariseStores, usageByItem,
   type ConsumptionFlag, type SpendRow, type StockLevel, type UsageRow,
 } from "./inventoryStock";
@@ -172,5 +172,20 @@ describe("stores", () => {
     expect(out.map((s) => [s.label, s.items, s.valueCents, s.usedCostCents, s.low])).toEqual([
       ["Kitchen", 1, 1000, 0, 0], ["Clinic", 1, 300, 120, 1], ["Other", 1, 5, 0, 0],
     ]);
+  });
+});
+
+describe("flagWindow", () => {
+  it("is the last eight weeks up to the period's end, whatever the period", () => {
+    expect(flagWindow("2026-11-24")).toEqual({ from: "2026-09-30", to: "2026-11-24" });
+    // a term that ended in the past: the window ends at the term's end
+    expect(flagWindow("2026-08-07")).toEqual({ from: "2026-06-13", to: "2026-08-07" });
+  });
+
+  it("stays inside ai-assist's 120-day limit for the insights", () => {
+    const w = flagWindow("2026-03-01");
+    const days = (Date.parse(w.to) - Date.parse(w.from)) / 86_400_000;
+    expect(days).toBe(55);
+    expect(days).toBeLessThanOrEqual(120);
   });
 });

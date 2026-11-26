@@ -34,3 +34,30 @@ export async function fetchAllRows<T>(
     return { data: [], error: { message: err instanceof Error ? err.message : String(err) } };
   }
 }
+
+/**
+ * PostgREST's 416 (Range Not Satisfiable, code PGRST103): a page asked for
+ * past the end of the rows, e.g. page 4 of a filter that now has one page.
+ * The server-paged readers throw this so the screen can go back to page 1
+ * instead of showing an error.
+ */
+export class RangeNotSatisfiableError extends Error {
+  readonly status = 416;
+  constructor(message = "That page is past the end of the list.") {
+    super(message);
+    this.name = "RangeNotSatisfiableError";
+  }
+}
+
+/** Whether an error (thrown, or a PostgREST error with its status) is a 416: the page asked for is past the end. */
+export function isRangeNotSatisfiable(error: unknown, status?: number): boolean {
+  if (!error) return false;
+  if (error instanceof RangeNotSatisfiableError || status === 416) return true;
+  const e = error as { status?: unknown; code?: unknown; message?: unknown };
+  return e.status === 416 || e.code === "PGRST103" || (typeof e.message === "string" && /range not satisfiable/i.test(e.message));
+}
+
+/** The error to throw for a failed page read: a RangeNotSatisfiableError for a 416, otherwise a plain Error with the message. */
+export function pageError(error: { message: string; code?: string }, status?: number): Error {
+  return isRangeNotSatisfiable(error, status) ? new RangeNotSatisfiableError(error.message) : new Error(error.message);
+}

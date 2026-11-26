@@ -57,8 +57,13 @@ On `main` or in an open PR, not live in production yet.
 - **Bus tick change (FIG-770, `48118fe`)**: on `main`, not deployed. Production `bus-tick` is still at `9d5e572`.
 - **#393 Performance round 2** (open): migration `20261125100000_perf_round2.sql` (renamed from `20261124500000` so it is dated after #408) for activities, stock analytics,
   `my_students` and the remaining per-row checks. Database only.
-- **#390 Stock flags and paging** (open): stock flags always use the last 8 weeks, failed sections retry, and paging
-  resets before refetching. Web only. Held back until after the 2026-11-25 demo.
+- **#390 Stock flags and paging** (open): web only, no database change.
+  - Stock flags always cover the last 8 weeks, whatever period the page shows ("This year" and "All" asked
+    `inventory_consumption_flags` for more than its 400-day limit and showed an error).
+  - A section that fails to load shows a Retry button (`SectionError`) instead of a dead message.
+  - Paged lists reset to page 1 during render when a filter changes, so they never ask for a page past the end
+    (the hidden HTTP 416s); a 416 is treated as an empty page.
+  - Held back until after the 2026-11-25 demo (Vercel deploy limit).
 
 ## 2026-11-24
 
