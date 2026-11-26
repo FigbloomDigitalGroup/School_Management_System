@@ -87,7 +87,7 @@ export interface PeopleCapabilities {
   learnerDocuments: boolean;
   learnerEarlySignOuts: boolean;
   learnerActivities: boolean;
-  /** A learner's behaviour entries on their record (the behaviour log is not on the API yet: slice S2 of docs/handoffs/WEB-ON-API-ROADMAP.md). */
+  /** A learner's behaviour entries on their record (the behaviour log: docs/web-on-api/behaviour.md). On for everyone now. */
   learnerBehaviour: boolean;
   /** Photos: uploading one, and an admin's review of a changed staff photo. */
   photos: boolean;
@@ -123,7 +123,7 @@ const PEOPLE_ON_SUPABASE: PeopleCapabilities = {
 
 const PEOPLE_ON_API: PeopleCapabilities = {
   deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
-  learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false, learnerBehaviour: false,
+  learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false, learnerBehaviour: true,
   photos: false, passwordResets: false, staffAccounts: false, staffSubjects: false, staffCalls: false, staffArchive: true, guardianContactForm: true,
   importByAreaHolders: false, learnerWithoutClass: true, unassignClass: false,
 };

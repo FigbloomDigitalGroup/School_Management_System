@@ -65,6 +65,11 @@ On `main` or in an open PR, not live in production yet.
   narrow definer function, `behaviour_notice_family_users`). `PUT /v1/tenants/{tenantId}/behaviour/entries/{entryId}/incident` (the
   office's follow-up), in-app notices to the class teacher and the family when a serious entry is recorded, and
   `GET /v1/tenants/{tenantId}/me/children/{learnerId}/behaviour` (a parent's child, a learner's own record). Nothing live changes.
+- **Behaviour log on the API build (S2c and S2d, `docs/web-on-api/behaviour.md`)**: `admin/behaviour`, `teacher/behaviour`,
+  `parent/behaviour` and `student/behaviour` now open on the API build (`apps/web/src/api/pages/behaviour.pages.tsx`), and the
+  behaviour tab of a learner on the People page is on (`peopleCapabilities().learnerBehaviour`). The shared functions in
+  `packages/shared/src/behaviour.ts` branch on `onApi()`; the Supabase build is unchanged (`fetchFamilyBehaviour` is the three reads the
+  component made before). Nothing live changes.
 - **`main` brought into `dev-joe`** (PR `sync/main-into-dev-joe`). Nothing live changes. On the API build the paged Fees and
   Inventory screens from #375 now work too (`feesPaging.ts`, `inventoryPaging.ts` answer from the API's own lists and page them
   in the browser); the stock overview, the behaviour log and the HR & Payroll screens stay Supabase-only and are hidden on the
