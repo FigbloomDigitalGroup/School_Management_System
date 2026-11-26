@@ -9,6 +9,7 @@ import { ApiSignIn } from "./ApiSignIn";
 import { hrRoutes } from "./ApiHrRoutes";
 import { orgRoutes } from "./ApiOrgRoutes";
 import { platformRoutes } from "./ApiPlatformRoutes";
+import { signupRoutes } from "./ApiSignupRoutes";
 
 /**
  * The web app on a build made for the new API (VITE_BACKEND=api, FIG-1890). It is deliberately not the Supabase app with
@@ -31,6 +32,7 @@ export function ApiApp() {
           {orgRoutes}
           {platformRoutes}
           {hrRoutes}
+          {signupRoutes}
           <Route path="*" element={<Navigate to="/signin" replace />} />
         </Routes>
       </ApiSessionGuard>
