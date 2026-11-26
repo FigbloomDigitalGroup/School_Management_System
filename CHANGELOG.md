@@ -71,6 +71,9 @@ On `main` or in an open PR, not live in production yet.
 - **Platform invoices API page (slice S6c)**: routes /platform/invoices to the new API list and school directory, and
   uses API writes to create invoices and record manual payments. Overdue state comes from the due date; the page shows
   no estimated MRR or seat counts.
+- **Platform subscriptions web page on the API (slice S6a)**: connects `platform/subscriptions` to the typed API reads and
+  audited writes. Super admins can configure KES plan prices and edit subscription terms after the automatic recent-password
+  prompt. The page shows actual configured prices and statuses without MRR or licensed-seat estimates.
 - **Behaviour log on the new API, part 1 (S2a, `apps/api/docs/BEHAVIOUR.md`)**: a port of the live behaviour log, with the same rules.
   Migration `118_behaviour_log.sql`: the `discipline` admin area, permissions `resource.discipline.read`, `resource.discipline.write` and
   `resource.behaviour.record` (teachers), tables `behaviour_settings`, `behaviour_categories`, `behaviour_entries` and

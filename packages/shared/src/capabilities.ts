@@ -952,7 +952,7 @@ export interface PlatformCapabilities {
   usagePage: boolean;
   /** `/platform/incidents` — hand-typed incident list backed by migration 121 and the platform incident routes. */
   incidentsPage: boolean;
-  /** `/platform/subscriptions` — blocked on owner decision Q2 (whether the API owns Figbloom billing). */
+  /** `/platform/subscriptions` — needs the platform billing API (slice S6a, D3). */
   subscriptionsPage: boolean;
   /** `/platform/invoices` — backed by the API billing endpoints and the S6c API page. */
   invoicesPage: boolean;
@@ -993,7 +993,7 @@ const PLATFORM_ON_API: PlatformCapabilities = {
   curriculumPage: false,
   usagePage: true,
   incidentsPage: true,
-  subscriptionsPage: false,
+  subscriptionsPage: true,
   invoicesPage: true,
   impersonationPage: false,
   auditPage: true,

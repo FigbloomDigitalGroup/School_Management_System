@@ -381,6 +381,94 @@ export async function apiResolvePlatformIncident(id: string): Promise<void> {
   });
 }
 
+// ---------------------------------------------------------------- subscriptions and Figbloom plan pricing (slice S6a)
+
+export const PLATFORM_PLAN_CODES = ["standard", "institution", "county"] as const;
+export type PlatformPlanCode = (typeof PLATFORM_PLAN_CODES)[number];
+
+export interface PlatformSubscriptionItem {
+  tenantId: string;
+  name: string;
+  slug: string;
+  plan: PlatformPlanCode;
+  status: TenantStatus;
+  priceCentsOverride: number | null;
+  trialEndsAt: string | null;
+  renewsOn: string | null;
+  /** Effective KES price in cents; check `pricing` when this is zero to distinguish unset from an approved zero price. */
+  priceCents: number;
+}
+
+export interface PlatformPlanPrice {
+  plan: PlatformPlanCode;
+  priceCents: number;
+  updatedAt: string;
+}
+
+export interface PlatformSubscriptionsData {
+  items: PlatformSubscriptionItem[];
+  pricing: PlatformPlanPrice[];
+}
+
+export interface PlatformSubscriptionUpdate {
+  plan: PlatformPlanCode;
+  status: TenantStatus;
+  price_cents_override: number | null;
+  trial_ends_at: string | null;
+  renews_on: string | null;
+}
+
+/** Every school subscription plus configured Figbloom prices (`GET /v1/platform/subscriptions`). */
+export async function apiFetchPlatformSubscriptions(): Promise<PlatformSubscriptionsData> {
+  let pricing: PlatformPlanPrice[] = [];
+  let gotPricing = false;
+  const rows = await listAllPages(async (cursor) => {
+    const res = await apiClient().get("/v1/platform/subscriptions", {
+      query: { limit: API_PAGE_LIMIT, cursor },
+      tenantId: null,
+    });
+    if (!gotPricing) {
+      pricing = res.pricing.map((p) => ({ plan: p.plan, priceCents: p.priceCents, updatedAt: p.updatedAt }));
+      gotPricing = true;
+    }
+    return { items: res.items, page: res.page };
+  });
+  return {
+    items: rows.map((r) => ({
+      tenantId: r.tenantId,
+      name: r.name,
+      slug: r.slug,
+      plan: r.plan,
+      status: (TENANT_STATUSES as readonly string[]).includes(r.status) ? r.status : "setup_stalled",
+      priceCentsOverride: r.priceCentsOverride,
+      trialEndsAt: r.trialEndsAt,
+      renewsOn: r.renewsOn,
+      priceCents: r.priceCents,
+    })),
+    pricing,
+  };
+}
+
+/** Replaces one school's complete subscription term; the API prompts for recent password confirmation on writes. */
+export async function apiUpdatePlatformSubscription(schoolId: string, input: PlatformSubscriptionUpdate): Promise<boolean> {
+  const res = await apiClient().put("/v1/platform/subscriptions/{schoolId}", {
+    path: { schoolId },
+    body: input,
+    tenantId: null,
+  });
+  return res.changed;
+}
+
+/** Sets Figbloom's KES price for one plan; the API audits the money change and prompts for recent password confirmation. */
+export async function apiSetPlatformPlanPrice(plan: PlatformPlanCode, priceCents: number): Promise<boolean> {
+  const res = await apiClient().put("/v1/platform/plan-pricing/{plan}", {
+    path: { plan },
+    body: { price_cents: priceCents },
+    tenantId: null,
+  });
+  return res.changed;
+}
+
 // ---------------------------------------------------------------- audit trail (slice P5)
 
 export interface PlatformAuditEventItem {
