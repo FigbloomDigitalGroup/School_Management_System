@@ -10,10 +10,11 @@ const NOT_STAFF: HrLeaveAccess = { status: "not_staff", approver: false };
 /**
  * hr_leave_access() for the signed-in person (20261105800000): whether the school's leave is HR's (the leave page
  * applies through HR and the old form is hidden) and whether they get "Leave to approve". null while it's being
- * asked, so neither form flashes up first. An org admin acting for a school is never that school's staff.
+ * asked, so neither form flashes up first. The cache is scoped to both person and school because the answer belongs to a school's
+ * HR setup. An org admin acting for a school is never that school's staff.
  */
-export function useHrLeaveAccess(session: Pick<Session, "profile" | "actingForTenant">): HrLeaveAccess | null {
-  const key = session.profile && !session.actingForTenant ? session.profile.id : null;
+export function useHrLeaveAccess(session: Pick<Session, "profile" | "tenant" | "actingForTenant">): HrLeaveAccess | null {
+  const key = session.profile && session.tenant && !session.actingForTenant ? `${session.profile.id}:${session.tenant.id}` : null;
   const hit = key ? cache.get(key) : undefined;
   const [access, setAccess] = useState<HrLeaveAccess | null>(hit && Date.now() - hit.at < CACHE_MS ? hit.access : null);
 

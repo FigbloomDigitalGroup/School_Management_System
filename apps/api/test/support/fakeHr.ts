@@ -10,6 +10,9 @@ import type { AddressInfo } from "node:net";
  * credentials are made up for the test. HR answers only for a school it has linked, and for a person only through its own
  * people list (the API's user id, as HR's external id), as bloomHR does. The platform knows a school only once it is
  * registered (`platformTenants`), and signs a person in only when HR is on for the school and its company is linked.
+ * For leave run by HR (docs/HR-HANDOFF.md, L1) it also answers GET approvals and POST approvals/<id>/decide: an approver is
+ * known only through the HR user the hand-off made (`approverLink`), an application waits on one HR user, and its document
+ * links are made on every read and last 5 minutes.
  */
 
 export const FAKE_CLIENT_ID = "schools-client-test";
@@ -25,6 +28,28 @@ export interface FakeEmployee {
 
 export type FakePayslip = Record<string, unknown> & { id: string };
 
+/** A leave application kept by HR (bloomHR leave_applications), waiting on one HR user (the first step of the chain). */
+export interface FakeApplication {
+  id: string;
+  company: string;
+  /** Schools' person (the API's user id, HR's external id) */
+  person: string;
+  employee: string;
+  leaveType: string;
+  start_date: string;
+  end_date: string;
+  days: number;
+  half_day: boolean;
+  reason: string;
+  status: "pending" | "approved" | "declined" | "cancelled";
+  /** the HR user it waits on */
+  waiting_on: string;
+  /** the document HR keeps with it: its link is made on every read, valid 5 minutes (`url` overrides it, for odd links) */
+  document: { name: string; url?: string } | null;
+  followup_document?: { name: string; url?: string } | null;
+  decisions: { by: string; decision: string; comment: string | null }[];
+}
+
 export interface FakeHrCall {
   method: string;
   /** under the HR base, e.g. "payslips/abc" */
@@ -35,6 +60,8 @@ export interface FakeHrCall {
   token: string;
   /** every request header, lower-cased, so a test can check what was and was not sent */
   headers: Record<string, string | string[] | undefined>;
+  /** the request body as sent (empty for a GET) */
+  body: string;
 }
 
 export class FakeHr {
@@ -94,6 +121,14 @@ export class FakeHr {
   platformDelayMs = 0;
   /** links handed out (url and the one-time code in it), so a test can look for them in logs and audit rows */
   handoffLinks: { url: string; code: string }[] = [];
+  // Leave run by HR, the approver's side (docs/HR-HANDOFF.md, L1), modelled on supabase/functions/_shared/fakeHr.ts:
+  /** `${company}:${person}` -> the HR user the person signed in to HR as, once, from Schools (external_logins) */
+  approvers = new Map<string, string>();
+  /** HR users who are no longer active members of the company (403 approver_no_access) */
+  noAccess = new Set<string>();
+  applications: FakeApplication[] = [];
+  /** HR's clock, for the document links' expiry */
+  clock: () => number = () => Date.now();
 
   constructor() {
     this.server = createServer((req, res) => void this.handle(req, res));
@@ -140,6 +175,28 @@ export class FakeHr {
     if (hr === null) this.hrModules.delete(platformId);
     else this.hrModules.set(platformId, hr);
   }
+  /** The person signed in to HR once from Schools (the hand-off) as this HR user: they can now approve. */
+  approverLink(company: string, person: string, hrUser: string): void {
+    this.approvers.set(`${company}:${person}`, hrUser);
+  }
+  /** A pending application of `person` in `company` that waits on `waitingOn` (an HR user). */
+  apply(app: Partial<FakeApplication> & Pick<FakeApplication, "id" | "company" | "person" | "waiting_on">): FakeApplication {
+    const a: FakeApplication = {
+      employee: "EMP-001",
+      leaveType: "Annual leave",
+      start_date: "2026-12-07",
+      end_date: "2026-12-09",
+      days: 3,
+      half_day: false,
+      reason: "Family wedding up country",
+      status: "pending",
+      document: null,
+      decisions: [],
+      ...app,
+    };
+    this.applications.push(a);
+    return a;
+  }
   /** The calls the API made to the platform's hand-off and lookups (paths only). */
   get platformPaths(): string[] {
     return this.platformCalls.map((c) => `${c.method} ${c.path}`);
@@ -159,7 +216,7 @@ export class FakeHr {
     if (url.pathname.startsWith("/platform-api/")) return void (await this.platform(req, res, url, body));
     const prefix = "/api/integrations/my-hr/";
     if (!url.pathname.startsWith(prefix)) return send(res, 404, { error: { code: "not_found", message: "Not found." } });
-    return void (await this.hr(req, res, url, url.pathname.slice(prefix.length)));
+    return void (await this.hr(req, res, url, url.pathname.slice(prefix.length), body));
   }
 
   private async token(req: IncomingMessage, res: ServerResponse, body: string): Promise<void> {
@@ -238,7 +295,7 @@ export class FakeHr {
     send(res, 404, { error: { code: "not_linked", message: "HR has no record for this tenant yet." } });
   }
 
-  private async hr(req: IncomingMessage, res: ServerResponse, url: URL, path: string): Promise<void> {
+  private async hr(req: IncomingMessage, res: ServerResponse, url: URL, path: string, body: string): Promise<void> {
     const token = String(req.headers.authorization ?? "").replace(/^Bearer /, "");
     this.calls.push({
       method: String(req.method),
@@ -248,6 +305,7 @@ export class FakeHr {
       person: header(req, "x-figbloom-person"),
       token,
       headers: { ...req.headers },
+      body,
     });
     if (this.delayMs) await sleep(this.delayMs);
     if (this.redirectTo) {
@@ -269,6 +327,8 @@ export class FakeHr {
       return void res.end(this.rawAnswer.body);
     }
     const person = header(req, "x-figbloom-person") ?? "";
+    // the approver's routes: through the person's HR user (made by the hand-off), not their employee record
+    if (path === "approvals" || /^approvals\/[^/]+\/decide$/.test(path)) return this.approval(res, String(req.method), path, body, company, person);
     const employee = this.people.get(`${company}:${person}`);
     if (!employee) return send(res, 404, { error: { code: "not_linked", message: "Your HR record isn't ready yet." } });
     if (employee.draft) return send(res, 200, { status: "pending_hr" });
@@ -308,6 +368,84 @@ export class FakeHr {
       default:
         return send(res, 404, { error: { code: "not_found", message: "Not found." } });
     }
+  }
+
+  /** HR's my_hr_leave_application(): an application's approval so far, as GET approvals and the decision show it. */
+  private approvalView(a: FakeApplication) {
+    const decided = a.decisions[0];
+    return {
+      status: a.status,
+      current_step: 1,
+      steps: [{
+        position: 1,
+        label: "Head teacher",
+        status: a.status === "pending" ? "current" : a.status,
+        waiting_on: a.status === "pending" ? a.waiting_on : null,
+        actor_name: decided?.by ?? null,
+        comment: decided?.comment ?? null,
+      }],
+    };
+  }
+
+  private documentLink(a: FakeApplication, doc: { name: string; url?: string } | null | undefined, kind: string) {
+    if (!doc) return null;
+    const expires = new Date(this.clock() + 5 * 60_000).toISOString();
+    return { name: doc.name, url: doc.url ?? `https://hr.example.test/storage/leave-documents/${a.id}/${kind}?token=DOC-CANARY-signed`, expires_at: expires };
+  }
+
+  /** GET approvals and POST approvals/<id>/decide (SCHOOLS_HR_LEAVE_CONTRACT.md section 2, as Schools' own fake has it). */
+  private approval(res: ServerResponse, method: string, path: string, body: string, company: string, person: string): void {
+    const hrUser = this.approvers.get(`${company}:${person}`);
+    if (!hrUser) return send(res, 409, { error: { code: "approver_not_linked", message: "HR-CANARY Open HR & Payroll once." } });
+    if (this.noAccess.has(hrUser)) return send(res, 403, { error: { code: "approver_no_access", message: "You don't have access to HR for this school. Ask your HR administrator." } });
+    if (path === "approvals") {
+      if (method !== "GET") return send(res, 404, { error: { code: "not_found", message: "Not found." } });
+      return send(res, 200, {
+        status: "active",
+        approvals: this.applications
+          .filter((a) => a.company === company && a.status === "pending" && a.waiting_on === hrUser)
+          .map((a) => ({
+            application_id: a.id,
+            employee: { employee_number: a.employee, name: this.people.get(`${company}:${a.person}`)?.name ?? null, external_id: a.person },
+            leave_type: a.leaveType,
+            start_date: a.start_date,
+            end_date: a.end_date,
+            days: a.days,
+            half_day: a.half_day,
+            reason: a.reason,
+            submitted_at: null,
+            status: a.status,
+            step_label: "Head teacher",
+            document: this.documentLink(a, a.document, "document"),
+            followup_document: this.documentLink(a, a.followup_document, "followup"),
+            approval: this.approvalView(a),
+          })),
+      });
+    }
+    if (method !== "POST") return send(res, 404, { error: { code: "not_found", message: "Not found." } });
+    const id = decodeURIComponent(path.split("/")[1]!);
+    const a = this.applications.find((x) => x.id === id && x.company === company);
+    if (!a) return send(res, 404, { error: { code: "not_found", message: "No such application." } });
+    if (a.status !== "pending") return send(res, 409, { error: { code: "already_decided", message: "This application has already been decided." } });
+    if (a.waiting_on !== hrUser) return send(res, 403, { error: { code: "not_your_approval", message: "You are not the approver for this step." } });
+    let b: Record<string, unknown> = {};
+    try {
+      b = JSON.parse(body) as Record<string, unknown>;
+    } catch {
+      b = {};
+    }
+    if (b.decision !== "approve" && b.decision !== "decline") return send(res, 400, { error: { code: "bad_request", message: 'decision is "approve" or "decline".' } });
+    if (b.decision === "decline" && !b.comment) return send(res, 422, { error: { code: "invalid", message: "Please give a reason for declining." } });
+    a.decisions.push({ by: hrUser, decision: String(b.decision), comment: typeof b.comment === "string" ? b.comment : null });
+    a.status = b.decision === "approve" ? "approved" : "declined";
+    send(res, 200, {
+      status: "active",
+      request_status: a.status,
+      application: {
+        id: a.id, leave_type: a.leaveType, start_date: a.start_date, end_date: a.end_date, days: a.days, half_day: a.half_day,
+        status: a.status, reason: a.reason, decision_note: a.decisions[0]?.comment ?? null, approval: this.approvalView(a),
+      },
+    });
   }
 }
 

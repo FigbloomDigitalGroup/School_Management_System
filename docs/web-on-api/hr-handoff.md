@@ -150,3 +150,21 @@ Verified:
 member) in a browser (they must use two-step, and the pass had no such account): their item and page follow the same code as the admin's and
 the API's own tests cover its rule; an organisation administrator; the `429 rate_limited` answer in a browser (unit-tested); a school whose HR
 company was linked in the real HR; the phone app.
+
+## Leave to approve (L1 API + L2 web, 2026-11-26)
+
+`admin/leave-to-approve` is now registered in `api/pages/hr.pages.tsx` and uses the existing `LeaveToApprove` screen. The shared HR leave
+helpers call the API for access, pending approvals and decisions while `onApi()` is true; the Supabase calls are unchanged. The page and its
+admin-home/menu entry are offered only when `GET .../me/hr/leave/access` says `{status: "available", approver: true}`. The access cache is
+60 seconds and keyed by both user and school. `approver_not_linked` opens the existing connect-once message and HR & Payroll action. The page
+passes on HTTPS document links only and hides links without a fresh expiry. The API's global `HR_LEAVE_ENABLED` switch remains off by default.
+
+**Limit:** this is the approver view only. Staff applications and cancellations through HR (L3) and signed HR decisions applied back to the
+school record (L4) are not built. Do not turn the switch on for a real school before both paths exist and a real test school has been checked.
+
+**Verified so far:** 45 shared and page-registration tests passed; the API leave suite passed (9 tests), API typecheck passed, and the OpenAPI
+check passed (334 paths / 420 operations). No browser pass has been run yet. No real HR, platform or credentials were used.
+
+hr-handoff-10. **Access takes effect within one minute in the web menu.** The web caches the access answer per user and school for 60 seconds;
+   changing the global switch or a person's delegated area may take that long to update the menu. The API checks permission again on every
+   approvals request and decision, so a cached menu does not authorize the action.

@@ -1,10 +1,11 @@
 import { lazy, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { NAV, adminAccessFor, apiFetchMyStaffRecord, fetchAiStatus, hasAdminConsole, mayOpenAdminPage, showsAdminSwitch } from "@figbloom/shared";
+import { NAV, adminAccessFor, apiFetchMyStaffRecord, fetchAiStatus, hasAdminConsole, mayOpenAdminPage, showsAdminSwitch, showsLeaveToApprove } from "@figbloom/shared";
 import { BloomFab } from "../components/BloomFab";
 import { ConsoleShell } from "../components/ConsoleShell";
 import { useAsync } from "../lib/useAsync";
 import { useHrItem } from "../lib/useHrItem";
+import { useHrLeaveAccess } from "../lib/useHrLeave";
 import { ApiDriverConsole } from "./ApiDriver";
 import { ApiOverview, type SchoolSession } from "./ApiOverview";
 import { ApiParentConsole } from "./ApiParent";
@@ -16,10 +17,17 @@ import { Lazy } from "./pages/Lazy";
 const AdminDashboard = lazy(() => import("../screens/admin/Dashboard").then((m) => ({ default: m.AdminDashboard })));
 const AreasHome = lazy(() => import("../screens/admin/AreasHome").then((m) => ({ default: m.AreasHome })));
 
+function adminPagesFor(leaveAccess: ReturnType<typeof useHrLeaveAccess>): readonly string[] {
+  return showsLeaveToApprove(leaveAccess)
+    ? API_ADMIN_PAGES
+    : API_ADMIN_PAGES.filter((page) => page !== "admin/leave-to-approve");
+}
+
 function ApiAdminHome({ session }: { session: SchoolSession }) {
+  const leaveAccess = useHrLeaveAccess(session);
   return adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant) === "all"
     ? <AdminDashboard />
-    : <AreasHome allowedPages={API_ADMIN_PAGES} />;
+    : <AreasHome allowedPages={adminPagesFor(leaveAccess)} />;
 }
 
 // The pages themselves are registered by each area in `./pages/<area>.pages.tsx`, not here: a new area adds a file there and
@@ -34,6 +42,7 @@ export { API_ADMIN_PAGES, API_STAFF_PAGES, API_TEACHER_PAGES };
  */
 function AdminPage({ page, session, children }: { page: string; session: SchoolSession; children: ReactNode }) {
   const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
+  const leaveAccess = useHrLeaveAccess(session);
   const hrItem = useHrItem(session);
   // The guide (and the School assistant's chat) exist only where Bloom is on for the school, as on the Supabase build. While this is
   // being read, or when it cannot be read, the guide stays: it then says why it cannot answer.
@@ -45,7 +54,7 @@ function AdminPage({ page, session, children }: { page: string; session: SchoolS
     <ConsoleShell
       role="school_admin"
       user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? (full ? "Principal" : "Admin") }}
-      hiddenNav={NAV.school_admin.map((i) => i.to).filter((to) => !API_ADMIN_PAGES.includes(to) || !mayOpenAdminPage(access, to))}
+      hiddenNav={NAV.school_admin.map((i) => i.to).filter((to) => !adminPagesFor(leaveAccess).includes(to) || !mayOpenAdminPage(access, to))}
       consoleSwitch={session.profile.role === "staff" && showsAdminSwitch("staff", session.adminAreas)
         ? { current: "admin", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" }
         : undefined}

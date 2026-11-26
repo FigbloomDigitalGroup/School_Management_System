@@ -27,7 +27,16 @@ export type ErrorCode =
   | "already_connected"
   | "target_not_enabled"
   | "target_not_linked"
-  | "target_no_handoff_url";
+  | "target_no_handoff_url"
+  // Leave run by Figbloom HR (docs/HR-HANDOFF.md, L1): the same codes the Supabase `my-hr` function answers with.
+  | "hr_leave_off"
+  | "approver_not_linked"
+  | "approver_no_access"
+  | "not_your_approval"
+  | "already_decided"
+  | "not_cancellable"
+  | "leave_rules"
+  | "document_too_large";
 
 /** Additive field-level validation detail (OI-4 / FIG-1621). Never carries submitted values. */
 export type ErrorDetail = {

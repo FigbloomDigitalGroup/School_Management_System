@@ -31,6 +31,8 @@ rename it or change how it behaves without a PR that Mike approves.
 
 ## Unreleased
 
+- **Leave approvals on the new API (L1)**: migration `120_hr_leave_approvals.sql` adds `resource.hr.leave_approvals`; school administrators and Leave or Fees area holders may approve, and organisation administrators need a matching area delegation. `GET /v1/tenants/{tenantId}/me/hr/leave/access`, `GET .../approvals` and `POST .../approvals/{applicationId}/decide` use the caller's own HR identity. The switch defaults off (`HR_LEAVE_ENABLED`); comments and HR response text are not audited or logged, and document URLs are forwarded only over HTTPS. This is the approvals side only: staff leave submission and HR decision events (L3/L4) must exist before enabling it for a school. See `apps/api/docs/HR-HANDOFF.md` section 10.
+
 On `main` or in an open PR, not live in production yet.
 
 - **Guards for stock movements and the behaviour log**: migration `20261125000000_behaviour_inventory_guards.sql`

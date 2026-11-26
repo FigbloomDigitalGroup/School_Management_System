@@ -21851,6 +21851,162 @@ paths:
           $ref: "#/components/responses/MyHrBadGateway"
         "503":
           $ref: "#/components/responses/MyHrUnavailable"
+  /v1/tenants/{tenantId}/me/hr/leave/access:
+    get:
+      tags:
+        - me
+      summary: Whether the caller's school runs leave in Figbloom HR, and whether the caller approves it
+      description: >
+        The rule of the Supabase database function `hr_leave_access()`, for the caller only (docs/HR-HANDOFF.md, slice L1). Any
+        member of the school may ask; nothing is asked of HR. `approver` is true for the school's administrators and anyone holding
+        the Leave or the Fees area (`resource.hr.leave_approvals`; an organisation administrator only with a delegation of one of
+        those areas), never for Figbloom staff. `status` is `not_staff` for anyone who is neither a staff member of the school
+        (teacher, driver, staff, school_admin) nor an approver (a parent, a learner, Figbloom staff, an organisation administrator
+        without a delegation); otherwise `off` (leave through HR is not switched on for this API: `HR_LEAVE_ENABLED` is not `true`,
+        or a platform or HR setting is missing; the default), `not_linked` (the platform does not know the school yet),
+        `not_enabled` (the platform's last answer said HR is not on for the school; unlike My HR this does not wear off) or
+        `available`. A client shows "Leave to approve" only for `available` with `approver` true.
+      operationId: hrLeaveAccess
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The caller's leave access
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HrLeaveAccess"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/tenants/{tenantId}/me/hr/leave/approvals:
+    get:
+      tags:
+        - me
+      summary: Leave applications waiting on the caller in Figbloom HR (Leave to approve)
+      description: >
+        The Supabase function `my-hr` with `{"route": "approvals"}` (docs/HR-HANDOFF.md, slice L1): HR's `GET approvals` for the
+        caller's own HR user. HR decides which applications wait on the caller (its own chain and delegation); the API does not
+        model the chain. For the school's administrators and anyone holding the Leave or the Fees area
+        (`resource.hr.leave_approvals`, checked in code; an organisation administrator only with a delegation of one of them);
+        never for Figbloom staff. Anyone else gets the standard audited 403 `forbidden`. 403 `hr_leave_off` while leave through HR
+        is off for this API or the platform said HR is not on for the school; 409 `school_not_linked` when the platform does not
+        know the school. HR's JSON is passed on as HR sent it (see `HrLeaveApprovals`), except that a document link that is not
+        `https` loses its address. Document links are personal data and work for about 5 minutes: open them at once, never store
+        or log them. HR's refusals: 409 `approver_not_linked` (the caller never opened HR & Payroll from Schools: "Open HR &
+        Payroll once to connect your HR account."), 403 `approver_no_access`, 404 `pending_hr` / `not_linked`, and the rest as
+        for My HR (`hr_forbidden`, 502 `hr_not_connected` / `hr_bad_answer`, 503 `hr_off` / `hr_unavailable`, 429). Rate limited
+        per person, school and platform token (429 with Retry-After). Not audited (a read; HR audits every call).
+      operationId: hrLeaveApprovals
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: HR's answer, as HR sent it (document links https only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HrLeaveApprovals"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/HrLeaveForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/HrLeaveConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/MyHrBadGateway"
+        "503":
+          $ref: "#/components/responses/MyHrUnavailable"
+  /v1/tenants/{tenantId}/me/hr/leave/approvals/{applicationId}/decide:
+    post:
+      tags:
+        - me
+      summary: Approve or decline a leave application in Figbloom HR, as the caller's HR user
+      description: >
+        The Supabase function `my-hr` with `{"route": "approval_decide"}` (docs/HR-HANDOFF.md, slice L1): HR's
+        `POST approvals/<id>/decide`, done in HR as the caller's own HR user, so HR's permissions, delegation and audit apply. The
+        same people and the same refusals of the school's state as `GET .../leave/approvals`. `comment` is trimmed and sent only
+        when not empty; a decline needs one (HR refuses it otherwise, answered as 400 `validation_error` with HR's sentence).
+        Approving is final. HR's refusals: 403 `not_your_approval` (not the caller's step), 409 `already_decided`, 409
+        `approver_not_linked`, 403 `approver_no_access`, 404 `not_found` (the application is not there any more), and the rest as
+        for My HR. HR's answer (`{request_status, application}`) is passed on as HR sent it. Audited as `hr.leave.decided` with
+        HR's application id and the decision only (never the comment or a name). Never retried by the API (HR refuses a
+        repeat with `already_decided`).
+      operationId: hrLeaveDecide
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: authenticated
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: applicationId
+          in: path
+          required: true
+          description: HR's id of the application (from `GET .../leave/approvals`)
+          schema:
+            type: string
+            pattern: ^[A-Za-z0-9_-]{1,64}$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HrLeaveDecideRequest"
+      responses:
+        "200":
+          description: HR's answer, as HR sent it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HrLeaveDecision"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/HrLeaveForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/HrLeaveConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/MyHrBadGateway"
+        "503":
+          $ref: "#/components/responses/MyHrUnavailable"
   /v1/tenants/{tenantId}/me/chat-contacts:
     get:
       tags:
@@ -22080,6 +22236,24 @@ components:
       description: >
         HR is already there for the school (`already_connected`), the platform does not know the school (`school_not_linked`),
         or the platform refused the sign-in (`target_not_enabled`, `target_not_linked`, `target_no_handoff_url`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    HrLeaveForbidden:
+      description: >
+        Not someone who approves leave at this school (`forbidden`: not the school's administrator, neither the Leave nor the Fees
+        area, an organisation administrator without such a delegation, or Figbloom staff), leave through HR is off for this API or
+        for the school (`hr_leave_off`), or HR refused the person (`approver_no_access`, `not_your_approval`, `hr_forbidden`). Also
+        the usual 403 of an authenticated route (password change required, no membership, suspended school).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    HrLeaveConflict:
+      description: >
+        The platform does not know the school (`school_not_linked`), the caller has no HR user yet (`approver_not_linked`: open HR
+        & Payroll once), the application was already decided (`already_decided`), or another conflict in HR (`conflict`).
       content:
         application/json:
           schema:
@@ -23968,6 +24142,14 @@ components:
                 - target_not_enabled
                 - target_not_linked
                 - target_no_handoff_url
+                - hr_leave_off
+                - approver_not_linked
+                - approver_no_access
+                - not_your_approval
+                - already_decided
+                - not_cancellable
+                - leave_rules
+                - document_too_large
             message:
               type: string
             request_id:
@@ -30752,6 +30934,93 @@ components:
         expires_at:
           type: [string, "null"]
           description: When the link stops working, as the platform said it (null if it did not)
+    HrLeaveAccess:
+      type: object
+      additionalProperties: false
+      description: >
+        The Supabase function `hr_leave_access()`'s answer, field for field: which leave the caller's school uses, and whether the
+        caller approves it.
+      required:
+        - status
+        - approver
+      properties:
+        status:
+          type: string
+          enum:
+            - not_staff
+            - off
+            - not_linked
+            - not_enabled
+            - available
+        approver:
+          type: boolean
+    HrLeaveApprovals:
+      type: object
+      additionalProperties: true
+      description: >
+        Figbloom HR's own answer to `GET approvals`, passed on as HR sent it (HR's field names; SCHOOLS_HR_LEAVE_CONTRACT.md
+        section 2, as Schools' own code reads it, unverified against HR). The API reads only the document links: one that is not
+        `https` has its `url` set to null. Each item is, as HR sends it: `application_id`, `employee` (`employee_number`, `name`,
+        `external_id`), `leave_type`, `start_date`, `end_date`, `days`, `half_day`, `reason`, `step_label`, `document` and
+        `followup_document` (`name`, `url`, `expires_at`: the link works for about 5 minutes), and `approval.steps[]` (`label`,
+        `status`, `waiting_on`, `actor_name`, `comment`).
+      properties:
+        status:
+          type: string
+          description: "HR's own status for the answer (`active`)."
+        approvals:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              application_id:
+                type: string
+              document:
+                $ref: "#/components/schemas/HrLeaveDocumentLink"
+              followup_document:
+                $ref: "#/components/schemas/HrLeaveDocumentLink"
+    HrLeaveDocumentLink:
+      type: [object, "null"]
+      additionalProperties: true
+      description: >
+        A document HR keeps with an application. `url` is HR's short-lived link (about 5 minutes), always `https` or null: open
+        it directly, never store, show in full or log it.
+      properties:
+        name:
+          type: [string, "null"]
+        url:
+          type: [string, "null"]
+        expires_at:
+          type: [string, "null"]
+    HrLeaveDecideRequest:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum:
+            - approve
+            - decline
+        comment:
+          anyOf:
+            - type: string
+              maxLength: 1000
+            - type: "null"
+      required:
+        - decision
+      additionalProperties: false
+    HrLeaveDecision:
+      type: object
+      additionalProperties: true
+      description: >
+        Figbloom HR's own answer to `POST approvals/<id>/decide`, passed on as HR sent it: `request_status` (`approved` or
+        `declined`) and the `application` as HR now has it.
+      properties:
+        request_status:
+          type: string
+        application:
+          type: object
+          additionalProperties: true
     MyInventoryIssue:
       type: object
       additionalProperties: false
