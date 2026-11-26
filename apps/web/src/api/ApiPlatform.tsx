@@ -14,6 +14,7 @@ import { useAsync } from "../lib/useAsync";
 import { ApiPlatformAudit } from "../screens/platform/ApiPlatformAudit";
 import { ApiPlatformHealth } from "../screens/platform/ApiPlatformHealth";
 import { ApiPlatformOrganizations } from "../screens/platform/ApiPlatformOrganizations";
+import { ApiPlatformSubscriptions } from "../screens/platform/ApiPlatformSubscriptions";
 import { ApiPlatformTenants } from "../screens/platform/ApiPlatformTenants";
 import { ApiPlatformUsage } from "../screens/platform/ApiPlatformUsage";
 
@@ -73,7 +74,8 @@ export function ApiPlatformShell() {
   const badges: Record<string, string> = {};
   if (counts?.tenants) badges["/platform/tenants"] = String(counts.tenants);
 
-  if (page !== "tenants" && page !== "organizations" && page !== "health" && page !== "usage" && page !== "audit") {
+  if (page !== "tenants" && page !== "organizations" && page !== "health" && page !== "usage" && page !== "audit"
+    && !(page === "subscriptions" && caps.subscriptionsPage)) {
     return <Navigate to="/platform/tenants" replace />;
   }
 
@@ -98,6 +100,8 @@ export function ApiPlatformShell() {
           <ApiPlatformUsage />
         ) : page === "audit" ? (
           <ApiPlatformAudit />
+        ) : page === "subscriptions" ? (
+          <ApiPlatformSubscriptions />
         ) : (
           <ApiPlatformHealth />
         )}

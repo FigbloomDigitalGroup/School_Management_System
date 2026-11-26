@@ -22,19 +22,24 @@ Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md) and implementing 
   - Migration `apps/api/migrations/113_platform_audit_read.sql` (`platform.audit.read`, `public.platform_audit_events(...)` `SECURITY DEFINER`, never returns `ip` or `detail`, registered in `SECURITY-DEFINER-INVENTORY.md` + `securityDefiner.test.ts`).
   - API route: `GET /v1/platform/audit-events` (reading is itself audited as `platform.audit.read`).
   - Web: `platform/audit` (`ApiPlatformAudit.tsx`), `auditPage: true` in `platformCapabilities()`.
+- **S5 (incidents, on feature branches)**: migration `121_platform_incidents.sql`, the super-admin incident API, and
+  `platform/incidents` connected through `ApiPlatformIncidents.tsx`. The page keeps the hand-entered workflow chosen by D2.
+- **S6a (subscriptions, local feature branch)**: migration `122_platform_billing_subscriptions.sql`, owner-only subscription
+  and price tables, audited/re-authenticated writes, typed OpenAPI operations, and `platform/subscriptions` connected in
+  `ApiPlatformSubscriptions.tsx` without MRR or seat estimates.
 
-## Remaining work (blocked on owner decisions Q1–Q8)
+## Remaining work
 
-All unblocked slices (**P1–P5**) are now implemented. Remaining platform console pages wait on owner answers to section 6 of `apps/api/docs/PLATFORM-CONSOLE.md`:
+Owner answers have unblocked most of the console. Remaining platform work is:
 
-- **Q1**: School & organization lifecycle ownership (this console vs `console.figbloom.org`) — suspend, reactivate, approve, move org (note Risk R5 delegation FK).
-- **Q2**: Billing ownership (`platform/subscriptions`, `platform/invoices`, licensed seat caps).
-- **Q3**: Impersonation / bounded support sessions (`platform/impersonation`).
-- **Q4**: Incidents (`platform/incidents` vs external status/ops).
-- **Q5**: Audit retention policy (7-year immutability claim).
-- **Q6**: Curriculum verification (`platform/curriculum`, D-5).
-- **Q7**: Live external provider checks on `platform/health`.
-- **Q8**: Super-admin + org-admin dual accounts (Risk R4).
+- **S6b (next)**: `platform/invoices` API and web page, migration 123. Staff create invoices and mark them paid by hand;
+  an overdue invoice does not suspend a school.
+- **Q1 follow-up**: implement approved school lifecycle actions and the `console.figbloom.org` visibility contract; do not
+  infer that contract from this API.
+- **Q5**: audit retention policy (the seven-year immutability claim).
+- **Q7**: live external provider checks on `platform/health`.
+- **Q8**: super-admin + org-admin dual accounts (Risk R4).
+- **Closed**: impersonation (D4) and platform curriculum verification (D6) remain hidden; each school verifies its own catalogue.
 
 ## What works in P2
 
@@ -52,20 +57,16 @@ All unblocked slices (**P1–P5**) are now implemented. Remaining platform conso
   - Reads `GET /v1/platform/ops/status` (`finance_ops_snapshot()`), displaying worker heartbeats/ages, job queue depth/lag/dead,
     reconciliation backlog, and unmatched M-Pesa callback/case counters, with a Refresh action.
 
-## What is hidden on the API build (`platformCapabilities()`)
+## Remaining or closed platform work on the API build
 
-| Hidden on the API build | Next slice / blocker |
+| Page or action | Next slice / blocker |
 |---|---|
-| `platform/organizations` | **P3**: needs `GET /v1/platform/organizations` + `/{id}` (`platform.organizations.read`, migration); **Q1 answered 2026-11-26: this API's console owns lifecycle**, so approve and reject come with sign-up (slice S6) and suspend and reactivate later. The owner also wants API schools seen in `console.figbloom.org`: not built, it needs that console's contract |
-| School admins panel on `platform/tenants` | **P3**: needs `GET /v1/platform/schools/{tenantId}/admins` (`platform.tenants.admins.read`, read-audited) |
-| `platform/usage` & per-school headcounts | **P4**: needs counts-only owner function (`GET /v1/platform/usage`, `platform.usage.read`); seats wait on Q2 |
-| `platform/audit` | **P5**: needs platform-wide audit read (`platform.audit.read`) reusing migration 106's allowlist; retention waits on Q5 |
-| Suspend / reactivate / move organisation | **Q1** (and Risk R5 for org-delegation FK when moving schools) |
-| `platform/subscriptions` & `platform/invoices` | **Q2 answered 2026-11-25: the API owns Figbloom's billing of schools.** Being built (roadmap slice S5); hidden until then |
-| `platform/impersonation` | **Closed by decision (Q3 answered 2026-11-25: no impersonation).** Hidden for good. The page was an empty log (nothing ever wrote to it). Still open as a separate question: a super admin can act inside any school with full powers and no record the school can read |
-| `platform/incidents` | **Q4 answered 2026-11-25: keep a hand-typed incident list.** Being built (slice S5); hidden until then |
-| `platform/curriculum` | **Closed by decision (Q6 answered 2026-11-25: each school verifies its own catalogue, as the API already works).** Hidden for good; there is no platform-wide catalogue to show |
-| Live external provider checks on `platform/health` | **Q7** (worker/queue ops status is shown today) |
+| School lifecycle actions | **Q1**: this API's console owns lifecycle; approve/reject are planned with sign-up, and suspend/reactivate/move remain future work. The `console.figbloom.org` visibility contract still needs implementation |
+| `platform/invoices` | **D3 answered 2026-11-25: API owns school billing.** Next API slice (migration 123); overdue invoices do not suspend schools |
+| `platform/incidents` | **D2 answered 2026-11-25: keep a hand-typed incident list.** API and web work is on a sibling local feature branch |
+| `platform/impersonation` | **Closed by D4 (2026-11-25: no impersonation).** Hidden for good. A separate question remains: a super admin can act inside any school with full powers and no record the school can read |
+| `platform/curriculum` | **Closed by D6 (2026-11-25: each school verifies its own catalogue).** Hidden for good; there is no platform-wide catalogue to show |
+| Live external provider checks on `platform/health` | **Q7**: worker/queue ops status is shown today; live provider checks are not built |
 
 ## Where the code is
 
@@ -75,17 +76,10 @@ All unblocked slices (**P1–P5**) are now implemented. Remaining platform conso
 - `packages/shared/src/capabilities.ts` (`platformCapabilities()`)
 - `packages/shared/src/platform.ts` (API branches + `NotOnApiError` guards)
 - `apps/web/src/api/ApiPlatformRoutes.tsx`, `ApiPlatform.tsx`, `ApiApp.tsx`, `ApiSessionGuard.tsx`
-- `apps/web/src/screens/platform/ApiPlatformTenants.tsx`, `ApiPlatformHealth.tsx`
+- `apps/web/src/screens/platform/ApiPlatformTenants.tsx`, `ApiPlatformHealth.tsx`, `ApiPlatformSubscriptions.tsx`
 
-## Next steps for the next agent
+## Next steps
 
-1. **P3 (unblocked, no owner decision needed for reads)**:
-   - API migration adding `platform.organizations.read` and `platform.tenants.admins.read` (granted to `super_admin`).
-   - Routes: `GET /v1/platform/organizations`, `GET /v1/platform/organizations/:orgId`, `GET /v1/platform/schools/:schoolId/admins` (audit personal-data reads).
-   - Wire `organizationsPage: true` and `tenantAdminsPanel: true` in `platformCapabilities()` and add the read-only API views.
-2. **P4 (unblocked for counts)**:
-   - Counts-only `SECURITY DEFINER` function (active learners, active staff memberships, active guardian links per school — no names or IDs of people), registered in `SECURITY-DEFINER-INVENTORY.md` + tests.
-   - Route: `GET /v1/platform/usage` (`platform.usage.read`), wire `usagePage: true`.
-3. **P5 (unblocked for reads, Q5 for retention)**:
-   - Platform-wide audit read (`GET /v1/platform/audit-events`, `platform.audit.read`) reusing migration 106's allowlist, auditing the read itself, wire `auditPage: true`.
-4. **Blocked on owner decisions Q1–Q8**: see section 6 of `apps/api/docs/PLATFORM-CONSOLE.md`.
+1. **S6b**: build the invoices API and connect platform/invoices; migration 123 follows subscriptions. Create and mark-paid actions need recent re-authentication and audit logging.
+2. **Platform lifecycle**: build the approved school and organisation actions, plus the agreed visibility contract for console.figbloom.org.
+3. **Later decisions**: audit retention (Q5), live provider checks (Q7), and dual super-admin/org-admin accounts (Q8) remain open.

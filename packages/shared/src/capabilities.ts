@@ -952,7 +952,7 @@ export interface PlatformCapabilities {
   usagePage: boolean;
   /** `/platform/incidents` — blocked on owner decision Q4 (hand-typed incident list vs external status/ops). */
   incidentsPage: boolean;
-  /** `/platform/subscriptions` — blocked on owner decision Q2 (whether the API owns Figbloom billing). */
+  /** `/platform/subscriptions` — needs the platform billing API (slice S6a, D3). */
   subscriptionsPage: boolean;
   /** `/platform/invoices` — blocked on owner decision Q2 (whether the API owns Figbloom billing). */
   invoicesPage: boolean;
@@ -993,7 +993,7 @@ const PLATFORM_ON_API: PlatformCapabilities = {
   curriculumPage: false,
   usagePage: true,
   incidentsPage: false,
-  subscriptionsPage: false,
+  subscriptionsPage: true,
   invoicesPage: false,
   impersonationPage: false,
   auditPage: true,
