@@ -34,7 +34,7 @@ import { CallButton } from "../../components/calls/CallButton";
 import { AdminAccessEditor } from "../../components/AdminAccess";
 import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, maySeeSignOutList, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
 import { confirmDialog } from "../../components/ui/Confirm";
-import { LearnerPlacementError, apiAddStaff, apiArchiveStaff, apiFetchArchivedStaff, apiRestoreStaff, peopleCapabilities } from "@figbloom/shared";
+import { LearnerPlacementError, apiAddStaff, apiArchiveStaff, apiCreateStudentAccount, apiFetchArchivedStaff, apiFetchStudentAccountStatuses, apiRestoreStaff, onApi, peopleCapabilities } from "@figbloom/shared";
 
 type StudentRow = RosterLearner;
 type StaffRow = RosterStaff;
@@ -58,7 +58,8 @@ export function People() {
   // Admin access (20261031000000) is managed by full admins only; someone here through the people area manages records, not access.
   const myAccess = adminAccessFor(profile.role, adminAreas, actingForTenant);
   const fullAdmin = myAccess === "all";
-  // What the backend can do: on the new API there are no logins, fees, health, home or photo records yet, staff are directory records that
+  const apiBuild = onApi();
+  // What the backend can do: on the new API there are no fees, health, home or photo records yet, staff are directory records that
   // are archived rather than removed, and only a full administrator may import (see capabilities.ts peopleCapabilities).
   const caps = peopleCapabilities();
   const mayImport = caps.importByAreaHolders || fullAdmin;
@@ -81,9 +82,18 @@ export function People() {
   const [deletingStaff, setDeletingStaff] = useState(false);
   // Learners who have left are archived, not deleted: one switch between the current roll and them.
   const [view, setView] = useState<"current" | "archived">("current");
+  const canManageApiStudentAccounts = profile.role === "school_admin" || profile.role === "super_admin" ||
+    ((profile.role === "teacher" || profile.role === "staff") && Array.isArray(myAccess) && myAccess.includes("people"));
+  const showLearnerLogins = caps.learnerLogins && (!apiBuild || (view === "current" && canManageApiStudentAccounts));
   const [working, setWorking] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const loginScope = `${tenant.id}:${reloadKey}`;
+  const [apiLoginCache, setApiLoginCache] = useState<{ scope: string; ids: Map<string, string | null> }>({ scope: "", ids: new Map() });
+  const emptyApiLoginIds = useRef<Map<string, string | null>>(new Map()).current;
+  const apiLoginIds = apiLoginCache.scope === loginScope ? apiLoginCache.ids : emptyApiLoginIds;
+  const [loginStatusError, setLoginStatusError] = useState<string | null>(null);
+  const [loginStatusRetry, setLoginStatusRetry] = useState(0);
 
   const { data, loading, error } = useAsync(() => fetchPeopleRoster(tenant.id), [tenant.id, reloadKey]);
   const { data: archivedData, loading: archivedLoading } = useAsync(
@@ -135,6 +145,29 @@ export function People() {
 
   const pagedRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [rows, page, pageSize]);
   const pagedStaffRows = useMemo(() => staffRows.slice((page - 1) * pageSize, page * pageSize), [staffRows, page, pageSize]);
+  const studentsWithoutLogin = useMemo(() => (data?.students ?? []).filter((s) => picked.has(s.id) &&
+    (apiBuild ? apiLoginIds.get(s.id) === null : !s.login_id)), [data, picked, apiBuild, apiLoginIds]);
+
+  useEffect(() => { setLoginStatusError(null); }, [loginScope, page, pageSize, classId, query, view]);
+
+  useEffect(() => {
+    if (!apiBuild || !showLearnerLogins || tab !== "students" || pending || pagedRows.length === 0) return;
+    const ids = pagedRows.map((s) => s.id).filter((id) => !apiLoginIds.has(id));
+    if (ids.length === 0) return;
+    let active = true;
+    setLoginStatusError(null);
+    void apiFetchStudentAccountStatuses(tenant.id, ids)
+      .then((statuses) => {
+        if (active) setApiLoginCache((previous) => ({
+          scope: loginScope,
+          ids: new Map([...(previous.scope === loginScope ? previous.ids : []), ...statuses]),
+        }));
+      })
+      .catch((err: unknown) => {
+        if (active) setLoginStatusError(err instanceof Error ? err.message : "Could not load learner login details.");
+      });
+    return () => { active = false; };
+  }, [apiBuild, showLearnerLogins, tab, pending, pagedRows, apiLoginIds, loginScope, tenant.id, loginStatusRetry]);
 
   const classesById = useMemo(() => new Map((data?.classes ?? []).map((c) => [c.id, c.name])), [data]);
   const subjectsById = useMemo(() => new Map((data?.subjects ?? []).map((s) => [s.id, s])), [data]);
@@ -309,7 +342,7 @@ export function People() {
           {view === "current" ? (
             <>
               {(caps.inviteGuardians || caps.guardianInvitations) && <Button onClick={() => setInviteGuardiansOpen(true)}>Invite guardians</Button>}
-              {caps.learnerLogins && (data?.students ?? []).some((s) => picked.has(s.id) && !s.login_id) && (
+              {showLearnerLogins && studentsWithoutLogin.length > 0 && (
                 <Button onClick={() => setCreateLoginsOpen(true)}>Create logins</Button>
               )}
               <Button disabled={working} onClick={() => void archiveStudents([...picked], learnerCount(picked.size))}>Archive</Button>
@@ -323,6 +356,12 @@ export function People() {
       )}
 
       <div className="px-7 py-6">
+        {loginStatusError && showLearnerLogins && (
+          <div role="alert" className="mb-4 flex items-center gap-3 rounded-lg border border-warn-ink/30 bg-warn-ink/5 px-3 py-2.5 text-[12.5px] text-warn-ink">
+            <span>Could not load learner login details: {loginStatusError}</span>
+            <button className="ml-auto font-semibold underline" onClick={() => setLoginStatusRetry((n) => n + 1)}>Try again</button>
+          </div>
+        )}
         {tab === "students" && caps.bioData && (
           <BioRequestsPanel tenantId={tenant.id} toast={toast} reloadKey={reloadKey} onOpenLearner={(id) => setManage({ kind: "students", id })} />
         )}
@@ -353,7 +392,11 @@ export function People() {
               { key: "gender", header: "Gender", render: (s) => s.gender ? <span className="text-[13px] capitalize">{s.gender}</span> : <Badge tone="warn">Not set</Badge> },
               { key: "board", header: "Residence", render: (s) => <Badge tone="muted">{s.boarding ? "Boarder" : "Day"}</Badge> },
               ...(caps.guardianColumn ? [{ key: "guardian", header: "Guardian", width: "1.2fr", render: () => <Mono>+254 7·· ··· ···</Mono> }] : []),
-              ...(caps.learnerLogins ? [{ key: "login", header: "Login", render: (s: StudentRow) => s.login_id ? <Mono>{s.login_id}</Mono> : <Badge tone="muted">No login</Badge> }] : []),
+              ...(showLearnerLogins ? [{ key: "login", header: "Login", render: (s: StudentRow) => {
+                const loginId = apiBuild ? apiLoginIds.get(s.id) : s.login_id;
+                if (loginId === undefined) return <Badge tone="muted">{loginStatusError ? "Unavailable" : "Loading…"}</Badge>;
+                return loginId ? <Mono>{loginId}</Mono> : <Badge tone="muted">No login</Badge>;
+              } }] : []),
               ...(caps.learnerFees || view === "archived" ? [{ key: "fees", header: view === "archived" ? "Archived" : "Fees", align: "right" as const, render: (s: StudentRow) => {
                 if (view === "archived") return <span className="text-[12.5px] text-ink-muted">{s.archived_at ? new Date(s.archived_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>;
                 const inv = data.feeByStudent.get(s.id);
@@ -620,7 +663,7 @@ export function People() {
       {createLoginsOpen && data && (
         <CreateStudentLoginsModal
           tenantId={tenant.id}
-          students={data.students.filter((s) => picked.has(s.id) && !s.login_id).map((s) => ({ id: s.id, name: s.full_name }))}
+          students={studentsWithoutLogin.map((s) => ({ id: s.id, name: s.full_name }))}
           onClose={() => setCreateLoginsOpen(false)}
           onCreated={() => { setPicked(new Set()); setReloadKey((k) => k + 1); }}
           toast={toast}
@@ -1162,7 +1205,9 @@ function CreateStudentLoginsModal({ tenantId, students, onClose, onCreated, toas
     try {
       for (const s of students) {
         try {
-          const r: ProvisionStudentResult = await provisionStudent({ tenant_id: tenantId, student_id: s.id });
+          const r: ProvisionStudentResult = onApi()
+            ? await apiCreateStudentAccount(tenantId, s.id)
+            : await provisionStudent({ tenant_id: tenantId, student_id: s.id });
           done.push({ name: s.name, login_id: r.login_id, password: r.password });
         } catch (err) {
           toast(err instanceof Error ? `${s.name}: ${err.message}` : `Could not create a login for ${s.name}.`, "error");

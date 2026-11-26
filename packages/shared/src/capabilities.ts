@@ -81,7 +81,7 @@ export function setupCapabilities(): SetupCapabilities {
 export interface PeopleCapabilities {
   /** Delete a learner for good (the API archives only). */
   deleteLearner: boolean;
-  /** Learners' sign-in accounts: the Login column, "Create logins", a learner's password reset. */
+  /** Learner login IDs: the Login column and "Create logins"; password resets are a separate capability. */
   learnerLogins: boolean;
   /** "Invite guardians" from the selected learners (parents' sign-in accounts, made with a login ID and password). */
   inviteGuardians: boolean;
@@ -138,7 +138,7 @@ const PEOPLE_ON_SUPABASE: PeopleCapabilities = {
 };
 
 const PEOPLE_ON_API: PeopleCapabilities = {
-  deleteLearner: false, learnerLogins: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
+  deleteLearner: false, learnerLogins: true, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
   learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false, learnerBehaviour: true,
   photos: false, passwordResets: false, staffAccounts: false, staffSubjects: false, staffCalls: false, staffArchive: true, guardianContactForm: true,
   importByAreaHolders: false, learnerWithoutClass: true, unassignClass: false,
