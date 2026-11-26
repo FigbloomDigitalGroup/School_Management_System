@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import {
-  fetchConsumptionFlags, fetchCostPerMeal, fetchCurrentTermDates, fetchHeadcount, fetchIssueCharges, fetchItemIndex, fetchSpendByMonth, fetchStockLevels,
-  fetchUniformIssues, fetchUsage, monthsBack, periodRange, STORES, todayIso,
+  capRange, fetchConsumptionFlags, fetchCostPerMeal, fetchCurrentTermDates, fetchHeadcount, fetchIssueCharges, fetchItemIndex, fetchSpendByMonth,
+  fetchStockLevels, fetchUniformIssues, fetchUsage, inventoryCapabilities, monthsBack, periodRange, STORES, todayIso,
   type CostPerMealRow, type ItemIndexRow, type ReportPeriod, type StoreKey, type UsageRow,
 } from "@figbloom/shared";
 import { invalidate, useQuery } from "../../lib/queryCache";
@@ -65,10 +65,16 @@ export function useStockRange(tenantId: string, period: ReportPeriod) {
   const term = useQuery(invKey(tenantId, "term"), () => fetchCurrentTermDates(tenantId), { staleTime: 10 * 60_000 });
   // "This term" waits for the term's dates rather than fetching the year and then the term
   const ready = period !== "term" || !term.loading;
-  const range = periodRange(period, new Date(), term.data);
+  // the API answers a report for a limited period (reportMaxDays), so a term that runs longer is cut to its last days
+  const { reportMaxDays, termDatesNeedAcademics } = inventoryCapabilities();
+  const asked = periodRange(period, new Date(), term.data);
+  const range = reportMaxDays ? capRange(asked, reportMaxDays) : asked;
   // the flags look at a window long enough for a baseline and a 4-week trend, even for "this week"
   const flagFrom = period === "week" ? todayIso(new Date(Date.now() - 27 * 86_400_000)) : range.from;
-  return { ready, range, flagFrom };
+  // On the API a person who holds only the Inventory area may not read the term's dates, so "This term" is offered only when they are known
+  // (the Supabase build always offers it, as before).
+  const termAvailable = !termDatesNeedAcademics || term.loading || !!term.data;
+  return { ready, range, flagFrom, termAvailable };
 }
 
 export function useItemIndex(tenantId: string) {

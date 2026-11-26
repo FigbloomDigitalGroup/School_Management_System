@@ -64,7 +64,8 @@ On `main` or in an open PR, not live in production yet.
 - **Behaviour log on the new API, part 2 (S2b, `apps/api/docs/BEHAVIOUR.md`)**: migration `119_behaviour_family_notice.sql` (one
   narrow definer function, `behaviour_notice_family_users`). `PUT /v1/tenants/{tenantId}/behaviour/entries/{entryId}/incident` (the
   office's follow-up), in-app notices to the class teacher and the family when a serious entry is recorded, and
-  `GET /v1/tenants/{tenantId}/me/children/{learnerId}/behaviour` (a parent's child, a learner's own record). Nothing live changes.
+  `GET /v1/tenants/{tenantId}/me/children/{learnerId}/behaviour` (a parent's child, a learner's own record). A behaviour entry
+  recorded as an incident with no category may carry 0 points. Nothing live changes.
 - **Behaviour log on the API build (S2c and S2d, `docs/web-on-api/behaviour.md`)**: `admin/behaviour`, `teacher/behaviour`,
   `parent/behaviour` and `student/behaviour` now open on the API build (`apps/web/src/api/pages/behaviour.pages.tsx`), and the
   behaviour tab of a learner on the People page is on (`peopleCapabilities().learnerBehaviour`). The shared functions in
@@ -75,6 +76,55 @@ On `main` or in an open PR, not live in production yet.
   in the browser); the stock overview, the behaviour log and the HR & Payroll screens stay Supabase-only and are hidden on the
   API build until their slices land (`inventoryCapabilities().stockMovements`, `peopleCapabilities().learnerBehaviour`,
   `docs/handoffs/WEB-ON-API-ROADMAP.md`). `HrLaunch.tsx` asks `hasSession()` instead of calling `supabase()` (same answer).
+- **HR & Payroll hand-off on the new API (slice H1, API only)**: the `open-hr` actions on `apps/api`, off by default
+  (`PLATFORM_HANDOFF_ENABLED` plus the four `PLATFORM_*` settings). Supabase and the web are unchanged.
+  - `GET /v1/tenants/{t}/me/hr/handoff-status` (`{enabled, connection, requested_at, can_request_hr}`),
+    `POST .../me/hr/handoff-request` (`{requested_at}`, 409 `already_connected`) and `POST .../me/hr/handoff` (`{url, expires_at}`,
+    https only, the one-time link never logged or audited). Audit kinds `hr.handoff.opened` and `hr.handoff.requested`.
+  - `GET /v1/platform/schools` and `/{schoolId}` gain `hrRequestedAt` and `hrRequestedBy` (the account's id).
+  - Migration `117_hr_handoff.sql`: permission `resource.hr.handoff` (school admins and the Fees area; never Figbloom staff;
+    org admins only with an `area.fees` delegation), `platform_school_links.platform_tenant_id` and a column-level `UPDATE` of
+    its three HR-answer columns, `tenants.hr_requested_at` / `hr_requested_by` with the definer `hr_record_request()`, and
+    `school_audit_events` filing `hr.handoff.*` under access.
+  - Design and differences from the live rules: `apps/api/docs/HR-HANDOFF.md` section 9.
+- **HR & Payroll on the API build (slice H2, web only)**: the same HR screens run on `VITE_BACKEND=api`. Nothing live changes:
+  the Supabase paths of `hrHandoff.ts` are as before, and no database object or endpoint is added or changed. Off until the owner
+  switches the hand-off on for the API (H1).
+  - `hrHandoff.ts` (`fetchHrStatus`, `requestFigbloomHr`, `requestHrLink`, `fetchHrHandoffStatus`) gains `onApi()` branches over the
+    three routes of H1 (`packages/shared/src/api/hrHandoffApi.ts`). `requestHrLink`'s `expires_at` is now `string | null`. The API's
+    five new error codes are in `api/errors.ts`.
+  - The "HR & Payroll" side item is in the API build's admin, teacher and staff consoles (`sideActions` in `ApiConsole.tsx`: the
+    only edit to that file), shown only while the API says the hand-off is on; `admin/hr` (`api/pages/hr.pages.tsx`) and the
+    top-level `/hr/launch` (`api/ApiHrRoutes.tsx`) are registered for the API build.
+  - The school's audit log words `hr.handoff.opened` and `hr.handoff.requested` as the Supabase build does (`auditApi.ts`).
+    `platform/tenants` shows which schools asked for HR & Payroll (`hrRequestedAt`, `hrRequestedBy`): a badge, a filter and a block in
+    the detail.
+  - Write-up, findings `hr-handoff-1` to `-9` and what was not verified: `docs/web-on-api/hr-handoff.md`.
+- **Stock movements on the new API (slice S1a, `apps/api` only)**: a port of the live "stock in and out" feature, same
+  rules (`apps/api/docs/INVENTORY-STOCK.md`, which also lists what differs and why). Migration
+  `115_inventory_movements.sql`: `unit`, `consumable`, `reorder_level` on `inventory_items`; table `inventory_movements`
+  (insert-only, forced RLS) with the `inventory_movements_apply` trigger that moves the count under a lock on the item.
+  New endpoints `POST` and `GET /v1/tenants/{t}/inventory/movements` and `GET /v1/tenants/{t}/inventory/stock-levels`
+  (existing `resource.inventory.read` / `.write`); `POST /inventory/items` takes the three new columns and a stock line may
+  start at 0. New audit event `inventory.movement.recorded`. Nothing on Supabase or the web changes.
+- **Stock reports on the new API (slice S1b, `apps/api` only)**: migration `116_inventory_stock_reports.sql` ports the
+  live report functions (`inventory_ledger`, `inventory_usage`, `inventory_spend_by_month`, `inventory_cost_per_meal`,
+  `inventory_stock_levels`, `inventory_headcount`, `inventory_consumption_flags`, `inventory_price_on`,
+  `inventory_qty_text`) as SECURITY INVOKER functions with the same maths (checked row for row against the live text), plus
+  `inventory_assert_tenant` and `inventory_headcount_days`. New read endpoints `GET /v1/tenants/{t}/inventory/reports/`
+  `ledger`, `usage`, `spend-by-month`, `cost-per-meal`, `headcount` and `flags` (`resource.inventory.read`; flags default
+  to the last 8 weeks). `GET /inventory/stock-levels` now reads `inventory_stock_levels`. The AI `stock_insights` task is
+  not ported: it needs a change to the Bloom contract (`apps/api/docs/INVENTORY-STOCK.md`).
+- **Stock screens on the new API build (slice S1c, web only)**: the Stock & kitchen tab, its nine pages
+  (`admin/inventory/stock/:section`, no menu entry of their own), Receive / Use / Stock-take and an item's movement history now
+  run on `VITE_BACKEND=api`, on the endpoints of slices S1a and S1b (`packages/shared/src/api/stockApi.ts`, branches in
+  `inventoryStock.ts` and `inventoryPaging.ts`; `inventoryCapabilities().stockMovements` is on). Nothing on Supabase changes.
+  Hidden on the API build, with the reason in `docs/web-on-api/inventory.md`: the AI briefing (`stockInsights`: not in the
+  Bloom contract), editing an existing item's unit, consumable flag or reorder level (`editItem`: no item PATCH), and, on
+  the Uniforms page, what was billed to families and uniforms that came back (`chargeToFees`, `issueHistory`). A report
+  period is cut to 366 days (`reportMaxDays`), "This term" is left out when the person may not read the term's dates (`termDatesNeedAcademics`), and
+  the Clinic page says sick-bay medicine is recorded by hand (`sickBayUsesStock`), as the API's sick bay does not take it
+  from stock. A new stock line may start at 0 on the API build.
 
 - **Attendance fixes (FIG-1406, FIG-1407, FIG-1408)**: on `main` since 2026-11-10 but **left out of production on
   purpose** until they're reviewed. Production doesn't have these migrations yet:
@@ -228,8 +278,8 @@ screens:
 | Inventory stock | `items` and `issues` routes | Stock movements (in, used, wasted, adjusted), `unit` / `consumable` / `reorder_level`, the ledger, usage, spend, cost per meal, stock levels, headcount and flags reports |
 | AI stock insights | `ai/query` | The `stock_insights` task |
 | M-Pesa | STK push and query in `finance.ts`, callback in `mpesa.ts` | The `DARAJA_TENANTS` allowlist, and retrying the STK query when Daraja answers 429 |
-| HR and Payroll | Nothing | `status`, `request` and `open` (the `open-hr` function) |
-| Console: HR requests | `GET /v1/platform/schools` | `hr_requested_at` / `hr_requested_by` |
+| HR and Payroll | `GET .../me/hr/handoff-status`, `POST .../me/hr/handoff-request`, `POST .../me/hr/handoff` (slice H1, off by default) | Nothing: the web screens run on it (slice H2, `docs/web-on-api/hr-handoff.md`). Switching it on for a real school needs the owner's answers on ids, credentials and network (`HR-HANDOFF.md` section 6) |
+| Console: HR requests | `GET /v1/platform/schools` with `hrRequestedAt` / `hrRequestedBy` (slice H1) | Nothing: `platform/tenants` on the API build shows it (slice H2) |
 | RLS performance | Its own RLS (`apps/api/migrations`) | Make sure the new policies don't check rights per row either |
 
 ## Catching up with main

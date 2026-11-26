@@ -651,15 +651,25 @@ describe("My HR on the API", () => {
         expect((await asApp(null, (c) => c.query(`SELECT 1 FROM platform_school_links`))).rowCount).toBe(0);
       }));
 
-    it("the runtime login cannot write it: no insert, update or delete, for its own school or another", async () => {
+    it("the runtime login cannot add, remove or re-point a row; it may only record HR's answer for its own school (migration 117)", async () => {
       for (const sql of [
         `INSERT INTO platform_school_links (tenant_id) VALUES ('${randomUUID()}')`,
-        `UPDATE platform_school_links SET hr_enabled = true, hr_checked_at = now()`,
+        `UPDATE platform_school_links SET tenant_id = tenant_id`,
+        `UPDATE platform_school_links SET registered_at = now()`,
+        `UPDATE platform_school_links SET platform_tenant_id = 'x'`,
         `DELETE FROM platform_school_links`,
         `TRUNCATE platform_school_links`,
       ]) {
         await expect(asApp(ids.tenantA, (c) => c.query(sql)), sql).rejects.toMatchObject({ code: "42501" });
       }
+      // the HR & Payroll hand-off records the platform's answer: its own school's row only (the transaction is rolled back)
+      await withLinkB(async () => {
+        const own = await asApp(ids.tenantA, (c) => c.query(`UPDATE platform_school_links SET hr_enabled = true, hr_reason = NULL, hr_checked_at = now()`));
+        expect(own.rowCount).toBe(1);
+        const other = await asApp(ids.tenantA, (c) => c.query(`UPDATE platform_school_links SET hr_enabled = true, hr_checked_at = now() WHERE tenant_id = $1`, [ids.tenantB]));
+        expect(other.rowCount).toBe(0);
+        expect((await asApp(null, (c) => c.query(`UPDATE platform_school_links SET hr_enabled = true, hr_checked_at = now()`))).rowCount).toBe(0);
+      });
     });
 
     it("is ENABLE + FORCE row security, with the tenant policy and the owner policy, and SELECT only for the runtime role", async () => {

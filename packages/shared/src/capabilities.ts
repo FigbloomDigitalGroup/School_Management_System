@@ -300,7 +300,10 @@ export function coursesCapabilities(): CoursesCapabilities {
 
 /** The admin Inventory screen (admin/inventory). */
 export interface InventoryCapabilities {
-  /** Editing an existing inventory item (no PATCH /inventory/items/{itemId} endpoint on API). */
+  /**
+   * Editing an existing inventory item, including a stock line's unit, consumable flag and reorder level (no PATCH
+   * /inventory/items/{itemId} endpoint on API: these can be set when the item is added, and not changed afterwards).
+   */
   editItem: boolean;
   /** Putting a written-off item back on the register (no unretire endpoint; GET /inventory/items lists active items only). */
   unretireItem: boolean;
@@ -313,10 +316,28 @@ export interface InventoryCapabilities {
   /** Charging a learner's fees for lost or damaged items (waits on closed-issue history and charge-by-issue lookup). */
   chargeToFees: boolean;
   /**
-   * Consumables, stock in and out (received, used, wasted, adjusted), the unit and reorder level, the "Stock & kitchen" tab and its
-   * reports (no inventory movements on the API yet: slice S1 of docs/handoffs/WEB-ON-API-ROADMAP.md).
+   * Consumables, stock in and out (received, used, wasted, adjusted), the unit and reorder level when an item is added, the
+   * "Stock & kitchen" tab and its reports (`/inventory/movements`, `/stock-levels`, `/reports/*`: apps/api/docs/INVENTORY-STOCK.md).
    */
   stockMovements: boolean;
+  /** The AI briefing on the flags ("AI insights"): the `stock_insights` task is not in the API's Bloom contract (INVENTORY-STOCK.md, "stock_insights"). */
+  stockInsights: boolean;
+  /**
+   * Medicine given in the sick bay coming off a Medical stock line by itself, and counting as use in the reports. The API's sick bay does
+   * not take medicine from stock, so there every use is recorded by hand (INVENTORY-STOCK.md, "What differs", 3).
+   */
+  sickBayUsesStock: boolean;
+  /**
+   * The most days one report request may cover (ledger, usage, spend, cost per meal: 400; flags: 366), or null for no limit. The
+   * screens' periods fit; a term longer than this is cut to its last days.
+   */
+  reportMaxDays: number | null;
+  /**
+   * The current term's dates (for the "This term" period) are read from `GET /academic-terms`, which needs the Academics area (or
+   * teaching a class): a person with only Inventory is refused, so "This term" is left out when the dates are not known. On Supabase
+   * a member of staff reads them, and the period is always offered.
+   */
+  termDatesNeedAcademics: boolean;
 }
 
 const INVENTORY_ON_SUPABASE: InventoryCapabilities = {
@@ -327,6 +348,10 @@ const INVENTORY_ON_SUPABASE: InventoryCapabilities = {
   issueNote: true,
   chargeToFees: true,
   stockMovements: true,
+  stockInsights: true,
+  sickBayUsesStock: true,
+  reportMaxDays: null,
+  termDatesNeedAcademics: false,
 };
 
 const INVENTORY_ON_API: InventoryCapabilities = {
@@ -336,7 +361,11 @@ const INVENTORY_ON_API: InventoryCapabilities = {
   issueHistory: false,
   issueNote: false,
   chargeToFees: false,
-  stockMovements: false,
+  stockMovements: true,
+  stockInsights: false,
+  sickBayUsesStock: false,
+  reportMaxDays: 366,
+  termDatesNeedAcademics: true,
 };
 
 export function inventoryCapabilities(): InventoryCapabilities {

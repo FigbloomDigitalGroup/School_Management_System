@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  formatMoney, formatQty, groupFlags, INVENTORY_CATEGORY_LABEL, inStore, spendByMonthFor, STORES, storeOf, usageByItem,
+  formatMoney, formatQty, groupFlags, INVENTORY_CATEGORY_LABEL, inStore, inventoryCapabilities, spendByMonthFor, STORES, storeOf, usageByItem,
   type InventoryCategory, type StockLevel, type StoreKey,
 } from "@figbloom/shared";
 import { BarList } from "../../components/analytics/BarList";
@@ -50,9 +50,13 @@ export function InventoryStockPage() {
   const back = `${base}?tab=stock${qs ? `&${qs}` : ""}`;
   const openItem = (id: string) => nav(`${base}?tab=stock&item=${id}${qs ? `&${qs}` : ""}`);
   const { tenant } = useTenantSession();
-  const { range } = useStockRange(tenant.id, period);
+  const { range, termAvailable } = useStockRange(tenant.id, period);
+  const caps = inventoryCapabilities();
   const fixedStore: StoreKey | null = s === "clinic" ? "clinic" : s === "kitchen" ? "kitchen" : s === "uniforms" ? "uniforms" : null;
-  const t = TITLES[s];
+  const t = { ...TITLES[s] };
+  // what the API build cannot do changes what two of the pages can say
+  if (s === "clinic" && !caps.sickBayUsesStock) t.blurb = "Sick-bay supplies: what was used in the period and the flags on them. Record the medicine given in the sick bay as use: it does not come off stock by itself on the new system yet.";
+  if (s === "uniforms" && !caps.chargeToFees) t.blurb = "Uniform items still out with people that were handed out in the period. Returned ones are not listed on the new system yet, and charging families for them is not there either.";
 
   return (
     <>
@@ -72,7 +76,7 @@ export function InventoryStockPage() {
           ))}
         </nav>
         <StockFilters period={period} store={fixedStore ?? store} onPeriod={setPeriod} onStore={setStore} range={range}
-          hidePeriod={s === "levels" || s === "low-stock" || s === "spend"} hideStore={!!fixedStore} />
+          hidePeriod={s === "levels" || s === "low-stock" || s === "spend"} hideStore={!!fixedStore} hideTerm={!termAvailable} />
         {s === "levels" && <LevelsSection store={store} onOpenItem={openItem} />}
         {s === "low-stock" && <LowSection store={store} onOpenItem={openItem} />}
         {s === "flags" && <FlagsSection store={store} />}
@@ -291,6 +295,7 @@ function UniformsSection() {
   const { ready, range } = useStockRange(tenant.id, period);
   const { issues, charges } = useUniforms(tenant.id, ready, range);
   const money = useMoney();
+  const caps = inventoryCapabilities();
   const rows = useMemo(() => {
     const by = new Map<string, { item_id: string; name: string; copies: number; learners: Set<string>; billedCents: number; billed: number }>();
     for (const i of issues.data ?? []) {
@@ -314,7 +319,8 @@ function UniformsSection() {
     <Loading when={issues.loading || !ready}>
       <StatRow stats={[
         { label: "Issued", value: copies.toLocaleString(), sub: `${new Set((issues.data ?? []).map((i) => i.student_id).filter(Boolean)).size.toLocaleString()} learners` },
-        { label: "Billed to families", value: charges.loading ? "…" : money(billed), sub: `${rows.reduce((a, r) => a + r.billed, 0).toLocaleString()} charges` },
+        // charging a family for a lost or damaged item is not on the API, so there is nothing billed to show there
+        ...(caps.chargeToFees ? [{ label: "Billed to families", value: charges.loading ? "…" : money(billed), sub: `${rows.reduce((a, r) => a + r.billed, 0).toLocaleString()} charges` }] : []),
         { label: "Items", value: String(rows.length), sub: "uniform lines handed out" },
       ]} />
       {months.length > 1 && (
@@ -328,12 +334,12 @@ function UniformsSection() {
           { key: "name", header: "Item", width: "1.8fr", render: (r: (typeof rows)[number]) => <Cell>{r.name}</Cell> },
           { key: "copies", header: "Issued", align: "right", render: (r: (typeof rows)[number]) => <Mono>{r.copies.toLocaleString()}</Mono> },
           { key: "learners", header: "Learners", align: "right", render: (r: (typeof rows)[number]) => <Mono>{r.learners.size.toLocaleString()}</Mono> },
-          { key: "billed", header: "Billed", align: "right", render: (r: (typeof rows)[number]) => <span className="text-[13px]">{r.billed ? `${money(r.billedCents)} · ${r.billed}` : "—"}</span> },
+          ...(caps.chargeToFees ? [{ key: "billed", header: "Billed", align: "right" as const, render: (r: (typeof rows)[number]) => <span className="text-[13px]">{r.billed ? `${money(r.billedCents)} · ${r.billed}` : "—"}</span> }] : []),
         ]}
         rows={rows}
         rowKey={(r) => r.item_id}
         minWidth="560px"
-        empty={{ title: "No uniforms issued in this period", body: "Issue uniforms from the register and charge them to fees from History." }}
+        empty={{ title: "No uniforms issued in this period", body: caps.chargeToFees ? "Issue uniforms from the register and charge them to fees from History." : "Issue uniforms from the register and they show up here while they are out." }}
       />
       <p className="text-[12px] text-ink-faint">Quantities are copies; {formatQty(copies, null)} in all for {PERIODS.find((p) => p.key === period)!.label.toLowerCase()}.</p>
     </Loading>

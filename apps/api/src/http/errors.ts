@@ -21,7 +21,13 @@ export type ErrorCode =
   | "hr_forbidden"
   | "hr_not_connected"
   | "hr_unavailable"
-  | "hr_bad_answer";
+  | "hr_bad_answer"
+  // The "HR & Payroll" hand-off (docs/HR-HANDOFF.md, H1): the same codes the Supabase `open-hr` function answers with.
+  | "handoff_off"
+  | "already_connected"
+  | "target_not_enabled"
+  | "target_not_linked"
+  | "target_no_handoff_url";
 
 /** Additive field-level validation detail (OI-4 / FIG-1621). Never carries submitted values. */
 export type ErrorDetail = {

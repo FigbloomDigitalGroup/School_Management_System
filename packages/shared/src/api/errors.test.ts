@@ -24,6 +24,14 @@ describe("apiErrorFromResponse", () => {
     expect(apiErrorFromResponse(502, undefined, headers()).code).toBe("internal_error");
   });
 
+  it("knows the HR & Payroll hand-off's codes instead of folding them into the status's (a 403 handoff_off is not a plain forbidden)", () => {
+    const kept: [number, string][] = [
+      [403, "handoff_off"], [409, "already_connected"], [409, "target_not_enabled"], [409, "target_not_linked"], [409, "target_no_handoff_url"],
+      [409, "school_not_linked"], [503, "hr_unavailable"], [502, "hr_bad_answer"], [429, "rate_limited"],
+    ];
+    for (const [status, code] of kept) expect(apiErrorFromResponse(status, { error: { code, message: "m" } }, headers()).code).toBe(code);
+  });
+
   it("keeps only well-formed details", () => {
     const e = apiErrorFromResponse(400, { error: { code: "validation_error", message: "m", details: [{ field: "a", code: "c", message: "ma" }, { nope: 1 }, "x"] } }, headers());
     expect(e.details).toEqual([{ field: "a", code: "c", message: "ma" }]);

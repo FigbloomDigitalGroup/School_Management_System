@@ -1,12 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 /**
- * A fake Figbloom platform and Figbloom HR for the My HR tests: one local HTTP server that is both the platform's token endpoint
- * (POST /oauth2/token, Cognito-style client credentials) and HR's "My HR" API (GET /api/integrations/my-hr/*), modelled on
- * supabase/functions/_shared/fakeHr.ts and fakePlatform.ts. Nothing here talks to a real HR or platform, and the credentials
- * are made up for the test. HR answers only for a school it has linked, and for a person only through its own people list
- * (the API's user id, as HR's external id), as bloomHR does.
+ * A fake Figbloom platform and Figbloom HR for the My HR and HR & Payroll hand-off tests: one local HTTP server that is the
+ * platform's token endpoint (POST /oauth2/token, Cognito-style client credentials), the platform's own API (POST /handoffs,
+ * GET /tenants/{id}/modules/hr and /links/hr, under /platform-api) and HR's "My HR" API (GET /api/integrations/my-hr/*),
+ * modelled on supabase/functions/_shared/fakeHr.ts and fakePlatform.ts. Nothing here talks to a real HR or platform, and the
+ * credentials are made up for the test. HR answers only for a school it has linked, and for a person only through its own
+ * people list (the API's user id, as HR's external id), as bloomHR does. The platform knows a school only once it is
+ * registered (`platformTenants`), and signs a person in only when HR is on for the school and its company is linked.
  */
 
 export const FAKE_CLIENT_ID = "schools-client-test";
@@ -71,8 +74,26 @@ export class FakeHr {
   // ------------------------------------------------------------ the platform's own API (PLATFORM_API_URL)
   platformCalls: { method: string; path: string; body: string; token: string }[] = [];
   platformRejectNext = 0;
+  /** For any path the platform part below does not know: answer this. */
   platformStatus = 200;
   platformBody: unknown = { ok: true };
+  // The HR & Payroll hand-off (docs/HR-HANDOFF.md, H1), modelled on supabase/functions/_shared/fakePlatform.ts:
+  /** schools the platform knows: our tenants.id -> the platform's own id for it (registration) */
+  platformTenants = new Map<string, string>();
+  /** per platform id: HR's module status ("active" when switched on; missing means never switched on) */
+  hrModules = new Map<string, string>();
+  /** HR has not registered where it accepts sign-ins: POST /handoffs answers 409 target_no_handoff_url */
+  noHandoffUrl = false;
+  /** what the module lookup says about caching (seconds), when set */
+  moduleCacheSeconds: number | null = null;
+  /** answer the hand-off routes with this instead (odd answers): status, body, content type */
+  handoffRaw: { status: number; body: string; type: string } | null = null;
+  /** answer every platform call with this status; 0 drops the connection */
+  platformDown: number | null = null;
+  /** hold every platform answer back this long */
+  platformDelayMs = 0;
+  /** links handed out (url and the one-time code in it), so a test can look for them in logs and audit rows */
+  handoffLinks: { url: string; code: string }[] = [];
 
   constructor() {
     this.server = createServer((req, res) => void this.handle(req, res));
@@ -113,6 +134,16 @@ export class FakeHr {
   hire(company: string, person: string, employee: FakeEmployee): void {
     this.people.set(`${company}:${person}`, employee);
   }
+  /** The platform knows the school (registration), under its own id; `hr` switches HR's module on ("active") or sets it. */
+  register(school: string, platformId: string, hr: string | null = null): void {
+    this.platformTenants.set(school, platformId);
+    if (hr === null) this.hrModules.delete(platformId);
+    else this.hrModules.set(platformId, hr);
+  }
+  /** The calls the API made to the platform's hand-off and lookups (paths only). */
+  get platformPaths(): string[] {
+    return this.platformCalls.map((c) => `${c.method} ${c.path}`);
+  }
   /** The HR calls that carried a platform token (every call the API made, in order). */
   get hrCallsWithToken(): FakeHrCall[] {
     return this.calls.filter((c) => c.token.startsWith("token-"));
@@ -125,7 +156,7 @@ export class FakeHr {
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const body = Buffer.concat(chunks).toString("utf8");
     if (url.pathname === "/oauth2/token" && req.method === "POST") return void (await this.token(req, res, body));
-    if (url.pathname.startsWith("/platform-api/")) return this.platform(req, res, url, body);
+    if (url.pathname.startsWith("/platform-api/")) return void (await this.platform(req, res, url, body));
     const prefix = "/api/integrations/my-hr/";
     if (!url.pathname.startsWith(prefix)) return send(res, 404, { error: { code: "not_found", message: "Not found." } });
     return void (await this.hr(req, res, url, url.pathname.slice(prefix.length)));
@@ -144,15 +175,67 @@ export class FakeHr {
     send(res, 200, { access_token: `token-${this.tokensIssued}`, expires_in: this.tokenSeconds, token_type: "Bearer" });
   }
 
-  private platform(req: IncomingMessage, res: ServerResponse, url: URL, body: string): void {
+  private async platform(req: IncomingMessage, res: ServerResponse, url: URL, body: string): Promise<void> {
     const token = String(req.headers.authorization ?? "").replace(/^Bearer /, "");
     if (!token.startsWith("token-")) return send(res, 401, { error: { code: "unauthorized", message: "No token" } });
     if (this.platformRejectNext > 0) {
       this.platformRejectNext--;
       return send(res, 401, { error: { code: "unauthorized", message: "Revoked" } });
     }
-    this.platformCalls.push({ method: String(req.method), path: url.pathname.slice("/platform-api".length) + url.search, body, token });
+    const path = url.pathname.slice("/platform-api".length);
+    this.platformCalls.push({ method: String(req.method), path: path + url.search, body, token });
+    if (this.platformDelayMs) await sleep(this.platformDelayMs);
+    if (this.platformDown === 0) return void req.socket.destroy();
+    if (this.platformDown) return send(res, this.platformDown, { error: { code: "server_error", message: "PLATFORM-CANARY-server-error-text" } });
+    if (path === "/handoffs" && req.method === "POST") return this.handoff(res, body);
+    const lookup = /^\/tenants\/([^/]+)\/(modules|links)\/([^/]+)$/.exec(path);
+    if (lookup && req.method === "GET") return this.tenantLookup(res, decodeURIComponent(lookup[1]!), lookup[2] as "modules" | "links", lookup[3]!);
     send(res, this.platformStatus, this.platformBody);
+  }
+
+  /** POST /handoffs (SCHOOLS_HR_HANDOFF_CONTRACT.md section 1, as Schools' own fake has it). */
+  private handoff(res: ServerResponse, body: string): void {
+    if (this.handoffRaw) {
+      res.writeHead(this.handoffRaw.status, { "content-type": this.handoffRaw.type });
+      return void res.end(this.handoffRaw.body);
+    }
+    let b: Record<string, any> | null = null;
+    try {
+      b = JSON.parse(body) as Record<string, any>;
+    } catch {
+      b = null;
+    }
+    const person = b?.person as Record<string, unknown> | undefined;
+    if (!b || b.target !== "hr" || typeof b.tenant_local_id !== "string" || !person || typeof person.external_id !== "string" || typeof person.role !== "string") {
+      return send(res, 400, { error: { code: "bad_request", message: "PLATFORM-CANARY-bad-request" } });
+    }
+    const platformId = this.platformTenants.get(b.tenant_local_id);
+    if (!platformId) return send(res, 404, { error: { code: "tenant_not_found", message: "PLATFORM-CANARY-unknown-school" } });
+    if (this.hrModules.get(platformId) !== "active") return send(res, 409, { error: { code: "target_not_enabled", message: "PLATFORM-CANARY-not-enabled" } });
+    if (!this.companies.has(b.tenant_local_id)) return send(res, 409, { error: { code: "target_not_linked", message: "PLATFORM-CANARY-not-linked" } });
+    if (this.noHandoffUrl) return send(res, 409, { error: { code: "target_no_handoff_url", message: "PLATFORM-CANARY-no-url" } });
+    const code = `CODE-CANARY-${randomUUID()}`;
+    const link = `https://hr.example.test/auth/handoff?code=${code}`;
+    this.handoffLinks.push({ url: link, code });
+    send(res, 201, { url: link, expires_at: new Date(Date.now() + 60_000).toISOString() });
+  }
+
+  /** GET /tenants/{platform id}/modules/{module} and /links/{module}: is HR on for the school, and has HR linked it. */
+  private tenantLookup(res: ServerResponse, platformId: string, kind: "modules" | "links", module: string): void {
+    const localId = [...this.platformTenants.entries()].find(([, p]) => p === platformId)?.[0];
+    if (!localId || module !== "hr") return send(res, 404, { error: { code: "not_found", message: "No such tenant." } });
+    if (kind === "modules") {
+      return send(res, 200, {
+        tenant_id: platformId,
+        module: "hr",
+        module_status: this.hrModules.get(platformId) ?? null,
+        ...(this.moduleCacheSeconds === null ? {} : { cache_seconds: this.moduleCacheSeconds }),
+      });
+    }
+    if (this.hrModules.get(platformId) === "active" && this.companies.has(localId)) {
+      return send(res, 200, { tenant_id: platformId, module: "hr", local_id: this.companies.get(localId) });
+    }
+    send(res, 404, { error: { code: "not_linked", message: "HR has no record for this tenant yet." } });
   }
 
   private async hr(req: IncomingMessage, res: ServerResponse, url: URL, path: string): Promise<void> {

@@ -59,10 +59,10 @@ export function inventoryItemFromApi(i: ApiItem): InventoryItem {
     purchased_on: null,
     unit_cost_cents: null,
     notes: null,
-    // Stock in and out (consumables, units, reorder levels) is not on the API yet: slice S1 of docs/handoffs/WEB-ON-API-ROADMAP.md.
-    unit: null,
-    consumable: false,
-    reorder_level: null,
+    // Stock in and out (apps/api/docs/INVENTORY-STOCK.md); `?? null` keeps an older API that does not send them readable.
+    unit: i.unit ?? null,
+    consumable: i.consumable ?? false,
+    reorder_level: i.reorder_level ?? null,
     retired_at: i.retired_at ?? null,
     created_at: i.created_at,
   };
@@ -96,7 +96,7 @@ async function tolerant<T>(read: () => Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-function listApiItems(tenantId: string): Promise<ApiItem[]> {
+export function listApiItems(tenantId: string): Promise<ApiItem[]> {
   return listAllPages(async (cursor) => {
     const r = await apiClient().get("/v1/tenants/{tenantId}/inventory/items", {
       path: { tenantId },
@@ -107,7 +107,7 @@ function listApiItems(tenantId: string): Promise<ApiItem[]> {
   });
 }
 
-function listApiIssues(tenantId: string): Promise<ApiIssue[]> {
+export function listApiIssues(tenantId: string): Promise<ApiIssue[]> {
   return listAllPages(async (cursor) => {
     const r = await apiClient().get("/v1/tenants/{tenantId}/inventory/issues", {
       path: { tenantId },
@@ -204,9 +204,12 @@ export async function apiFetchMyInventory(profileId: string): Promise<InventoryI
 }
 
 export async function apiSaveInventoryItem(tenantId: string, input: InventoryItemInput, id?: string): Promise<void> {
+  // No PATCH on an item: not even a stock line's unit, consumable flag or reorder level can be changed once it is made.
   if (id) throw new NotOnApiError("Editing an inventory item");
-  const quantity = input.tracking === "asset" ? 1 : input.quantity;
-  if (quantity < 1) throw new Error("Quantity must be at least 1.");
+  const stock = input.tracking === "stock";
+  const quantity = stock ? input.quantity : 1;
+  // A stock line may start at 0 (a consumable before its first delivery); an asset is always 1.
+  if (!Number.isInteger(quantity) || quantity < 0) throw new Error("Quantity must be a whole number, 0 or more.");
   try {
     await apiClient().post("/v1/tenants/{tenantId}/inventory/items", {
       path: { tenantId },
@@ -218,6 +221,8 @@ export async function apiSaveInventoryItem(tenantId: string, input: InventoryIte
         asset_tag: input.asset_tag?.trim() || null,
         condition: input.condition,
         location: input.location?.trim() || null,
+        // stock lines only: the API refuses a unit, a consumable flag or a reorder level on an asset
+        ...(stock ? { unit: input.unit?.trim() || null, consumable: input.consumable ?? false, reorder_level: input.reorder_level ?? null } : {}),
       },
       tenantId,
     });

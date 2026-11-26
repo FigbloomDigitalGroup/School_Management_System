@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { fetchAllPages } from "./paging";
 import { apiClient } from "./api/client";
+import { apiFetchHeadcount, apiFetchItemIndex, apiFetchUniformIssues } from "./api/stockApi";
 import { onApi } from "./backend";
 import {
   availableCount, fetchInventory, fetchInventoryIssues, INVENTORY_CATEGORY_LABEL, isOverdue, issueMatches, sortIssues, summariseInventory, todayIso,
@@ -101,6 +102,7 @@ export async function fetchInventoryItem(itemId: string): Promise<InventoryItemR
 /** Every item's name, store and unit: what the stock pages label their rows with. Light: no counts, no notes. */
 export type ItemIndexRow = Pick<InventoryItem, "id" | "name" | "category" | "unit" | "consumable" | "tracking" | "retired_at">;
 export async function fetchItemIndex(tenantId: string): Promise<ItemIndexRow[]> {
+  if (onApi()) return apiFetchItemIndex(tenantId);
   return fetchAllPages<ItemIndexRow>((from, to) =>
     supabase().from("inventory_items").select("id, name, category, unit, consumable, tracking, retired_at").eq("tenant_id", tenantId)
       .order("name").order("id").range(from, to).returns<ItemIndexRow[]>());
@@ -227,8 +229,12 @@ export async function fetchItemIssues(itemId: string): Promise<InventoryIssueRow
 
 export interface UniformIssueRow { id: string; item_id: string; quantity: number; issued_at: string; student_id: string | null; name: string }
 
-/** Uniforms handed out in the period (to learners and staff), for the Uniforms page. */
+/**
+ * Uniforms handed out in the period (to learners and staff), for the Uniforms page. On the API, only the uniforms still out: it lists
+ * open issues, not the ones that came back.
+ */
 export async function fetchUniformIssues(tenantId: string, from: string, to: string): Promise<UniformIssueRow[]> {
+  if (onApi()) return apiFetchUniformIssues(tenantId, from, to);
   type Row = { id: string; item_id: string; quantity: number; issued_at: string; student_id: string | null; inventory_items: { name: string } | null };
   const rows = await fetchAllPages<Row>((a, b) =>
     supabase().from("inventory_issues").select("id, item_id, quantity, issued_at, student_id, inventory_items!inner(name, category)")
@@ -324,6 +330,7 @@ export interface HeadcountDay { day: string; learners: number; staff: number; vi
 
 /** Who was in school each day (learners present, staff, visitors): what kitchen use is measured per head against. */
 export async function fetchHeadcount(tenantId: string, from: string, to: string): Promise<HeadcountDay[]> {
+  if (onApi()) return apiFetchHeadcount(tenantId, from, to);
   const { data, error } = await supabase().rpc("inventory_headcount", { p_tenant_id: tenantId, p_from: from, p_to: to });
   if (error) throw new Error(error.message);
   return ((data ?? []) as Record<string, unknown>[]).map((r) => {

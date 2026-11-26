@@ -100,10 +100,12 @@ describe("capabilities, mappers, and feeCharges guards", () => {
     initBackend({ kind: "supabase" });
     expect(inventoryCapabilities()).toEqual({
       editItem: true, unretireItem: true, itemCostAndNotes: true, issueHistory: true, issueNote: true, chargeToFees: true, stockMovements: true,
+      stockInsights: true, sickBayUsesStock: true, reportMaxDays: null, termDatesNeedAcademics: false,
     });
     initBackend({ kind: "api", apiUrl: BASE });
     expect(inventoryCapabilities()).toEqual({
-      editItem: false, unretireItem: false, itemCostAndNotes: false, issueHistory: false, issueNote: false, chargeToFees: false, stockMovements: false,
+      editItem: false, unretireItem: false, itemCostAndNotes: false, issueHistory: false, issueNote: false, chargeToFees: false, stockMovements: true,
+      stockInsights: false, sickBayUsesStock: false, reportMaxDays: 366, termDatesNeedAcademics: true,
     });
   });
 
@@ -112,6 +114,9 @@ describe("capabilities, mappers, and feeCharges guards", () => {
       id: I1, name: "KLB Biology Form 2", category: "textbooks", tracking: "stock", quantity: 10,
       asset_tag: "BIO-F2", location: "Library store", purchased_on: null, unit_cost_cents: null, notes: null,
     });
+    // a stock line's unit, consumable flag and reorder level come from the API (and read as "none" from an API that does not send them)
+    expect(inventoryItemFromApi(apiItem({ unit: "kg", consumable: true, reorder_level: 10 }) as never)).toMatchObject({ unit: "kg", consumable: true, reorder_level: 10 });
+    expect(inventoryItemFromApi(apiItem() as never)).toMatchObject({ unit: null, consumable: false, reorder_level: null });
     expect(inventoryIssueFromApi(apiIssue() as never)).toMatchObject({
       id: ISS1, item_id: I1, student_id: S1, profile_id: null, quantity: 2, status: "out", due_on: "2026-12-31",
     });
@@ -222,6 +227,29 @@ describe("saveInventoryItem, setItemRetired, issueInventoryItem, and closeInvent
       [`POST ${P}/inventory/items`]: refused("conflict", 409, "An inventory item with this asset_tag already exists"),
     });
     await expect(saveInventoryItem(T, input)).rejects.toThrow("Another item already has that asset tag.");
+  });
+
+  it("adds a stock line with its unit, consumable flag and reorder level, and may start it at 0", async () => {
+    boot({
+      [`POST ${P}/inventory/items`]: { status: 201, body: { item: apiItem({ unit: "kg", consumable: true, reorder_level: 20, quantity: 0 }) } },
+    });
+    await saveInventoryItem(T, {
+      ...input, name: "Rice", category: "kitchen", tracking: "stock", quantity: 0, asset_tag: null, location: null, unit: " kg ", consumable: true, reorder_level: 20,
+    });
+    expect(api.calls[0]?.body).toEqual({
+      name: "Rice", category: "kitchen", tracking: "stock", quantity: 0, asset_tag: null, condition: "new", location: null, unit: "kg", consumable: true, reorder_level: 20,
+    });
+
+    // a plain stock line (textbooks) says no unit and not consumable; blank unit and no reorder level are null
+    await saveInventoryItem(T, { ...input, name: "Atlas", category: "textbooks", tracking: "stock", quantity: 12, unit: "", consumable: false, reorder_level: null });
+    expect(api.calls[1]?.body).toMatchObject({ quantity: 12, unit: null, consumable: false, reorder_level: null });
+  });
+
+  it("refuses a stock line with a negative or fractional count before asking the API", async () => {
+    boot({});
+    await expect(saveInventoryItem(T, { ...input, tracking: "stock", quantity: -1 })).rejects.toThrow("Quantity must be a whole number, 0 or more.");
+    await expect(saveInventoryItem(T, { ...input, tracking: "stock", quantity: 2.5 })).rejects.toThrow("Quantity must be a whole number, 0 or more.");
+    expect(api.calls).toHaveLength(0);
   });
 
   it("throws NotOnApiError when editing an item or unretiring a retired item", async () => {

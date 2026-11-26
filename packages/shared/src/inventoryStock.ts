@@ -1,5 +1,11 @@
 import { supabase } from "./supabase";
 import { invokeEdge } from "./edge";
+import {
+  apiFetchConsumptionFlags, apiFetchCostPerMeal, apiFetchCurrentTermDates, apiFetchMovements, apiFetchSpendByMonth, apiFetchStockLevels,
+  apiFetchUsage, apiRecordStockMovement,
+} from "./api/stockApi";
+import { onApi } from "./backend";
+import { NotOnApiError } from "./capabilities";
 import { todayIso } from "./inventory";
 
 /**
@@ -8,6 +14,9 @@ import { todayIso } from "./inventory";
  * and anomaly flags worked out from them in the database. A movement is never
  * changed or deleted; the database keeps inventory_items.quantity in step and
  * refuses to take stock below zero.
+ *
+ * On the API build (`onApi()`) every read and write below goes to apps/api (api/stockApi.ts), which keeps Supabase's field names, so
+ * the screens do not change. The AI briefing is the one thing that is not on the API.
  */
 
 export type MovementKind = "received" | "used" | "wasted" | "adjusted";
@@ -116,6 +125,17 @@ export function periodRange(period: ReportPeriod, now = new Date(), term?: { sta
   if (period === "month") return { from: `${today.slice(0, 7)}-01`, to: today };
   if (period === "term" && term) return { from: term.starts_on, to: term.ends_on < today ? term.ends_on : today };
   return { from: `${today.slice(0, 4)}-01-01`, to: today };
+}
+
+/**
+ * A range cut to its last `maxDays` days (to minus from), for an API that answers a report for a limited period. A term whose
+ * dates were never moved on, or a year-long term, would otherwise be refused. Not cut when it already fits.
+ */
+export function capRange(range: { from: string; to: string }, maxDays: number): { from: string; to: string } {
+  const day = (iso: string) => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10))) / 86_400_000;
+  if (day(range.to) - day(range.from) <= maxDays) return range;
+  const d = new Date((day(range.to) - maxDays) * 86_400_000);
+  return { from: d.toISOString().slice(0, 10), to: range.to };
 }
 
 /** 1 Jan of the month n months before this one. */
@@ -331,6 +351,7 @@ const MOVEMENT_SELECT = "*, recorder:profiles!inventory_movements_recorded_by_fk
 
 /** An item's movements, newest first (at most the last 500). */
 export async function fetchMovements(itemId: string): Promise<MovementRow[]> {
+  if (onApi()) return apiFetchMovements(itemId);
   const { data, error } = await supabase().from("inventory_movements").select(MOVEMENT_SELECT).eq("item_id", itemId)
     .order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(500)
     .returns<(InventoryMovement & { recorder: { full_name: string } | null })[]>();
@@ -339,6 +360,7 @@ export async function fetchMovements(itemId: string): Promise<MovementRow[]> {
 }
 
 export async function recordStockMovement(input: MovementInput): Promise<void> {
+  if (onApi()) return apiRecordStockMovement(input);
   const received = input.kind === "received";
   const { error } = await supabase().from("inventory_movements").insert({
     tenant_id: input.tenantId,
@@ -363,6 +385,7 @@ async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T[]> {
 }
 
 export async function fetchStockLevels(tenantId: string, asOf?: string): Promise<StockLevel[]> {
+  if (onApi()) return apiFetchStockLevels(tenantId, asOf);
   const rows = await rpc<Record<string, unknown>>("inventory_stock_levels", { p_tenant_id: tenantId, ...(asOf ? { p_as_of: asOf } : {}) });
   return rows.map((r) => ({
     ...(r as unknown as StockLevel),
@@ -373,6 +396,7 @@ export async function fetchStockLevels(tenantId: string, asOf?: string): Promise
 }
 
 export async function fetchUsage(tenantId: string, from: string, to: string, bucket: "day" | "week" | "month" | "year" = "week"): Promise<UsageRow[]> {
+  if (onApi()) return apiFetchUsage(tenantId, from, to, bucket);
   const rows = await rpc<Record<string, unknown>>("inventory_usage", { p_tenant_id: tenantId, p_from: from, p_to: to, p_bucket: bucket });
   return rows.map((r) => ({
     item_id: String(r.item_id), period_start: String(r.period_start),
@@ -382,11 +406,13 @@ export async function fetchUsage(tenantId: string, from: string, to: string, buc
 }
 
 export async function fetchSpendByMonth(tenantId: string, from: string, to: string): Promise<SpendRow[]> {
+  if (onApi()) return apiFetchSpendByMonth(tenantId, from, to);
   const rows = await rpc<Record<string, unknown>>("inventory_spend_by_month", { p_tenant_id: tenantId, p_from: from, p_to: to });
   return rows.map((r) => ({ month: String(r.month), category: String(r.category), spend_cents: num(r.spend_cents), deliveries: num(r.deliveries) }));
 }
 
 export async function fetchCostPerMeal(tenantId: string, from: string, to: string, bucket: "week" | "month" = "month"): Promise<CostPerMealRow[]> {
+  if (onApi()) return apiFetchCostPerMeal(tenantId, from, to, bucket);
   const rows = await rpc<Record<string, unknown>>("inventory_cost_per_meal", { p_tenant_id: tenantId, p_from: from, p_to: to, p_bucket: bucket });
   return rows.map((r) => ({
     period_start: String(r.period_start), purpose: String(r.purpose), used_cost_cents: num(r.used_cost_cents),
@@ -395,6 +421,7 @@ export async function fetchCostPerMeal(tenantId: string, from: string, to: strin
 }
 
 export async function fetchConsumptionFlags(tenantId: string, from: string, to: string): Promise<ConsumptionFlag[]> {
+  if (onApi()) return sortFlags(await apiFetchConsumptionFlags(tenantId, from, to));
   const rows = await rpc<Record<string, unknown>>("inventory_consumption_flags", { p_tenant_id: tenantId, p_from: from, p_to: to });
   return sortFlags(rows.map((r) => ({
     ...(r as unknown as ConsumptionFlag),
@@ -403,8 +430,12 @@ export async function fetchConsumptionFlags(tenantId: string, from: string, to: 
   })));
 }
 
-/** The current term's dates, for the "This term" report period. */
+/**
+ * The current term's dates, for the "This term" report period. On the API, reading terms needs the Academics area: a person who
+ * has only Inventory gets null (the screens then leave "This term" out), not an error.
+ */
 export async function fetchCurrentTermDates(tenantId: string): Promise<{ starts_on: string; ends_on: string } | null> {
+  if (onApi()) return apiFetchCurrentTermDates(tenantId);
   const { data, error } = await supabase().from("terms").select("starts_on, ends_on").eq("tenant_id", tenantId).eq("is_current", true).maybeSingle();
   if (error) throw new Error(error.message);
   return (data as { starts_on: string; ends_on: string } | null) ?? null;
@@ -424,8 +455,11 @@ export interface StockInsights {
  * A short briefing on the period's flags from the ai-assist "stock_insights"
  * task. The function works the flags out itself from the database, as the
  * caller; only the dates go from here, and no person's name is ever sent.
+ * Not on the API (its Bloom contract has no structured briefing: apps/api/docs/INVENTORY-STOCK.md, "stock_insights"), so the
+ * screen hides the panel (`inventoryCapabilities().stockInsights`) and this throws.
  */
 export async function fetchStockInsights(from: string, to: string): Promise<StockInsights> {
+  if (onApi()) throw new NotOnApiError("The AI briefing on stock");
   const { result } = await invokeEdge<{ result: StockInsights }>("ai-assist", { task: "stock_insights", payload: { from, to } }, { timeoutMs: 90_000 });
   return result;
 }

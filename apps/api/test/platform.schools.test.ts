@@ -107,16 +107,33 @@ describe("platform school directory (read-only)", () => {
       timezone: "Africa/Nairobi",
       createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       organization: { id: ids.orgA, name: "Org A", slug: "org-a", kind: "group_owner", status: "active" },
+      hrRequestedAt: null,
+      hrRequestedBy: null,
     });
-    // nothing from inside a school: exactly these keys on every item
+    // nothing from inside a school but its request for HR (migration 117): exactly these keys on every item
     for (const s of body.items) {
-      expect(Object.keys(s).sort()).toEqual(["createdAt", "id", "name", "organization", "slug", "status", "timezone"]);
+      expect(Object.keys(s).sort()).toEqual(["createdAt", "hrRequestedAt", "hrRequestedBy", "id", "name", "organization", "slug", "status", "timezone"]);
       expect(Object.keys(s.organization).sort()).toEqual(["id", "kind", "name", "slug", "status"]);
     }
     // suspended schools and schools of a pending organisation are listed too (this is the platform's view)
     const listed = new Set(body.items.map((s: { id: string }) => s.id));
     expect(listed.has(suspendedSchool)).toBe(true);
     expect(listed.has(onboardingSchool)).toBe(true);
+  });
+
+  it("a school's request for HR & Payroll shows on the list and the detail: when, and the id of the account that asked (no name)", async () => {
+    await ctx.pool.query(`UPDATE tenants SET hr_requested_at = '2026-11-20T08:30:00.123Z', hr_requested_by = $2 WHERE id = $1`, [ids.tenantB, ids.teacherB]);
+    try {
+      const item = (await get(B, tokens.super)).json().items.find((s: { id: string }) => s.id === ids.tenantB);
+      expect(item).toMatchObject({ hrRequestedAt: "2026-11-20T08:30:00.123Z", hrRequestedBy: ids.teacherB });
+      const one = (await get(`${B}/${ids.tenantB}`, tokens.super)).json();
+      expect(one).toMatchObject({ hrRequestedAt: "2026-11-20T08:30:00.123Z", hrRequestedBy: ids.teacherB });
+      expect(JSON.stringify(one)).not.toContain("Teacher B");
+      // the other schools never asked
+      expect((await get(`${B}/${ids.tenantA}`, tokens.super)).json()).toMatchObject({ hrRequestedAt: null, hrRequestedBy: null });
+    } finally {
+      await ctx.pool.query(`UPDATE tenants SET hr_requested_at = NULL, hr_requested_by = NULL WHERE id = $1`, [ids.tenantB]);
+    }
   });
 
   it.each([1, 2, 3, 50])("paging with limit %i visits every school exactly once in order", async (limit) => {
