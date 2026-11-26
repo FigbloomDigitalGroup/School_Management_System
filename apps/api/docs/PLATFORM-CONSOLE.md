@@ -122,13 +122,18 @@ list (1). Invoices: every invoice with the school's name (1), the school list fo
 (1 insert). 6 calls. Money is Figbloom's own billing of schools (KES), not school fees. There is no payment gateway: staff
 mark an invoice paid by hand.
 
-**API backs:** migration 122 adds the owner-only `plan_pricing` and `platform_subscriptions` tables, with
+**API backs (subscriptions):** migration 122 adds the owner-only `plan_pricing` and `platform_subscriptions` tables, with
 `GET /v1/platform/subscriptions`, `PUT /v1/platform/subscriptions/{schoolId}` and
 `PUT /v1/platform/plan-pricing/{plan}`. Both writes need recent re-authentication and audit their money changes in the same
 transaction. The old price rows were explicitly placeholders, so no prices are seeded; an unset price stays unset.
 
-**Not built yet:** `platform_invoices` and its create/mark-paid endpoints (the next slice). Overdue invoices will not suspend
-a school. The API stores subscription terms in a platform table keyed by school; it does not add billing columns to `tenants`.
+**API backs (invoices):** migration 123 adds the owner-only `platform_invoices` table and the routes `GET /v1/platform/invoices`,
+`POST /v1/platform/invoices` and `PUT /v1/platform/invoices/{invoiceId}/mark-paid`. Create and mark-paid require recent
+re-authentication; each money action writes an audit event in the same transaction. Invoice status is `due` or `paid`;
+overdue is derived from the due date and does not suspend a school. The API table starts empty; this migration does not copy
+existing Supabase invoice rows, so they need a separate transfer before any production API cutover. The API web page follows as S6c.
+
+The API stores subscription terms and invoices in platform tables; it does not add billing columns to `tenants`.
 
 ### 3.7 `platform/impersonation` (pages.tsx `Impersonation`)
 
@@ -217,7 +222,7 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
 3. **P3:** organisations read (`platform.organizations.read`, migration), school admins list; reuse S11's org-admin functions.
 4. **P4:** usage counts (owner function, counts only).
 5. **P5:** audit read, together with S11's school audit read.
-6. After decisions only: suspend and reactivate (Q1), invoices (D3), impersonation or support sessions (Q3), incidents (Q4),
+6. After decisions only: suspend and reactivate (Q1), invoices (D3, now backed by migration 123), impersonation or support sessions (Q3), incidents (Q4),
    curriculum (Q6), and live provider checks (Q7).
 
 ## 6. Questions for the owner
@@ -249,3 +254,12 @@ M-Pesa, e-mail (Resend), storage and Bloom are Q7.
 | Reads | `GET /v1/platform/subscriptions` returns school name/slug and terms, plus the configured price list, keyset-paginated by school name/id. Effective price is override, else the configured plan price, else zero (displayed as unset). |
 | Writes | `PUT /v1/platform/subscriptions/{schoolId}` and `PUT /v1/platform/plan-pricing/{plan}` require `platform.billing.manage` and recent password confirmation. A changed record writes an immutable audit event in the same transaction; no-op updates add no event. |
 | Separation | These terms do not change a school's access status. An overdue Figbloom invoice does not suspend a school. No MRR or licensed-seat count is invented. |
+
+### 7.3 Invoices (migration 123)
+
+| What | As built |
+|---|---|
+| Table | `platform_invoices` mirrors the live Figbloom invoice fields (`tenant_id`, integer `amount_cents`, `due_date`, `due`/`paid` status, `paid_at`, `created_at`) in an owner-only, forced-RLS table with no runtime table grants. The API table starts empty; migration 123 does not copy existing Supabase rows. |
+| Reads | `GET /v1/platform/invoices` returns school name, amount, due date, stored payment state, and timestamps; overdue is derived from `due_date` by the caller. Keyset order is due date then invoice id. |
+| Writes | `POST /v1/platform/invoices` creates a due invoice. `PUT /v1/platform/invoices/{invoiceId}/mark-paid` records a manual bank reconciliation. Both require `platform.billing.manage` and recent password confirmation; audit is written in the same transaction. A repeated mark-paid is a no-op. |
+| Separation | These are Figbloom invoices for schools, separate from school fee invoices. No payment gateway is wired, and overdue invoices do not suspend a school. |

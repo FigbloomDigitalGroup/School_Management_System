@@ -141,6 +141,7 @@ no mode GUC and no application-settable bypass.
 | `finance_unmatched_case_notes` | **owner-only** (append-only operator notes) | same | 074 | `finance.unmatchedCallbacks` |
 | `plan_pricing` | **owner-only** (Figbloom plan prices; read and written only through `platform_billing_*` SECURITY DEFINER functions) | same | 122 | `platform.billing` |
 | `platform_subscriptions` | **owner-only** (school subscription terms; read and written only through `platform_billing_*` SECURITY DEFINER functions) | same | 122 | `platform.billing` |
+| `platform_invoices` | **owner-only** (Figbloom invoices for schools; read and written only through `platform_billing_invoice_*` SECURITY DEFINER functions) | same | 123 | `platform.billing` |
 | `finance_bank_statements` | tenant (`SELECT, INSERT` + column-level `UPDATE (matched_count, unmatched_count, status)`) | same | 097 | `bankReconciliation.unit` |
 | `finance_bank_statement_lines` | tenant (`SELECT, INSERT` + column-level `UPDATE (match_status, matched_payment_id, matched_invoice_id, matched_by, matched_at, match_note)`) | same | 097 | `bankReconciliation.unit` |
 | `teacher_reports` | tenant (`SELECT, INSERT` + column-level `UPDATE` on editable/review fields) | same | 098 | `teacherReports.unit` |

@@ -61,6 +61,11 @@ On `main` or in an open PR, not live in production yet.
   configured prices; `PUT /v1/platform/subscriptions/{schoolId}` and `PUT /v1/platform/plan-pricing/{plan}` require recent
   password confirmation and audit every money change in the same transaction. Nothing changes the Supabase build, and
   overdue invoices do not suspend schools.
+- **Platform invoices API (slice S6b, migration `123_platform_billing_invoices.sql`)**: adds an owner-only invoices table
+  and `GET /v1/platform/invoices`, `POST /v1/platform/invoices`, and
+  `PUT /v1/platform/invoices/{invoiceId}/mark-paid`. Create and mark-paid require recent password confirmation, audit the
+  money action in the same transaction, and do not connect overdue invoices to school suspension. Nothing changes the
+  Supabase build. The API table starts empty; historical Supabase invoice rows need a separate transfer before a production API cutover.
 - **Behaviour log on the new API, part 1 (S2a, `apps/api/docs/BEHAVIOUR.md`)**: a port of the live behaviour log, with the same rules.
   Migration `118_behaviour_log.sql`: the `discipline` admin area, permissions `resource.discipline.read`, `resource.discipline.write` and
   `resource.behaviour.record` (teachers), tables `behaviour_settings`, `behaviour_categories`, `behaviour_entries` and

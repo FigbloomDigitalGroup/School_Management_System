@@ -652,6 +652,119 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/platform/invoices:
+    get:
+      tags:
+        - platform
+      summary: List Figbloom invoices for schools
+      description: >
+        Super administrators only (`platform.billing.read`). Returns Figbloom's manually recorded school invoices,
+        separate from school fee invoices. Overdue is derived from the due date and never suspends a school. Keyset-
+        paginated by due date and invoice id. The caller's school (session or `X-Tenant-Id`) is ignored.
+      operationId: listPlatformInvoices
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.billing.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: One page of Figbloom invoices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformInvoiceList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - platform
+      summary: Create a Figbloom school invoice
+      description: >
+        Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Creates a due
+        invoice for an existing school and audits the amount and school in the same transaction. Payment is reconciled
+        manually; no overdue invoice changes school access.
+      operationId: createPlatformInvoice
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.billing.manage
+      x-figbloom-tenantScope: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformInvoiceCreateRequest"
+      responses:
+        "201":
+          description: Invoice created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformInvoiceCreatedResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/platform/invoices/{invoiceId}/mark-paid:
+    put:
+      tags:
+        - platform
+      summary: Mark a Figbloom invoice as paid
+      description: >
+        Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Records a manual
+        bank reconciliation and audits the paid amount in the same transaction. Repeating the action after payment is a
+        no-op; this does not suspend or reactivate a school.
+      operationId: markPlatformInvoicePaid
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.billing.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Whether the invoice changed to paid
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - changed
+                properties:
+                  changed:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/platform/audit-events:
     get:
       tags:
@@ -22642,6 +22755,86 @@ components:
         price_cents:
           type: integer
           minimum: 0
+    PlatformInvoiceItem:
+      type: object
+      additionalProperties: false
+      required:
+        - invoiceId
+        - tenantId
+        - tenantName
+        - amountCents
+        - dueDate
+        - status
+        - paidAt
+        - createdAt
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        tenantName:
+          type: string
+        amountCents:
+          type: integer
+          minimum: 1
+        dueDate:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+            - due
+            - paid
+        paidAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    PlatformInvoiceList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformInvoiceItem"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    PlatformInvoiceCreateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - amountCents
+        - dueDate
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        amountCents:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        dueDate:
+          type: string
+          format: date
+    PlatformInvoiceCreatedResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - invoiceId
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
     PlatformAuditEvent:
       type: object
       additionalProperties: false
