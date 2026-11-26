@@ -56,6 +56,21 @@ On `main` or in an open PR, not live in production yet.
   `114_platform_school_admins_read.sql` fixes the school administrators list, which always came back empty (row-level
   security hid the rows from a request with no school).
   Pages that still depend on open owner decisions remain gated behind `platformCapabilities()`.
+- **Platform subscription billing API (slice S6a, migration `122_platform_billing_subscriptions.sql`)**: D3 makes the API the
+  source for Figbloom's school subscriptions and KES plan prices. Owner-only `platform_subscriptions` and `plan_pricing`
+  tables are read through audited-scope SECURITY DEFINER functions; no legacy placeholder prices are seeded. The
+  `platform.billing.read` and `.manage` permissions are super-admin only. `GET /v1/platform/subscriptions` lists terms and
+  configured prices; `PUT /v1/platform/subscriptions/{schoolId}` and `PUT /v1/platform/plan-pricing/{plan}` require recent
+  password confirmation and audit every money change in the same transaction. Nothing changes the Supabase build, and
+  overdue invoices do not suspend schools.
+- **Platform invoices API (slice S6b, migration `123_platform_billing_invoices.sql`)**: adds an owner-only invoices table
+  and `GET /v1/platform/invoices`, `POST /v1/platform/invoices`, and
+  `PUT /v1/platform/invoices/{invoiceId}/mark-paid`. Create and mark-paid require recent password confirmation, audit the
+  money action in the same transaction, and do not connect overdue invoices to school suspension. Nothing changes the
+  Supabase build. The API table starts empty; historical Supabase invoice rows need a separate transfer before a production API cutover.
+- **Platform invoices API page (slice S6c)**: routes /platform/invoices to the new API list and school directory, and
+  uses API writes to create invoices and record manual payments. Overdue state comes from the due date; the page shows
+  no estimated MRR or seat counts.
 - **Behaviour log on the new API, part 1 (S2a, `apps/api/docs/BEHAVIOUR.md`)**: a port of the live behaviour log, with the same rules.
   Migration `118_behaviour_log.sql`: the `discipline` admin area, permissions `resource.discipline.read`, `resource.discipline.write` and
   `resource.behaviour.record` (teachers), tables `behaviour_settings`, `behaviour_categories`, `behaviour_entries` and

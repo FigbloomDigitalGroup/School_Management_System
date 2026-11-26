@@ -54,6 +54,15 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
   "platform_audit_events(uuid,text,timestamp with time zone,timestamp with time zone,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "security_audit_events has no SELECT grant: platform-wide audit read for super_admin (re-checked from app.user_id); never returns ip or detail; at most 201 rows" },
   // Migration 112: platform usage counts (docs/PLATFORM-CONSOLE.md slice P4)
   "platform_usage_counts()": { secdef: true, grantees: ["figbloom_app"], why: "platform per-school active learner, staff, and guardian link counts only (no PII); re-checks super_admin from app.user_id" },
+  // Migration 122: platform subscriptions and Figbloom plan prices (owner-only tables).
+  "platform_subscription_seed()": { secdef: true, grantees: [], why: "trigger on tenant creation; creates the known standard-plan subscription default without a price; the platform table is owner-only" },
+  "platform_billing_subscriptions_list(uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "owner-only subscriptions and tenant directory fields for platform super_admin; keyset by school name/id; no billing data is read directly by the runtime role" },
+  "platform_billing_plan_prices()": { secdef: true, grantees: ["figbloom_app"], why: "owner-only Figbloom plan price list for platform super_admin; no school fee data" },
+  "platform_billing_subscription_update(uuid,text,text,integer,timestamp with time zone,date)": { secdef: true, grantees: ["figbloom_app"], why: "recently re-authenticated platform subscription update; re-checks super_admin and audits before/after terms in the same transaction" },
+  "platform_billing_plan_price_set(text,integer)": { secdef: true, grantees: ["figbloom_app"], why: "recently re-authenticated Figbloom list-price change; re-checks super_admin and writes an immutable price-change audit row in the same transaction" },
+  "platform_billing_invoices_list(date,uuid,integer)": { secdef: true, grantees: ["figbloom_app"], why: "owner-only Figbloom invoices for super_admin; keyset by due date/id and no direct runtime table access" },
+  "platform_billing_invoice_create(uuid,integer,date)": { secdef: true, grantees: ["figbloom_app"], why: "recently re-authenticated invoice creation; re-checks super_admin and audits amount and school in the same transaction" },
+  "platform_billing_invoice_mark_paid(uuid)": { secdef: true, grantees: ["figbloom_app"], why: "recently re-authenticated manual payment reconciliation; row-locks, re-checks super_admin and audits the paid amount in the same transaction" },
   // Migration 110: student accounts (docs/STUDENT-ACCOUNTS.md)
   "student_my_learner()": { secdef: true, grantees: ["figbloom_app"], why: "learner_accounts is owner-only: the calling account's own learner in the current school (live link, active account, student membership, active learner); no argument, so no other account can be asked about" },
   "student_account_actor_may_manage(uuid)": { secdef: true, grantees: [], why: "internal: is the GUC actor the school office of the tenant in context (super administrator, school administrator, or teacher/staff holding the People area)" },
@@ -563,6 +572,13 @@ const RUNTIME_EXECUTABLE_DEFINERS = [
   "platform_incidents_list(uuid,text,timestamp with time zone,uuid,integer)",
   "platform_incident_declare(text,text,text,integer)",
   "platform_incident_resolve(uuid)",
+  "platform_billing_subscriptions_list(uuid,integer)",
+  "platform_billing_plan_prices()",
+  "platform_billing_subscription_update(uuid,text,text,integer,timestamp with time zone,date)",
+  "platform_billing_plan_price_set(text,integer)",
+  "platform_billing_invoices_list(date,uuid,integer)",
+  "platform_billing_invoice_create(uuid,integer,date)",
+  "platform_billing_invoice_mark_paid(uuid)",
   "hr_record_request()",
   "platform_school_admins(uuid,timestamp with time zone,uuid,integer)",
   "platform_audit_events(uuid,text,timestamp with time zone,timestamp with time zone,uuid,integer)",
@@ -672,7 +688,8 @@ describe("Stage D: SECURITY DEFINER and function inventory (live catalogue)", ()
     // four: users (status), organizations (status) and organization_memberships (UPDATE and DELETE).
     // Migration 029 adds class_memberships_integrity_guard. Later attendance triggers are invokers.
     // Migration 110 adds learner_accounts_on_membership_archive (school_memberships).
-    expect(r.rows.length).toBe(18);
+    // Migration 122 adds platform_subscription_seed (tenants).
+    expect(r.rows.length).toBe(19);
     for (const row of r.rows) expect(row.fn_owner, row.fn).toBe(row.table_owner);
   });
 

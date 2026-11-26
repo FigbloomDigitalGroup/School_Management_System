@@ -954,7 +954,7 @@ export interface PlatformCapabilities {
   incidentsPage: boolean;
   /** `/platform/subscriptions` — blocked on owner decision Q2 (whether the API owns Figbloom billing). */
   subscriptionsPage: boolean;
-  /** `/platform/invoices` — blocked on owner decision Q2 (whether the API owns Figbloom billing). */
+  /** `/platform/invoices` — backed by the API billing endpoints and the S6c API page. */
   invoicesPage: boolean;
   /** `/platform/impersonation` — blocked on owner decision Q3 (impersonation / explicit support sessions). */
   impersonationPage: boolean;
@@ -994,7 +994,7 @@ const PLATFORM_ON_API: PlatformCapabilities = {
   usagePage: true,
   incidentsPage: true,
   subscriptionsPage: false,
-  invoicesPage: false,
+  invoicesPage: true,
   impersonationPage: false,
   auditPage: true,
   tenantFiguresAndBilling: false,

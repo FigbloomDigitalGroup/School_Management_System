@@ -180,3 +180,28 @@ with no school, and a recent sign-in for the two writes.
 | `platform_incidents_list(uuid, text, timestamptz, uuid, integer)` | DEFINER (121), `STABLE`, `search_path = pg_catalog, pg_temp` | `figbloom_app` | one incident by id, or the list newest first with keyset `(opened_at, id)`, `open` / `resolved` filter, at most 201 rows. Returns who declared and resolved it (id and name) and no school data |
 | `platform_incident_declare(text, text, text, integer)` | DEFINER (121), `VOLATILE` | `figbloom_app` | checks severity, trimmed title (1 to 200) and summary (1 to 2,000), schools affected (0 to 100,000); inserts as `investigating`, opened now by the caller; audit row `platform.incident.declared` (`incidentId`, `severity`, `affectedSchools`; never the text) in the same transaction |
 | `platform_incident_resolve(uuid)` | DEFINER (121), `VOLATILE` | `figbloom_app` | locks the row; `P0002` for an unknown id; `false` and no change for one already resolved; otherwise resolved now by the caller and audit row `platform.incident.resolved` (`incidentId`, `severity`, `previousStatus`) in the same transaction |
+
+## Addendum 2026-11-26 — migration 122 (platform billing subscriptions, `docs/PLATFORM-CONSOLE.md` slice S6a)
+
+`plan_pricing` and `platform_subscriptions` are owner-only, forced-RLS tables with no `figbloom_app` or `figbloom_worker` grants.
+Every callable function sets `search_path = pg_catalog, pg_temp` and re-checks `super_admin` from `app.user_id`.
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `platform_subscription_seed()` | DEFINER trigger (122) | none | creates a new school's known default `standard` plan and current status; no price is invented |
+| `platform_billing_subscriptions_list(uuid, integer)` | DEFINER (122), `STABLE` | `figbloom_app` | returns school name/slug and subscription terms for the platform page, keyset by school name/id; effective price is the override, else an approved list price, else zero (displayed as unset) |
+| `platform_billing_plan_prices()` | DEFINER (122), `STABLE` | `figbloom_app` | reads only the owner-only Figbloom plan-price list |
+| `platform_billing_subscription_update(uuid, text, text, integer, timestamptz, date)` | DEFINER (122), `VOLATILE` | `figbloom_app` | re-checks super admin; updates one school's plan, status, price override, trial end and renewal; logs before/after fields to the platform audit log in the same transaction |
+| `platform_billing_plan_price_set(text, integer)` | DEFINER (122), `VOLATILE` | `figbloom_app` | re-checks super admin; upserts one approved plan price; logs the prior and new cents in the same transaction |
+
+## Addendum 2026-11-26 — migration 123 (platform invoices, `docs/PLATFORM-CONSOLE.md` slice S6b)
+
+`platform_invoices` is an owner-only, forced-RLS table with no `figbloom_app` or `figbloom_worker` grants. The platform
+invoices are Figbloom's school-billing records, not school fee invoices. They are manually reconciled; overdue does not
+suspend a school.
+
+| Function | Owner / mode | Execute | Notes |
+|---|---|---|---|
+| `platform_billing_invoices_list(date, uuid, integer)` | DEFINER (123), `STABLE` | `figbloom_app` | lists school name and invoice fields for `super_admin`, keyset by due date/id; does not expose fee invoices or direct table access |
+| `platform_billing_invoice_create(uuid, integer, date)` | DEFINER (123), `VOLATILE` | `figbloom_app` | re-checks super admin; creates a due invoice and audits school, amount and date in the same transaction |
+| `platform_billing_invoice_mark_paid(uuid)` | DEFINER (123), `VOLATILE` | `figbloom_app` | re-checks super admin; row-locks, manually records payment and audits the amount; repeated mark-paid is a no-op |

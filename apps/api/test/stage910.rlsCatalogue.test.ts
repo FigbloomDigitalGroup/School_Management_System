@@ -14,7 +14,7 @@ const ALL_NEW_TABLES = tablesCreatedFrom(29, MIGRATIONS_DIR);
  * all (operator-only quarantine, written through a SECURITY DEFINER function). Each is asserted below to be
  * RLS-forced and to hold no privilege for figbloom_app or figbloom_worker, so this is not a silent exemption.
  */
-const OPERATOR_ONLY_TABLES = ["finance_mpesa_unmatched_callbacks", "account_tokens", "worker_heartbeats", "guardian_invitations", "guardian_accounts", "finance_unmatched_cases", "finance_unmatched_case_notes", "learner_accounts", "platform_incidents"];
+const OPERATOR_ONLY_TABLES = ["finance_mpesa_unmatched_callbacks", "account_tokens", "worker_heartbeats", "guardian_invitations", "guardian_accounts", "finance_unmatched_cases", "finance_unmatched_case_notes", "learner_accounts", "plan_pricing", "platform_subscriptions", "platform_invoices", "platform_incidents"];
 /** User-scoped (session user GUC), not tenant-scoped school tables. */
 const USER_SCOPED_TABLES = ["notification_preferences", "device_tokens", "mfa_factors", "mfa_recovery_codes"] as const;
 /**

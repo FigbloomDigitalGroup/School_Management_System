@@ -47,6 +47,8 @@ import { registerImportRoutes } from "./http/routes/imports.js";
 import { registerOpsStatusRoutes } from "./http/routes/opsStatus.js";
 import { registerPlatformAuditRoutes } from "./http/routes/platformAudit.js";
 import { registerPlatformIncidentRoutes } from "./http/routes/platformIncidents.js";
+import { registerPlatformBillingRoutes } from "./http/routes/platformBilling.js";
+import { registerPlatformInvoiceRoutes } from "./http/routes/platformInvoices.js";
 import { registerPlatformOrganizationRoutes } from "./http/routes/platformOrganizations.js";
 import { registerPlatformSchoolRoutes } from "./http/routes/platformSchools.js";
 import { registerPlatformUsageRoutes } from "./http/routes/platformUsage.js";
@@ -251,6 +253,8 @@ export async function buildApp(config: AppConfig, pool: AppPool, deps: AppDepend
   await registerOpsStatusRoutes(app, pool);
   await registerPlatformAuditRoutes(app, pool);
   await registerPlatformIncidentRoutes(app, pool);
+  await registerPlatformBillingRoutes(app, pool);
+  await registerPlatformInvoiceRoutes(app, pool);
   await registerPlatformOrganizationRoutes(app, pool);
   await registerPlatformSchoolRoutes(app, pool);
   await registerPlatformUsageRoutes(app, pool);

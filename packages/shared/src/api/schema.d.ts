@@ -228,6 +228,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/platform/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List school subscriptions and the Figbloom price list
+         * @description Super administrators only (`platform.billing.read`). Returns school directory fields and subscription terms through owner-only SECURITY DEFINER functions. Plan prices are Figbloom's school-billing prices in KES; no price is invented when one has not been configured. Keyset-paginated by school name and id. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
+        get: operations["listPlatformSubscriptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/subscriptions/{schoolId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update a school's subscription terms
+         * @description Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Replaces the plan, status, optional negotiated price, trial end and renewal date, and audits the before/after terms in the same transaction. This does not change the school's access status or link overdue invoices to suspension.
+         */
+        put: operations["updatePlatformSubscription"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/plan-pricing/{plan}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a Figbloom plan price
+         * @description Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Price is integer KES cents and the change is audited in the same transaction. No legacy placeholder price is seeded.
+         */
+        put: operations["setPlatformPlanPrice"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Figbloom invoices for schools
+         * @description Super administrators only (`platform.billing.read`). Returns Figbloom's manually recorded school invoices, separate from school fee invoices. Overdue is derived from the due date and never suspends a school. Keyset- paginated by due date and invoice id. The caller's school (session or `X-Tenant-Id`) is ignored.
+         */
+        get: operations["listPlatformInvoices"];
+        put?: never;
+        /**
+         * Create a Figbloom school invoice
+         * @description Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Creates a due invoice for an existing school and audits the amount and school in the same transaction. Payment is reconciled manually; no overdue invoice changes school access.
+         */
+        post: operations["createPlatformInvoice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/invoices/{invoiceId}/mark-paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mark a Figbloom invoice as paid
+         * @description Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Records a manual bank reconciliation and audits the paid amount in the same transaction. Repeating the action after payment is a no-op; this does not suspend or reactivate a school.
+         */
+        put: operations["markPlatformInvoicePaid"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/platform/audit-events": {
         parameters: {
             query?: never;
@@ -6719,6 +6823,77 @@ export interface components {
                 activeGuardianLinks: number;
             };
         };
+        PlatformPlanPrice: {
+            /** @enum {string} */
+            plan: "standard" | "institution" | "county";
+            priceCents: number;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PlatformSubscriptionItem: {
+            /** Format: uuid */
+            tenantId: string;
+            name: string;
+            slug: string;
+            /** @enum {string} */
+            plan: "standard" | "institution" | "county";
+            status: components["schemas"]["PlatformSchoolStatus"];
+            priceCentsOverride: number | null;
+            /** Format: date-time */
+            trialEndsAt: string | null;
+            /** Format: date */
+            renewsOn: string | null;
+            priceCents: number;
+        };
+        PlatformBillingSubscriptions: {
+            items: components["schemas"]["PlatformSubscriptionItem"][];
+            pricing: components["schemas"]["PlatformPlanPrice"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        PlatformSubscriptionUpdateRequest: {
+            /** @enum {string} */
+            plan: "standard" | "institution" | "county";
+            status: components["schemas"]["PlatformSchoolStatus"];
+            price_cents_override: number | null;
+            /** Format: date-time */
+            trial_ends_at: string | null;
+            /** Format: date */
+            renews_on: string | null;
+        };
+        PlatformPlanPriceUpdateRequest: {
+            price_cents: number;
+        };
+        PlatformInvoiceItem: {
+            /** Format: uuid */
+            invoiceId: string;
+            /** Format: uuid */
+            tenantId: string;
+            tenantName: string;
+            amountCents: number;
+            /** Format: date */
+            dueDate: string;
+            /** @enum {string} */
+            status: "due" | "paid";
+            /** Format: date-time */
+            paidAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        PlatformInvoiceList: {
+            items: components["schemas"]["PlatformInvoiceItem"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        PlatformInvoiceCreateRequest: {
+            /** Format: uuid */
+            tenantId: string;
+            amountCents: number;
+            /** Format: date */
+            dueDate: string;
+        };
+        PlatformInvoiceCreatedResponse: {
+            /** Format: uuid */
+            invoiceId: string;
+        };
         PlatformAuditEvent: {
             /** Format: uuid */
             id: string;
@@ -11001,6 +11176,185 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listPlatformSubscriptions: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description School subscriptions and the plan price list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformBillingSubscriptions"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updatePlatformSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schoolId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformSubscriptionUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Whether subscription terms changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        changed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setPlatformPlanPrice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan: "standard" | "institution" | "county";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformPlanPriceUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Whether the plan price changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        changed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listPlatformInvoices: {
+        parameters: {
+            query?: {
+                /** @description Page size (FIG-1621). Default 50, maximum 200. Decimal integers only; values above 200, `0x10`, `1e2` and non-integers are `400 validation_error`. */
+                limit?: components["parameters"]["PageLimit"];
+                /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
+                cursor?: components["parameters"]["PageCursor"];
+                /** @description Not supported on this endpoint. Only the documented fixed sort is used. Any other value is `400 validation_error` (never silently ignored). */
+                sort?: components["parameters"]["PageSortUnsupported"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of Figbloom invoices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformInvoiceList"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createPlatformInvoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformInvoiceCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Invoice created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformInvoiceCreatedResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    markPlatformInvoicePaid: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoiceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether the invoice changed to paid */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        changed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listPlatformAuditEvents: {

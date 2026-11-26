@@ -14,6 +14,7 @@ import { useAsync } from "../lib/useAsync";
 import { Incidents as ApiPlatformIncidents } from "../screens/platform/pages";
 import { ApiPlatformAudit } from "../screens/platform/ApiPlatformAudit";
 import { ApiPlatformHealth } from "../screens/platform/ApiPlatformHealth";
+import { ApiPlatformInvoices } from "../screens/platform/ApiPlatformInvoices";
 import { ApiPlatformOrganizations } from "../screens/platform/ApiPlatformOrganizations";
 import { ApiPlatformTenants } from "../screens/platform/ApiPlatformTenants";
 import { ApiPlatformUsage } from "../screens/platform/ApiPlatformUsage";
@@ -75,7 +76,7 @@ export function ApiPlatformShell() {
   if (counts?.tenants) badges["/platform/tenants"] = String(counts.tenants);
   if (counts?.openIncidents) badges["/platform/incidents"] = String(counts.openIncidents);
 
-  if (page !== "tenants" && page !== "organizations" && page !== "health" && page !== "usage" && page !== "audit" && page !== "incidents") {
+  if (page !== "tenants" && page !== "organizations" && page !== "health" && page !== "usage" && page !== "audit" && page !== "incidents" && page !== "invoices") {
     return <Navigate to="/platform/tenants" replace />;
   }
   if (page === "incidents" && !caps.incidentsPage) return <Navigate to="/platform/tenants" replace />;
@@ -103,6 +104,8 @@ export function ApiPlatformShell() {
           <ApiPlatformUsage />
         ) : page === "audit" ? (
           <ApiPlatformAudit />
+        ) : page === "invoices" ? (
+          <div className="h-screen"><ApiPlatformInvoices /></div>
         ) : (
           <ApiPlatformHealth />
         )}

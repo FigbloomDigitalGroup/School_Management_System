@@ -518,6 +518,253 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/platform/subscriptions:
+    get:
+      tags:
+        - platform
+      summary: List school subscriptions and the Figbloom price list
+      description: >
+        Super administrators only (`platform.billing.read`). Returns school directory fields and subscription terms
+        through owner-only SECURITY DEFINER functions. Plan prices are Figbloom's school-billing prices in KES; no
+        price is invented when one has not been configured. Keyset-paginated by school name and id. The caller's
+        school (session or `X-Tenant-Id`) is ignored.
+      operationId: listPlatformSubscriptions
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.billing.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: School subscriptions and the plan price list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformBillingSubscriptions"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/platform/subscriptions/{schoolId}:
+    put:
+      tags:
+        - platform
+      summary: Update a school's subscription terms
+      description: >
+        Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Replaces the
+        plan, status, optional negotiated price, trial end and renewal date, and audits the before/after terms in the
+        same transaction. This does not change the school's access status or link overdue invoices to suspension.
+      operationId: updatePlatformSubscription
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.billing.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: schoolId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSubscriptionUpdateRequest"
+      responses:
+        "200":
+          description: Whether subscription terms changed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - changed
+                properties:
+                  changed:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/platform/plan-pricing/{plan}:
+    put:
+      tags:
+        - platform
+      summary: Set a Figbloom plan price
+      description: >
+        Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Price is integer
+        KES cents and the change is audited in the same transaction. No legacy placeholder price is seeded.
+      operationId: setPlatformPlanPrice
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.billing.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: plan
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - standard
+              - institution
+              - county
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformPlanPriceUpdateRequest"
+      responses:
+        "200":
+          description: Whether the plan price changed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - changed
+                properties:
+                  changed:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/platform/invoices:
+    get:
+      tags:
+        - platform
+      summary: List Figbloom invoices for schools
+      description: >
+        Super administrators only (`platform.billing.read`). Returns Figbloom's manually recorded school invoices,
+        separate from school fee invoices. Overdue is derived from the due date and never suspends a school. Keyset-
+        paginated by due date and invoice id. The caller's school (session or `X-Tenant-Id`) is ignored.
+      operationId: listPlatformInvoices
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.billing.read
+      x-figbloom-tenantScope: none
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageSortUnsupported"
+      responses:
+        "200":
+          description: One page of Figbloom invoices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformInvoiceList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - platform
+      summary: Create a Figbloom school invoice
+      description: >
+        Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Creates a due
+        invoice for an existing school and audits the amount and school in the same transaction. Payment is reconciled
+        manually; no overdue invoice changes school access.
+      operationId: createPlatformInvoice
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.billing.manage
+      x-figbloom-tenantScope: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformInvoiceCreateRequest"
+      responses:
+        "201":
+          description: Invoice created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformInvoiceCreatedResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/platform/invoices/{invoiceId}/mark-paid:
+    put:
+      tags:
+        - platform
+      summary: Mark a Figbloom invoice as paid
+      description: >
+        Super administrators only (`platform.billing.manage`). Requires a recently confirmed password. Records a manual
+        bank reconciliation and audits the paid amount in the same transaction. Repeating the action after payment is a
+        no-op; this does not suspend or reactivate a school.
+      operationId: markPlatformInvoicePaid
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - platform.billing.manage
+      x-figbloom-tenantScope: none
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Whether the invoice changed to paid
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - changed
+                properties:
+                  changed:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/platform/audit-events:
     get:
       tags:
@@ -22686,6 +22933,213 @@ components:
             activeGuardianLinks:
               type: integer
               minimum: 0
+    PlatformPlanPrice:
+      type: object
+      additionalProperties: false
+      required:
+        - plan
+        - priceCents
+        - updatedAt
+      properties:
+        plan:
+          type: string
+          enum:
+            - standard
+            - institution
+            - county
+        priceCents:
+          type: integer
+          minimum: 0
+        updatedAt:
+          type: string
+          format: date-time
+    PlatformSubscriptionItem:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - name
+        - slug
+        - plan
+        - status
+        - priceCentsOverride
+        - trialEndsAt
+        - renewsOn
+        - priceCents
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        plan:
+          type: string
+          enum:
+            - standard
+            - institution
+            - county
+        status:
+          $ref: "#/components/schemas/PlatformSchoolStatus"
+        priceCentsOverride:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        trialEndsAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        renewsOn:
+          type:
+            - string
+            - "null"
+          format: date
+        priceCents:
+          type: integer
+          minimum: 0
+    PlatformBillingSubscriptions:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - pricing
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformSubscriptionItem"
+        pricing:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformPlanPrice"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    PlatformSubscriptionUpdateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - plan
+        - status
+        - price_cents_override
+        - trial_ends_at
+        - renews_on
+      properties:
+        plan:
+          type: string
+          enum:
+            - standard
+            - institution
+            - county
+        status:
+          $ref: "#/components/schemas/PlatformSchoolStatus"
+        price_cents_override:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        trial_ends_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        renews_on:
+          type:
+            - string
+            - "null"
+          format: date
+    PlatformPlanPriceUpdateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - price_cents
+      properties:
+        price_cents:
+          type: integer
+          minimum: 0
+    PlatformInvoiceItem:
+      type: object
+      additionalProperties: false
+      required:
+        - invoiceId
+        - tenantId
+        - tenantName
+        - amountCents
+        - dueDate
+        - status
+        - paidAt
+        - createdAt
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        tenantName:
+          type: string
+        amountCents:
+          type: integer
+          minimum: 1
+        dueDate:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+            - due
+            - paid
+        paidAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    PlatformInvoiceList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformInvoiceItem"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    PlatformInvoiceCreateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - amountCents
+        - dueDate
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        amountCents:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        dueDate:
+          type: string
+          format: date
+    PlatformInvoiceCreatedResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - invoiceId
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
     PlatformAuditEvent:
       type: object
       additionalProperties: false
