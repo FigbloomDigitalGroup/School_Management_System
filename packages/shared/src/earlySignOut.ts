@@ -1,5 +1,5 @@
 import {
-  apiFetchCollectorDetails, apiFetchEarlySignOuts, apiFetchEarlySignOutsForStudents, apiFetchStudentEarlySignOuts,
+  apiFetchCollectorDetails, apiFetchEarlySignOuts, apiFetchEarlySignOutsForStudents, apiFetchLearnerSignOutHistory, apiFetchStudentEarlySignOuts,
   apiRecordEarlySignOut, apiVoidEarlySignOut,
 } from "./api/attendanceApi";
 import { apiFetchChildEarlySignOuts } from "./api/parentApi";
@@ -57,6 +57,14 @@ export interface EarlySignOutCollector {
   note: string | null;
   /** Why a voided sign-out was voided (free text, so restricted like the note). Null while the sign-out is live. */
   void_reason: string | null;
+}
+
+export interface LearnerSignOutHistory {
+  rows: EarlySignOut[];
+  details: Map<string, EarlySignOutCollector>;
+  /** True only when the bounded API search stopped before reaching the end or finding enough rows. */
+  partial: boolean;
+  searched: number;
 }
 
 export interface EarlySignOutDraft {
@@ -123,6 +131,12 @@ export function mayVoidEarlySignOut(access: AdminAccess, recordedBy: string | nu
 /** Who sees the school's daily list: the attendance area and the visitors area (the gate), and full admins. Mirrors early_sign_outs_read. */
 export function maySeeSignOutList(access: AdminAccess): boolean {
   return access === "all" || access.includes("attendance") || access.includes("visitors");
+}
+
+/** Who may see the restricted learner-record history: Attendance and full admins on the API, as before on Supabase. */
+export function maySeeLearnerSignOuts(access: AdminAccess): boolean {
+  if (!onApi()) return maySeeSignOutList(access);
+  return access === "all" || access.includes("attendance");
 }
 
 /** "10:45" from the stored wall-clock time. */
@@ -240,6 +254,14 @@ export async function fetchStudentEarlySignOuts(studentId: string, limit = 50): 
     .eq("student_id", studentId).order("signed_out_at", { ascending: false }).limit(limit).returns<EarlySignOut[]>();
   if (error) throw new Error(error.message);
   return data ?? [];
+}
+
+/** A learner's record plus the collector details the caller is allowed to see. */
+export async function fetchLearnerSignOutHistory(studentId: string, limit = 50): Promise<LearnerSignOutHistory> {
+  if (onApi()) return apiFetchLearnerSignOutHistory(studentId, limit);
+  const rows = await fetchStudentEarlySignOuts(studentId, limit);
+  const details = await fetchCollectorDetails(rows.map((row) => row.id)).catch(() => new Map<string, EarlySignOutCollector>());
+  return { rows, details, partial: false, searched: rows.length };
 }
 
 /**

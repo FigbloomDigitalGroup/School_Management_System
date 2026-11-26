@@ -1,4 +1,4 @@
-import { fetchCollectorDetails, fetchStudentEarlySignOuts, signOutTime, type EarlySignOutCollector } from "@figbloom/shared";
+import { fetchLearnerSignOutHistory, signOutTime } from "@figbloom/shared";
 import { authorisedByText, collectorContactText, collectorLine, noteText, voidReasonText } from "../../lib/earlySignOutView";
 import { useAsync } from "../../lib/useAsync";
 import { Skeleton } from "../ui/Skeleton";
@@ -8,11 +8,7 @@ import { Skeleton } from "../ui/Skeleton";
  * where the database returned them; otherwise "restricted". Voided sign-outs stay, struck through, with the reason.
  */
 export function StudentEarlySignOuts({ studentId }: { studentId: string }) {
-  const { data, loading, error } = useAsync(async () => {
-    const rows = await fetchStudentEarlySignOuts(studentId);
-    const details = await fetchCollectorDetails(rows.map((r) => r.id)).catch(() => new Map<string, EarlySignOutCollector>());
-    return { rows, details };
-  }, [studentId]);
+  const { data, loading, error } = useAsync(() => fetchLearnerSignOutHistory(studentId), [studentId]);
 
   return (
     <section className="mt-5">
@@ -22,9 +18,10 @@ export function StudentEarlySignOuts({ studentId }: { studentId: string }) {
       ) : loading || !data ? (
         <Skeleton className="h-3 w-2/3" />
       ) : data.rows.length === 0 ? (
-        <p className="text-[12.5px] text-ink-muted">No early sign-outs on record.</p>
+        <p className="text-[12.5px] text-ink-muted">{data.partial ? `No sign-outs found in the latest ${data.searched} pages. Older records may not have been checked.` : "No early sign-outs on record."}</p>
       ) : (
         <ul className="grid gap-2">
+          {data.partial && <li className="text-[11.5px] text-ink-muted" role="status">Checked the latest {data.searched} pages. Older sign-outs may not be shown.</li>}
           {data.rows.map((r) => {
             const voided = !!r.voided_at;
             const strike = voided ? "text-ink-faint line-through" : "";

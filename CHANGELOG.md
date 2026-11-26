@@ -60,6 +60,7 @@ rename it or change how it behaves without a PR that Mike approves.
   has no unpublish) and new API-only `oneStepCreate` switches the API editor. The Supabase build is unchanged (`unpublishPaper: true`,
   `oneStepCreate: false`). Papers made on the API before migration 110 are unpublished and now show Draft. See
   `docs/web-on-api/exam-papers.md`.
+- **People learner record tabs on the API build (W0.3, second PR, `docs/web-on-api/people.md`)**: the Fees column uses current-term invoices only for callers with Finance and academic-term read access; learner records add a bounded early sign-out history for full administrators and Attendance-area holders, and a bounded clubs and teams summary for full administrators and Activities-area holders. Unassigning archives the current class membership, and migration 101 allows a learner to rejoin a class they left. No API endpoints or database objects change; the Supabase build keeps its existing reads.
 
 On `main` or in an open PR, not live in production yet.
 

@@ -1,6 +1,7 @@
 import { today, type Register } from "../attendance";
 import { DEFAULT_ATTENDANCE_SETTINGS, type AttendanceSession, type AttendanceSettings, type EntryFilter, type SessionEntry, type SignOutDay } from "../attendanceSession";
 import type { EarlySignOut, EarlySignOutCollector, EarlySignOutDraft } from "../earlySignOut";
+import type { LearnerSignOutHistory } from "../earlySignOut";
 import { WriteError } from "../queue";
 import type { ClassProgress } from "../teacherData";
 import type { AttendanceMark, ClassGroup, Student, Term } from "../types";
@@ -31,6 +32,8 @@ type ApiEarlySignOutRecord = components["schemas"]["EarlySignOutRecord"];
 
 /** Max concurrent register POSTs while writing a class register (FIG-1891). */
 export const ATTENDANCE_WRITE_CONCURRENCY = 4;
+/** Bound the school-wide scan used by a learner card when the API has no learner-filtered history endpoint. */
+export const SIGN_OUT_SEARCH_PAGES = 12;
 
 function tenantIdOrThrow(tenantId?: string): string {
   const id = tenantId ?? apiClient().activeTenant();
@@ -270,13 +273,43 @@ export async function apiFetchEarlySignOutsForStudents(studentIds: string[], day
 }
 
 export async function apiFetchStudentEarlySignOuts(studentId: string, limit = 50, tenantId?: string): Promise<EarlySignOut[]> {
+  return (await apiFetchLearnerSignOutHistory(studentId, limit, tenantId)).rows;
+}
+
+/** Search the newest school pages for this learner. Collector details arrive with each row when permission allows them. */
+export async function apiFetchLearnerSignOutHistory(
+  studentId: string,
+  limit = 50,
+  tenantId?: string,
+  maxPages = SIGN_OUT_SEARCH_PAGES,
+): Promise<LearnerSignOutHistory> {
+  if (limit <= 0 || maxPages <= 0) return { rows: [], details: new Map(), partial: false, searched: 0 };
   const tid = tenantIdOrThrow(tenantId);
-  const rows = await listSignOutRecords(tid);
-  return rows
-    .map((r) => earlySignOutFromApi(r.sign_out))
-    .filter((r) => r.student_id === studentId)
-    .sort((a, b) => b.signed_out_at.localeCompare(a.signed_out_at))
+  const matches: ApiEarlySignOutRecord[] = [];
+  let cursor: string | undefined;
+  let hasMore = false;
+  let searched = 0;
+  while (searched < maxPages) {
+    const page = await apiClient().get("/v1/tenants/{tenantId}/early-sign-outs", {
+      path: { tenantId: tid },
+      query: { limit: API_PAGE_LIMIT, cursor },
+      tenantId: tid,
+    });
+    searched++;
+    matches.push(...page.sign_outs.filter((r) => r.sign_out.learner_id === studentId));
+    hasMore = !!page.page.next_cursor;
+    if (matches.length >= limit || !hasMore) break;
+    cursor = page.page.next_cursor ?? undefined;
+  }
+  const selected = matches
+    .sort((a, b) => b.sign_out.signed_out_at.localeCompare(a.sign_out.signed_out_at))
     .slice(0, limit);
+  const details = new Map<string, EarlySignOutCollector>();
+  const rows = selected.map((record) => {
+    if (record.collector) details.set(record.sign_out.id, { sign_out_id: record.sign_out.id, ...record.collector });
+    return earlySignOutFromApi(record.sign_out);
+  });
+  return { rows, details, partial: hasMore && matches.length < limit && searched >= maxPages, searched };
 }
 
 export async function apiFetchCollectorDetails(signOutIds: string[], tenantId?: string): Promise<Map<string, EarlySignOutCollector>> {

@@ -40,6 +40,8 @@ export interface PeopleRoster {
   staff: RosterStaff[];
   /** Current-term invoice per learner, in cents; a learner with none is missing. */
   feeByStudent: Map<string, { total: number; paid: number }>;
+  /** False when this API user cannot read both Finance and the current academic term. */
+  feesReadable: boolean;
   subjects: Subject[];
   subjectIdsByTeacher: Map<string, string[]>;
 }
@@ -99,6 +101,7 @@ export async function fetchPeopleRoster(tenantId: string): Promise<PeopleRoster>
     students: (studentRows ?? []).map((s) => ({ ...s, login_id: s.profile_id ? loginIdByProfile.get(s.profile_id) ?? null : null })),
     staff: staffRows ?? [],
     feeByStudent,
+    feesReadable: true,
     subjects: subjectRows ?? [],
     subjectIdsByTeacher,
   };

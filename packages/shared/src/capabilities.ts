@@ -91,7 +91,7 @@ export interface PeopleCapabilities {
   staffSignIn: boolean;
   /** The Guardian column (a placeholder on Supabase; guardians are read from a learner's own card on the API). */
   guardianColumn: boolean;
-  /** Each learner's fee status. */
+  /** Each learner's current-term fee status (Finance and Academics reads are required on the API). */
   learnerFees: boolean;
   /** The bulk "Change class" and "Export" buttons (toast-only stubs on Supabase; not offered on the API until they work). */
   bulkChangeClass: boolean;
@@ -101,7 +101,9 @@ export interface PeopleCapabilities {
   learnerHealth: boolean;
   bioData: boolean;
   learnerDocuments: boolean;
+  /** A learner's early sign-outs. On the API this is limited to full administrators and Attendance area holders. */
   learnerEarlySignOuts: boolean;
+  /** The learner's clubs and teams. On the API this is limited to full administrators and Activities area holders. */
   learnerActivities: boolean;
   /** A learner's behaviour entries on their record (the behaviour log: docs/web-on-api/behaviour.md). On for everyone now. */
   learnerBehaviour: boolean;
@@ -123,10 +125,7 @@ export interface PeopleCapabilities {
   importByAreaHolders: boolean;
   /** API only: a learner can be added with no class yet (placing one needs the Academics area, which People alone does not give). */
   learnerWithoutClass: boolean;
-  /**
-   * Take a learner out of their class ("Unassigned"). Not on the API: a class a learner has left cannot be given back to them that
-   * year (the API keeps an ended membership as a block), so taking one away would be a trap.
-   */
+  /** Take a learner out of their current class ("Unassigned"): the API archives the active membership and allows a later return. */
   unassignClass: boolean;
 }
 
@@ -138,10 +137,10 @@ const PEOPLE_ON_SUPABASE: PeopleCapabilities = {
 };
 
 const PEOPLE_ON_API: PeopleCapabilities = {
-  deleteLearner: false, learnerLogins: true, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: false, bulkChangeClass: false, bulkExport: false,
-  learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: false, learnerActivities: false, learnerBehaviour: true,
+  deleteLearner: false, learnerLogins: true, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: true, bulkChangeClass: false, bulkExport: false,
+  learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: true, learnerActivities: true, learnerBehaviour: true,
   photos: false, passwordResets: false, staffAccounts: false, staffSubjects: false, staffCalls: false, staffArchive: true, guardianContactForm: true,
-  importByAreaHolders: false, learnerWithoutClass: true, unassignClass: false,
+  importByAreaHolders: false, learnerWithoutClass: true, unassignClass: true,
 };
 
 export function peopleCapabilities(): PeopleCapabilities {

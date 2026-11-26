@@ -1,5 +1,5 @@
 import {
-  ACTIVITY_CATEGORY_LABEL, EVENT_KIND_LABEL, EVENT_LEVEL_LABEL, achievementLabel, formatEventWhen, loadLearnerActivities, parentCapabilities,
+  ACTIVITY_CATEGORY_LABEL, EVENT_KIND_LABEL, EVENT_LEVEL_LABEL, achievementLabel, formatEventWhen, loadLearnerActivities, loadLearnerActivitiesForOffice, parentCapabilities,
 } from "@figbloom/shared";
 import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/DataTable";
@@ -11,14 +11,19 @@ import { useAsync } from "../../lib/useAsync";
  * won. The student's and parent's Sports & activities pages show it in full;
  * the office sees the same, compact, on the learner's record in People.
  */
-export function LearnerActivitiesView({ tenantId, studentId, first, compact = false }: {
+export function LearnerActivitiesView({ tenantId, studentId, first, compact = false, forOffice = false }: {
   tenantId: string;
   studentId: string;
   /** "Amani", or null for the learner themselves ("You're not in ...") */
   first: string | null;
   compact?: boolean;
+  /** The People card is staff-side; on the API it composes the school activity lists rather than using a guardian read. */
+  forOffice?: boolean;
 }) {
-  const { data, loading, error } = useAsync(() => loadLearnerActivities(tenantId, studentId), [tenantId, studentId]);
+  const { data, loading, error } = useAsync(
+    () => forOffice ? loadLearnerActivitiesForOffice(tenantId, studentId) : loadLearnerActivities(tenantId, studentId),
+    [tenantId, studentId, forOffice],
+  );
   // Fixtures, trips and awards are not in the API's family read: only the clubs and teams are shown there, and the page does not claim there are none.
   const events = parentCapabilities().activityEvents;
 
@@ -39,7 +44,7 @@ export function LearnerActivitiesView({ tenantId, studentId, first, compact = fa
   }
   if (!data) return null;
 
-  const nothing = !data.clubs.length && (!events || (!data.upcoming.length && !data.achievements.length));
+  const nothing = !data.partial && !data.clubs.length && (!events || (!data.upcoming.length && !data.achievements.length));
   if (nothing) {
     const body = first
       ? `${first} isn't in any club, team or society yet. The patron adds members; ask at school if ${first} has joined one.`
@@ -53,8 +58,9 @@ export function LearnerActivitiesView({ tenantId, studentId, first, compact = fa
     <div className={compact ? "grid gap-4" : "grid max-w-[860px] gap-6"}>
       <section>
         <h2 className="mb-2.5 font-mono text-micro tracking-[0.12em] text-ink-faint">CLUBS AND TEAMS · {data.clubs.length}</h2>
+        {data.partial && <p className="mb-2 text-[11.5px] text-ink-muted" role="status">Checked {data.partial.searched} of {data.partial.total} activities. Some clubs may not be shown.</p>}
         {data.clubs.length === 0 ? (
-          <p className="text-[12.5px] text-ink-muted">Not a member of any yet.</p>
+          <p className="text-[12.5px] text-ink-muted">{data.partial ? `No membership found in the first ${data.partial.searched} activities.` : "Not a member of any yet."}</p>
         ) : (
           <div className="grid gap-2.5" style={compact ? undefined : { gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
             {data.clubs.map(({ activity, role }) => (

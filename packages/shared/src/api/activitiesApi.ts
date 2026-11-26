@@ -1,4 +1,4 @@
-import type { ActivityCategory, ActivityInput, ActivityRow, LearnerOption, MemberRow } from "../activities";
+import type { ActivityInput, ActivityRow, LearnerActivities, LearnerOption, MemberRow } from "../activities";
 import { diffIds } from "../activities";
 import { NotOnApiError } from "../capabilities";
 import { apiClient } from "./client";
@@ -32,6 +32,9 @@ type ApiActivity = components["schemas"]["Activity"];
 type ApiActivityMember = components["schemas"]["ActivityMember"];
 
 export const ACTIVITY_WRITE_CONCURRENCY = 4;
+/** Limit the number of separate member lists the People card searches for one learner. */
+export const LEARNER_CARD_ACTIVITY_LIMIT = 50;
+const ACTIVITY_READ_CONCURRENCY = 4;
 
 /** What a member is called when the person may not read learners. */
 export const HIDDEN_MEMBER_NAME = "Learner (name not shown)";
@@ -41,7 +44,8 @@ export function activityFromApi(a: ApiActivity): ActivityRow {
     id: a.id,
     tenantId: a.tenant_id,
     name: a.name,
-    category: a.category as ActivityCategory,
+    // Keep every API category: its schema includes arts as well as sport, club and other.
+    category: a.category,
     description: a.description,
     meetingSchedule: a.meeting_schedule,
     active: a.active,
@@ -84,6 +88,28 @@ function partialFailure(results: { ok: boolean; error?: unknown }[], what: strin
 export async function apiFetchActivities(tenantId: string): Promise<ActivityRow[]> {
   const rows = await listApiActivities(tenantId);
   return rows.map(activityFromApi).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+/** Compose the office card from the school activity list and each activity's membership list. */
+export async function apiLoadLearnerActivitiesForOffice(tenantId: string, learnerId: string): Promise<LearnerActivities> {
+  const activities = await apiFetchActivities(tenantId);
+  const searchedActivities = activities.slice(0, LEARNER_CARD_ACTIVITY_LIMIT);
+  const results = await settlePool(searchedActivities, ACTIVITY_READ_CONCURRENCY, async (activity) => ({
+    activity,
+    members: await listApiActivityMembers(tenantId, activity.id),
+  }));
+  const clubs: LearnerActivities["clubs"] = [];
+  for (const result of results) {
+    if (!result.ok) throw result.error;
+    const member = result.value.members.find((item) => item.learner_id === learnerId);
+    if (member) clubs.push({ activity: result.value.activity, role: member.role, joinedOn: member.joined_on });
+  }
+  return {
+    clubs,
+    upcoming: [],
+    achievements: [],
+    ...(activities.length > searchedActivities.length ? { partial: { searched: searchedActivities.length, total: activities.length } } : {}),
+  };
 }
 
 /** One count for each activity: there is no count endpoint, so each activity's members are read (four at a time). */

@@ -3,6 +3,7 @@ import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import * as activitiesApi from "./api/activitiesApi";
 import { supabase } from "./supabase";
+import type { AdminAccess } from "./adminAreas";
 import { fetchAllPages } from "./paging";
 import type { Audience } from "./types";
 
@@ -449,6 +450,13 @@ export interface LearnerActivities {
   /** Events of their clubs, and any other event they're down for, still to come. */
   upcoming: (ActivityEventRow & { activityName: string; takingPart: boolean })[];
   achievements: LearnerAchievement[];
+  /** The API office view searches a bounded number of activities; present when some memberships could not be checked. */
+  partial?: { searched: number; total: number };
+}
+
+/** The API only offers the office view to full administrators and Activities area holders. Supabase keeps its existing card. */
+export function mayReadLearnerActivities(access: AdminAccess): boolean {
+  return !onApi() || access === "all" || access.includes("activities");
 }
 
 /** A learner's clubs, what's coming up for them, and what they've won. Works for staff and for the learner's own family. */
@@ -502,6 +510,12 @@ export async function loadLearnerActivities(tenantId: string, studentId: string,
     upcoming: upcoming.map((e) => ({ ...e, activityName: activityName(e.activityId), takingPart: partByEvent.has(e.id) })),
     achievements,
   };
+}
+
+/** Office-side learner card. The API has no staff-to-learner activities endpoint, so it composes clubs and members. */
+export async function loadLearnerActivitiesForOffice(tenantId: string, studentId: string, now: Date = new Date()): Promise<LearnerActivities> {
+  if (onApi()) return activitiesApi.apiLoadLearnerActivitiesForOffice(tenantId, studentId);
+  return loadLearnerActivities(tenantId, studentId, now);
 }
 
 // ---------------------------------------------------------------- one term, for report cards
