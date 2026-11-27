@@ -902,19 +902,19 @@ export function visitorsCapabilities(): VisitorsCapabilities {
 
 /** Teacher homework management (teacher/homework). */
 export interface HomeworkCapabilities {
-  /** Editing a homework item after it is set (no PATCH /v1/tenants/{tenantId}/homework-items/{id} endpoint). */
+  /** Editing a homework item after it is set. */
   editHomework: boolean;
-  /** Deleting a homework item (no DELETE /v1/tenants/{tenantId}/homework-items/{id} endpoint). */
+  /** Archiving a homework item after it is set. */
   deleteHomework: boolean;
-  /** Choosing how learners hand work in (API Homework schema has no `hand_in` field). */
+  /** Choosing how learners hand work in. */
   handInMethod: boolean;
-  /** Structured "For parents" guide (API Homework schema has no `parent_guide` field). */
+  /** Structured "For parents" guide. */
   parentGuide: boolean;
   /** Reading handed-in submission counts (API has no homework submission endpoint yet). */
   submissions: boolean;
   /** Attaching files or links to homework (waits on API file storage, A5 / FIG-1873). */
   attachments: boolean;
-  /** Leaving instructions blank (POST /homework-items requires non-empty `body`). */
+  /** Leaving instructions blank. */
   optionalInstructions: boolean;
 }
 
@@ -929,13 +929,13 @@ const HOMEWORK_ON_SUPABASE: HomeworkCapabilities = {
 };
 
 const HOMEWORK_ON_API: HomeworkCapabilities = {
-  editHomework: false,
-  deleteHomework: false,
-  handInMethod: false,
-  parentGuide: false,
+  editHomework: true,
+  deleteHomework: true,
+  handInMethod: true,
+  parentGuide: true,
   submissions: false,
   attachments: false,
-  optionalInstructions: false,
+  optionalInstructions: true,
 };
 
 export function homeworkCapabilities(): HomeworkCapabilities {
@@ -1061,11 +1061,11 @@ export function platformCapabilities(): PlatformCapabilities {
  * what it does not give is listed in docs/web-on-api/student-pages.md (findings student-web-N).
  */
 export interface StudentCapabilities {
-  /** "Mark as handed in", the Done tab, "overdue" and what was handed in (the API records no hand-in or done state). */
+  /** "Mark as handed in", the Done tab, and overdue state (the API has no learner submission or done-status endpoint). */
   homeworkDone: boolean;
   /** The teacher's worksheets and videos on a piece of work, and attaching a file to hand in (file storage, A5 / FIG-1873). */
   homeworkFiles: boolean;
-  /** The teacher's name and the hand-in method on a piece of work (the family read has neither: finding parent-5). */
+  /** The teacher's name and the hand-in method on the learner's family-scoped homework read. */
   homeworkDetails: boolean;
   /** Opening a learning material's file (file storage, A5 / FIG-1873: the API holds the title and note only). */
   materialFiles: boolean;
@@ -1098,7 +1098,7 @@ const STUDENT_ON_SUPABASE: StudentCapabilities = {
 };
 
 const STUDENT_ON_API: StudentCapabilities = {
-  homeworkDone: false, homeworkFiles: false, homeworkDetails: false, materialFiles: false, liveClasses: false, higherEdPages: false,
+  homeworkDone: false, homeworkFiles: false, homeworkDetails: true, materialFiles: false, liveClasses: false, higherEdPages: false,
   progressOverTime: true, examAbsences: false, reportCardPdf: false, familyReportCards: true,
   signatures: false, paymentProofSubmit: false, examScores: false, studyHelperChecks: false,
 };

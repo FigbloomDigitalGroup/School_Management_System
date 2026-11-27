@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initBackend } from "../backend";
-import { NotOnApiError, canManageHomework, homeworkCapabilities } from "../capabilities";
+import { canManageHomework, homeworkCapabilities } from "../capabilities";
+import { NotOnApiError } from "../capabilities";
 import {
   createHomework, deleteHomework, fetchHomeworkSubjectsForClass, fetchMyHomework, updateHomework,
 } from "../homework";
@@ -42,7 +43,7 @@ const assignRow = (class_id: string, subject_id: string, staff_member_id: string
   id: `${class_id}:${subject_id}:${staff_member_id}`, tenantId: T, class_id, subject_id, staff_member_id, active, ...stamp,
 });
 const hwRow = (id: string, class_id: string, subject_id: string, due_on: string, created_at: string, title: string, body = "Do exercises 1-5.") => ({
-  id, tenantId: T, class_id, subject_id, term_id: TERM, title, due_on, body, created_at,
+  id, tenantId: T, class_id, subject_id, term_id: TERM, title, due_on, body, hand_in: "paper", parent_guide: null, teacher_name: "Wanjiku", archived_at: null, created_at,
 });
 
 const page = (next: string | null = null) => ({ limit: 200, next_cursor: next });
@@ -101,12 +102,13 @@ describe("fetchMyHomework on API", () => {
       className: r.className,
       subjectName: r.subjectName,
       dueOn: r.dueOn,
+      handIn: r.handIn,
       guide: r.guide,
       handedIn: r.handedIn,
     }))).toEqual([
-      { id: "h3", title: "Trigonometry", className: "Form 2 East", subjectName: "Mathematics", dueOn: "2026-05-12", guide: null, handedIn: 0 },
-      { id: "h2", title: "Composition", className: "Form 2 East", subjectName: "English", dueOn: "2026-05-12", guide: null, handedIn: 0 },
-      { id: "h1", title: "Algebra sheet", className: "Form 2 East", subjectName: "Mathematics", dueOn: "2026-05-10", guide: null, handedIn: 0 },
+      { id: "h3", title: "Trigonometry", className: "Form 2 East", subjectName: "Mathematics", dueOn: "2026-05-12", handIn: "paper", guide: null, handedIn: 0 },
+      { id: "h2", title: "Composition", className: "Form 2 East", subjectName: "English", dueOn: "2026-05-12", handIn: "paper", guide: null, handedIn: 0 },
+      { id: "h1", title: "Algebra sheet", className: "Form 2 East", subjectName: "Mathematics", dueOn: "2026-05-10", handIn: "paper", guide: null, handedIn: 0 },
     ]);
   });
 
@@ -142,7 +144,7 @@ describe("createHomework and fetchHomeworkSubjectsForClass on API", () => {
       body: "  Page 42 numbers 1 to 6.  ",
       dueOn: "2026-05-18",
       handIn: "upload",
-      guide: { about: "Ignored", needs: [], help: "", avoid: "", minutes: 20 },
+      guide: { about: "For parents", needs: ["Calculator"], help: "Talk it through", avoid: "Do not give answers", minutes: 20 },
     });
 
     expect(id).toBe("hw-new");
@@ -153,10 +155,25 @@ describe("createHomework and fetchHomeworkSubjectsForClass on API", () => {
       title: "Fractions",
       due_on: "2026-05-18",
       body: "Page 42 numbers 1 to 6.",
+      hand_in: "upload",
+      parent_guide: { about: "For parents", needs: ["Calculator"], help: "Talk it through", avoid: "Do not give answers", minutes: 20 },
     });
   });
 
-  it("rejects empty instructions and rejects when no current term exists", async () => {
+  it("allows empty instructions when the API has a current term", async () => {
+    const server = boot({
+      [`GET ${P}/academic-years`]: list("academic_years", [yearRow()]),
+      [`GET ${P}/academic-terms`]: list("terms", [termRow()]),
+      [`POST ${P}/homework-items`]: {
+        status: 201,
+        body: { homework: hwRow("hw-empty", C1, S1, "2026-05-18", "2026-05-10T08:00:00Z", "Exercise 1", "") },
+      },
+    });
+    await createHomework(T, USER, { classId: C1, subjectId: S1, title: "Exercise 1", body: "   ", dueOn: "2026-05-18", handIn: "paper" });
+    expect(server.calls.find((c) => c.method === "POST" && c.url.includes("homework-items"))?.body).toMatchObject({ body: "" });
+  });
+
+  it("rejects when no current term exists", async () => {
     boot({
       [`GET ${P}/academic-years`]: list("academic_years", [yearRow()]),
       [`GET ${P}/academic-terms`]: list("terms", [termRow({ is_current: false })]),
@@ -166,19 +183,30 @@ describe("createHomework and fetchHomeworkSubjectsForClass on API", () => {
       classId: C1,
       subjectId: S1,
       title: "Exercise 1",
-      body: "   ",
-      dueOn: "2026-05-18",
-      handIn: "paper",
-    })).rejects.toThrow("Write instructions for the learners.");
-
-    await expect(createHomework(T, USER, {
-      classId: C1,
-      subjectId: S1,
-      title: "Exercise 1",
       body: "Read chapter 2",
       dueOn: "2026-05-18",
       handIn: "paper",
     })).rejects.toThrow("Start a term in School settings before setting homework.");
+  });
+
+  it("updates homework and archives it through the API", async () => {
+    const server = boot({
+      [`PATCH ${P}/homework-items/hw-1`]: { body: { homework: hwRow("hw-1", C1, S1, "2026-05-21", "2026-05-01T09:00:00Z", "Updated work") } },
+      [`POST ${P}/homework-items/hw-1/archive`]: { body: { homework: hwRow("hw-1", C1, S1, "2026-05-21", "2026-05-01T09:00:00Z", "Updated work") } },
+    });
+
+    await updateHomework("hw-1", {
+      classId: C1, subjectId: S1, title: "Updated work", body: "Read chapter 5", dueOn: "2026-05-21", handIn: "in_person",
+      guide: { about: "For parents", needs: ["Calculator"], help: "Talk it through", avoid: "Do not give answers", minutes: 25 },
+    });
+    expect(server.calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+      class_id: C1, subject_id: S1, title: "Updated work", due_on: "2026-05-21", body: "Read chapter 5", hand_in: "in_person",
+      parent_guide: { about: "For parents", needs: ["Calculator"], minutes: 25 },
+    });
+
+    await deleteHomework("hw-1");
+    const archiveCall = server.calls.find((c) => c.method === "POST" && c.url.includes("/archive"));
+    expect(archiveCall?.headers["idempotency-key"]).toMatch(/^[A-Za-z0-9._-]{8,64}$/);
   });
 
   it("loads the teacher's subjects in a class via /staff/me without needing GET /staff", async () => {
@@ -199,7 +227,7 @@ describe("createHomework and fetchHomeworkSubjectsForClass on API", () => {
 });
 
 describe("homeworkCapabilities, canManageHomework, and API guards", () => {
-  it("reports Supabase vs API capabilities and guards unsupported homework & attachment calls", async () => {
+  it("reports Supabase vs API capabilities and guards unsupported attachment calls", async () => {
     expect(homeworkCapabilities()).toEqual({
       editHomework: true,
       deleteHomework: true,
@@ -213,22 +241,18 @@ describe("homeworkCapabilities, canManageHomework, and API guards", () => {
 
     initBackend({ kind: "api", apiUrl: BASE });
     expect(homeworkCapabilities()).toEqual({
-      editHomework: false,
-      deleteHomework: false,
-      handInMethod: false,
-      parentGuide: false,
+      editHomework: true,
+      deleteHomework: true,
+      handInMethod: true,
+      parentGuide: true,
       submissions: false,
       attachments: false,
-      optionalInstructions: false,
+      optionalInstructions: true,
     });
     expect(canManageHomework([], "teacher")).toBe(false);
     expect(canManageHomework(["academics"], "teacher")).toBe(true);
     expect(canManageHomework([], "school_admin")).toBe(true);
 
-    await expect(updateHomework("h1", {
-      classId: C1, subjectId: S1, title: "T", body: "B", dueOn: "2026-05-18", handIn: "paper",
-    })).rejects.toThrow(NotOnApiError);
-    await expect(deleteHomework("h1")).rejects.toThrow(NotOnApiError);
     await expect(addAttachment("homework", "h1", { kind: "link", title: "Link", url: "https://example.com" }))
       .rejects.toThrow(NotOnApiError);
     await expect(removeAttachment({ id: "a1", filePath: null })).rejects.toThrow(NotOnApiError);
