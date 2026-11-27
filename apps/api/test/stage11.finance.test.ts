@@ -393,11 +393,23 @@ describe("Stage 11 finance", () => {
     });
 
     it("adds and voids a charge on the current-term invoice; the total follows", async () => {
-      const add = await post(`/invoices/${inv}/charges`, { amount_minor: 200_000, reason: "Lost book" });
+      const learner = (await owner<{ learner_id: string }>(`SELECT learner_id FROM finance_invoices WHERE id = $1`, [inv]))[0]!.learner_id;
+      const item = (await owner<{ id: string }>(
+        `INSERT INTO inventory_items (tenant_id, name, category, tracking, quantity) VALUES ($1, 'Lost text', 'textbooks', 'asset', 1) RETURNING id`,
+        [A()],
+      ))[0]!.id;
+      const issue = (await owner<{ id: string }>(
+        `INSERT INTO inventory_issues (tenant_id, item_id, learner_id) VALUES ($1, $2, $3) RETURNING id`,
+        [A(), item, learner],
+      ))[0]!.id;
+      await owner(`UPDATE inventory_issues SET status = 'lost', closed_at = now() WHERE id = $1`, [issue]);
+      const add = await post(`/invoices/${inv}/charges`, { amount_minor: 200_000, reason: "Lost book", inventory_issue_id: issue });
       expect(add.statusCode).toBe(200);
       expect(add.json().invoice).toMatchObject({ charges_minor: 200_000, total_minor: 1_200_000 });
       expect((await post(`/invoices/${inv}/charges`, { amount_minor: 150, reason: "x" })).statusCode).toBe(400);
       const detail = (await get(`/invoices/${inv}`)).json();
+      expect(detail.charges[0]).toMatchObject({ inventory_issue_id: issue });
+      expect((await post(`/invoices/${inv}/charges`, { amount_minor: 200_000, reason: "Again", inventory_issue_id: issue })).statusCode).toBe(409);
       const chargeId = detail.charges[0].id as string;
       const voided = await post(`/invoices/${inv}/charges/${chargeId}/void`, { reason: "Book found" });
       expect(voided.json().invoice).toMatchObject({ charges_minor: 0, total_minor: 1_000_000 });

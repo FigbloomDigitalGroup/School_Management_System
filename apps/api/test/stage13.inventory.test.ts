@@ -43,9 +43,10 @@ describe("Stage 13 inventory", () => {
       method: "POST",
       url: `/v1/tenants/${ids.tenantA}/inventory/issues`,
       headers: headers(),
-      payload: { item_id: itemId, holder_user_id: ids.teacherA, quantity: 2 },
+      payload: { item_id: itemId, holder_user_id: ids.teacherA, quantity: 2, note: "Assigned for the term" },
     });
     expect(issue1.statusCode, issue1.body).toBe(201);
+    expect(issue1.json().issue.note).toBe("Assigned for the term");
 
     const over = await ctx.app.inject({
       method: "POST",
@@ -63,5 +64,19 @@ describe("Stage 13 inventory", () => {
     });
     expect(closed.statusCode, closed.body).toBe(200);
     expect(closed.json().issue.status).toBe("returned");
+
+    const history = await ctx.app.inject({
+      method: "GET",
+      url: `/v1/tenants/${ids.tenantA}/inventory/issues?status=all`,
+      headers: headers(),
+    });
+    expect(history.statusCode, history.body).toBe(200);
+    expect(history.json().issues).toEqual(expect.arrayContaining([expect.objectContaining({ id: issue1.json().issue.id, status: "returned", note: "Assigned for the term" })]));
+    const openOnly = await ctx.app.inject({
+      method: "GET",
+      url: `/v1/tenants/${ids.tenantA}/inventory/issues?status=out`,
+      headers: headers(),
+    });
+    expect(openOnly.json().issues).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: issue1.json().issue.id })]));
   });
 });

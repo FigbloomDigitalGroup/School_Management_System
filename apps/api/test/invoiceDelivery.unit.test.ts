@@ -43,6 +43,7 @@ function samplePdfData(): InvoicePdfData {
       charges: [
         {
           id: "c1",
+          inventory_issue_id: null,
           amount_minor: 200_000,
           reason: "Lab breakage",
           created_by: "u1",

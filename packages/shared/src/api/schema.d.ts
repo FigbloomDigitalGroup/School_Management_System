@@ -8890,6 +8890,8 @@ export interface components {
         FinanceCharge: {
             /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            inventory_issue_id: string | null;
             /** @description Money in minor units (cents; 100 = KES 1). Never a float. */
             amount_minor: number;
             reason: string;
@@ -9162,6 +9164,8 @@ export interface components {
         FinanceAddChargeRequest: {
             amount_minor: number;
             reason: string;
+            /** Format: uuid */
+            inventory_issue_id?: string;
         };
         FinanceAdjustInvoiceRequest: {
             expected_total_minor: number;
@@ -10091,6 +10095,7 @@ export interface components {
             due_on?: string | null;
             /** Format: date-time */
             closed_at?: string | null;
+            note: string | null;
         };
         InventoryIssueCreateRequest: {
             /** Format: uuid */
@@ -10102,6 +10107,7 @@ export interface components {
             quantity?: number;
             /** Format: date */
             due_on?: string | null;
+            note?: string | null;
         };
         InventoryIssueCloseRequest: {
             /** @enum {string} */
@@ -20450,6 +20456,8 @@ export interface operations {
                 limit?: components["parameters"]["PageLimit"];
                 /** @description Opaque SQL keyset cursor v2 from a previous `page.next_cursor`. Keys are PostgreSQL text (timestamps preserve microseconds). Bound to sort, filter and tenant/org scope fingerprint. Wrong version, wrong key types, reuse across tenants/filters/sorts, truncation or tampering → `400 validation_error`. Cursors carry no privilege. */
                 cursor?: components["parameters"]["PageCursor"];
+                /** @description Defaults to out. Use all for full issue history. */
+                status?: "all" | "out" | "returned" | "damaged" | "lost";
             };
             header?: {
                 /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */

@@ -67,7 +67,7 @@ const FeeItemPatch = z
 const BillingRunBody = z.strictObject({ term_id: z.guid(), due_on: DateString });
 const DueDateBody = z.strictObject({ due_on: DateString });
 const ReasonBody = z.strictObject({ reason: z.string().min(3).max(300) });
-const ChargeBody = z.strictObject({ amount_minor: Minor, reason: z.string().min(1).max(200) });
+const ChargeBody = z.strictObject({ amount_minor: Minor, reason: z.string().min(1).max(200), inventory_issue_id: z.guid().optional() });
 const AdjustBody = z.strictObject({
   expected_total_minor: z.number().int().min(0).max(100_000_000_000),
   new_total_minor: z.number().int().min(0).max(100_000_000_000),
@@ -502,6 +502,7 @@ export async function registerFinanceRoutes(app: FastifyInstance, pool: AppPool)
       invoiceId: c.params.invoiceId!,
       amount_minor: b.amount_minor as number,
       reason: b.reason as string,
+      inventory_issue_id: b.inventory_issue_id as string | undefined,
       ip: c.ip,
     }),
   );

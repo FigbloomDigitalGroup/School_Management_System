@@ -126,6 +126,7 @@ export interface InvoiceDetail {
   lines: Array<{ id: string; fee_item_id: string; name: string; amount_minor: number }>;
   charges: Array<{
     id: string;
+    inventory_issue_id: string | null;
     amount_minor: number;
     reason: string;
     created_by: string;
@@ -151,9 +152,9 @@ export async function getInvoiceDetail(tx: Tx, input: { tenantId: string; invoic
     [input.tenantId, input.invoiceId],
   );
   const charges = await tx.query<{
-    id: string; amount_minor: string; reason: string; created_by: string; created_at: Date; voided_at: Date | null; void_reason: string | null;
+    id: string; inventory_issue_id: string | null; amount_minor: string; reason: string; created_by: string; created_at: Date; voided_at: Date | null; void_reason: string | null;
   }>(
-    `SELECT id, amount_minor, reason, created_by, created_at, voided_at, void_reason
+    `SELECT id, inventory_issue_id, amount_minor, reason, created_by, created_at, voided_at, void_reason
        FROM finance_charges WHERE tenant_id = $1 AND invoice_id = $2 ORDER BY created_at, id`,
     [input.tenantId, input.invoiceId],
   );
@@ -169,6 +170,7 @@ export async function getInvoiceDetail(tx: Tx, input: { tenantId: string; invoic
     lines: lines.rows.map((l) => ({ id: l.id, fee_item_id: l.fee_item_id, name: l.name, amount_minor: toMinor(l.amount_minor) })),
     charges: charges.rows.map((c) => ({
       id: c.id,
+      inventory_issue_id: c.inventory_issue_id,
       amount_minor: toMinor(c.amount_minor),
       reason: c.reason,
       created_by: c.created_by,
@@ -315,7 +317,7 @@ export async function voidInvoice(
 /** Legacy charge_learner: an extra line on the learner's CURRENT-term invoice (no invoice is created). */
 export async function addCharge(
   tx: Tx,
-  input: { tenantId: string; actorUserId: string; invoiceId: string; amount_minor: number; reason: string; ip?: string | null },
+  input: { tenantId: string; actorUserId: string; invoiceId: string; amount_minor: number; reason: string; inventory_issue_id?: string; ip?: string | null },
 ): Promise<PublicInvoice> {
   assertWholeShillings(input.amount_minor, "amount_minor");
   const reason = input.reason.trim();
@@ -327,15 +329,31 @@ export async function addCharge(
     current.term_id,
   ]);
   if (!term.rows[0]?.is_current) throw conflict("Charges are added to the learner's current-term invoice only");
+  if (input.inventory_issue_id) {
+    const issue = await tx.query<{ learner_id: string | null; status: string }>(
+      `SELECT learner_id, status FROM inventory_issues WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+      [input.tenantId, input.inventory_issue_id],
+    );
+    const row = issue.rows[0];
+    if (!row) throw notFound("Inventory issue not found");
+    if (row.status !== "lost" && row.status !== "damaged") throw conflict("Only lost or damaged inventory issues can be charged");
+    if (!row.learner_id || row.learner_id !== current.learner_id) throw validationError("The inventory issue learner must match the invoice learner");
+    const existing = await tx.query(
+      `SELECT 1 FROM finance_charges WHERE tenant_id = $1 AND inventory_issue_id = $2`,
+      [input.tenantId, input.inventory_issue_id],
+    );
+    if (existing.rows[0]) throw conflict("This inventory issue has already been charged");
+  }
   const charge = await tx.query<{ id: string }>(
-    `INSERT INTO finance_charges (tenant_id, invoice_id, amount_minor, reason, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [input.tenantId, input.invoiceId, input.amount_minor, reason, input.actorUserId],
+    `INSERT INTO finance_charges (tenant_id, invoice_id, amount_minor, reason, created_by, inventory_issue_id)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [input.tenantId, input.invoiceId, input.amount_minor, reason, input.actorUserId, input.inventory_issue_id ?? null],
   );
   await recordSecurityEvent(tx, {
     eventType: "finance.charge.added",
     actorUserId: input.actorUserId,
     tenantId: input.tenantId,
-    detail: { invoiceId: input.invoiceId, chargeId: charge.rows[0]!.id, amountMinor: input.amount_minor },
+    detail: { invoiceId: input.invoiceId, chargeId: charge.rows[0]!.id, amountMinor: input.amount_minor, ...(input.inventory_issue_id ? { inventoryIssueId: input.inventory_issue_id } : {}) },
     ip: input.ip,
   });
   return getInvoice(tx, input);

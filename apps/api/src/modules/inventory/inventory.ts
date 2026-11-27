@@ -37,10 +37,11 @@ export interface InventoryIssue {
   issued_at: string;
   due_on: string | null;
   closed_at: string | null;
+  note: string | null;
 }
 
 export const ITEM_COLS = `id, tenant_id, name, category, tracking, quantity, asset_tag, condition, location, retired_at, created_at, updated_at, unit, consumable, reorder_level`;
-const ISSUE_COLS = `id, tenant_id, item_id, learner_id, holder_user_id, quantity, status, issued_at, due_on::text AS due_on, closed_at`;
+const ISSUE_COLS = `id, tenant_id, item_id, learner_id, holder_user_id, quantity, status, issued_at, due_on::text AS due_on, closed_at, note`;
 
 export function assertValidCalendarDate(dateStr: string, field: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
@@ -188,11 +189,14 @@ export async function issueInventoryItem(
     holderUserId?: string | null;
     quantity?: number;
     dueOn?: string | null;
+    note?: string | null;
   },
 ): Promise<InventoryIssue> {
   if (!input.learnerId && !input.holderUserId) throw validationError("learner_id or holder_user_id is required");
   if (input.learnerId && input.holderUserId) throw validationError("Provide exactly one holder");
   if (input.dueOn) assertValidCalendarDate(input.dueOn, "due_on");
+  const note = input.note?.trim() || null;
+  if (note && note.length > 1000) throw validationError("note must be at most 1000 characters");
 
   const item = await getInventoryItem(tx, input.tenantId, input.itemId);
   if (!item) throw notFound("Inventory item not found");
@@ -217,8 +221,8 @@ export async function issueInventoryItem(
 
   try {
     const res = await tx.query<InventoryIssue>(
-      `INSERT INTO inventory_issues (tenant_id, item_id, learner_id, holder_user_id, quantity, issued_by, due_on)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO inventory_issues (tenant_id, item_id, learner_id, holder_user_id, quantity, issued_by, due_on, note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING ${ISSUE_COLS}`,
       [
         input.tenantId,
@@ -228,6 +232,7 @@ export async function issueInventoryItem(
         input.quantity ?? 1,
         input.actorUserId,
         input.dueOn ?? null,
+        note,
       ],
     );
     await recordSecurityEvent(tx, {
@@ -281,13 +286,17 @@ export async function listOpenIssues(
   tenantId: string,
   limit: number,
   rawCursor?: unknown,
+  status: "all" | "out" | "returned" | "damaged" | "lost" = "out",
 ): Promise<{ issues: InventoryIssue[]; page: PageInfo }> {
   const page: PageInput = { limit, rawCursor };
-  const inner = `SELECT ${ISSUE_COLS} FROM inventory_issues WHERE tenant_id = $1 AND status = 'out'`;
+  const inner = status === "all"
+    ? `SELECT ${ISSUE_COLS} FROM inventory_issues WHERE tenant_id = $1`
+    : `SELECT ${ISSUE_COLS} FROM inventory_issues WHERE tenant_id = $1 AND status = $2`;
+  const params = status === "all" ? [tenantId] : [tenantId, status];
   const res = await pageQuery<InventoryIssue>(
     tx,
     inner,
-    [tenantId],
+    params,
     { name: "inventory_open_issues_issued_desc", expr: "q.issued_at", type: "timestamptz", dir: "desc" },
     page,
   );

@@ -13775,6 +13775,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Defaults to out. Use all for full issue history.
+          schema:
+            type: string
+            enum: [all, out, returned, damaged, lost]
         - $ref: "#/components/parameters/PageLimit"
         - $ref: "#/components/parameters/PageCursor"
       responses:
@@ -28904,6 +28911,7 @@ components:
       additionalProperties: false
       required:
         - id
+        - inventory_issue_id
         - amount_minor
         - reason
         - created_by
@@ -28913,6 +28921,11 @@ components:
       properties:
         id:
           type: string
+          format: uuid
+        inventory_issue_id:
+          type:
+            - string
+            - "null"
           format: uuid
         amount_minor:
           type: integer
@@ -29658,6 +29671,9 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+        inventory_issue_id:
+          type: string
+          format: uuid
       required:
         - amount_minor
         - reason
@@ -32243,6 +32259,7 @@ components:
         - quantity
         - status
         - issued_at
+        - note
       properties:
         id:
           type: string
@@ -32286,6 +32303,11 @@ components:
             - string
             - "null"
           format: date-time
+        note:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
     InventoryIssueCreateRequest:
       type: object
       additionalProperties: false
@@ -32313,6 +32335,12 @@ components:
             - string
             - "null"
           format: date
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        note:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
     InventoryIssueCloseRequest:
       type: object
       additionalProperties: false

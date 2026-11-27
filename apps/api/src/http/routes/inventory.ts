@@ -72,10 +72,6 @@ const MovementBody = z.strictObject({
   note: z.string().max(1000).nullable().optional(),
 });
 
-export const INVENTORY_STOCK_REQUEST_SCHEMAS = {
-  "POST /v1/tenants/{tenantId}/inventory/movements": MovementBody,
-} as const;
-
 /** An optional YYYY-MM-DD query value: absent or empty is no filter. */
 function optionalDate(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
@@ -104,13 +100,27 @@ const IssueBody = z.strictObject({
   holder_user_id: z.guid().nullable().optional(),
   quantity: z.number().int().positive().optional(),
   due_on: calendarDateString.nullable().optional(),
+  note: z.string().max(1000).nullable().optional(),
 });
+
+function issueStatusFilter(value: unknown): "all" | "out" | "returned" | "damaged" | "lost" {
+  if (value === undefined || value === null || value === "") return "out";
+  if (typeof value === "string" && ["all", "out", "returned", "damaged", "lost"].includes(value)) {
+    return value as "all" | "out" | "returned" | "damaged" | "lost";
+  }
+  throw validationError("status must be all, out, returned, damaged or lost");
+}
 
 const CloseBody = z.strictObject({
   status: z.enum(["returned", "damaged", "lost"]),
   returned_condition: z.enum(["new", "good", "fair", "poor", "broken"]).nullable().optional(),
   note: z.string().max(1000).nullable().optional(),
 });
+
+export const INVENTORY_STOCK_REQUEST_SCHEMAS = {
+  "POST /v1/tenants/{tenantId}/inventory/issues": IssueBody,
+  "POST /v1/tenants/{tenantId}/inventory/movements": MovementBody,
+} as const;
 
 const P = "/v1/tenants/:tenantId/inventory";
 
@@ -173,6 +183,7 @@ export async function registerInventoryRoutes(app: FastifyInstance, pool: AppPoo
         holderUserId: body.holder_user_id,
         quantity: body.quantity,
         dueOn: body.due_on,
+        note: body.note,
       });
     });
     return reply.status(201).send({ issue });
@@ -180,10 +191,11 @@ export async function registerInventoryRoutes(app: FastifyInstance, pool: AppPoo
 
   app.get(`${P}/issues`, async (request) => {
     const params = request.params as { tenantId: string };
+    const query = (request.query ?? {}) as Record<string, unknown>;
     const page = pageFrom(request);
     return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
       await requirePermission(tx, auth.authz, "resource.inventory.read", { ip, deferAudit: true });
-      return listOpenIssues(tx, params.tenantId, page.limit, page.rawCursor);
+      return listOpenIssues(tx, params.tenantId, page.limit, page.rawCursor, issueStatusFilter(query.status));
     });
   });
 

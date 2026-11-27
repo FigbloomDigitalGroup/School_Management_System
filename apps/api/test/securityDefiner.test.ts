@@ -490,6 +490,11 @@ const EXPECTED: Record<string, { secdef: boolean; grantees: string[]; why: strin
     grantees: [],
     why: "trigger; availability under FOR UPDATE; closed issues final",
   },
+  "finance_charges_inventory_issue_guard()": {
+    secdef: false,
+    grantees: [],
+    why: "INVOKER trigger; a linked charge belongs to the same learner and only a lost/damaged issue; issue link is immutable",
+  },
   // Migration 118 (behaviour log, docs/BEHAVIOUR.md).
   "behaviour_thresholds_valid(jsonb)": {
     secdef: false,
