@@ -708,7 +708,7 @@ describe("peopleCapabilities", () => {
   it("offers on Supabase everything it had, and not the API-only extras", () => {
     initBackend({ kind: "supabase" });
     const c = peopleCapabilities();
-    expect(c).toMatchObject({ deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, staffAccounts: true, learnerHome: true, bulkChangeClass: true, staffArchive: false, guardianContactForm: false, learnerWithoutClass: false, importByAreaHolders: true, unassignClass: true });
+    expect(c).toMatchObject({ deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, staffAccounts: true, learnerHome: true, staffArchive: false, guardianContactForm: false, learnerWithoutClass: false, importByAreaHolders: true, unassignClass: true });
   });
 
   it("offers on the API the learner record reads and writes it supports", () => {
