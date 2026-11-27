@@ -32,7 +32,7 @@ Counted from the code on 2026-11-25: the page registry in `apps/web/src/api/page
 | 16 | `admin/inventory/stock/:section` | On `main` only. The API has items and issues, not stock | S1 |
 
 Not part of the 16, but needed before the production switch, and planned in section 8: the controls hidden on pages that
-are already connected (163 capability flags across 25 areas), and two live features the API lacks (M-Pesa allowlist and
+are already connected (179 capability flags across 28 areas), and two live features the API lacks (M-Pesa allowlist and
 retry, section 8).
 
 ## 2. Rules every slice follows
@@ -246,7 +246,7 @@ others. Each line has my suggested answer; "no default" means I would not guess.
 The production site moves to `VITE_BACKEND=api` only when every page is on the API (the owner's rule). These are not part of
 the 16, and each needs its own plan when the 16 are done.
 
-- **Hidden controls on connected pages: 163 capability flags in 25 areas.** Most come from four causes:
+- **Hidden controls on connected pages: 179 capability flags in 28 areas.** Most come from four causes:
   - **File storage.** `files.ts` has no API branch, so homework, materials, exam-paper, chat and payment-proof files, and
     photos, are hidden.
   - **Missing edit and delete endpoints:** classes, subjects, exams, homework, materials, papers, activities, items.

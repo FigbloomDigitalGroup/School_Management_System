@@ -31,6 +31,8 @@ rename it or change how it behaves without a PR that Mike approves.
 
 ## Unreleased
 
+- **Hidden-control cleanup (W0.7)**: removes the unused People.bulkChangeClass, People.bulkExport, and Timetable.classTimetableEditor capability flags; corrects stale Appendix B notes; and updates the roadmap count to 179 controls across 28 areas. No runtime or database behavior changes.
+
 - **W1.1 API contract follow-up**: corrects the OpenAPI path for the existing homework archive route, regenerates shared API types, and records the existing academic audit classifications and creator-name response in the tests. No API route or database behavior changes.
 - **RLS test fixtures**: the attendance check reuses a term covering each test date or creates a temporary term in a gap. The inventory trend check accounts for the 21 visitors in its baseline week. No live Supabase behavior changes.
 
