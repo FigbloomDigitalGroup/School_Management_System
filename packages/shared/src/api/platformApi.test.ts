@@ -33,9 +33,11 @@ import {
   apiLoadPlatformSession,
   apiProvisionSchool,
   parsePlatformOpsStatus,
+  platformInvoiceBalances,
   platformOrganizationFromApi,
   platformSchoolFromApi,
   platformSchoolToTenant,
+  type PlatformBillingInvoice,
 } from "./platformApi";
 import { createMemoryTokenStore } from "./tokenStore";
 
@@ -361,11 +363,17 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     expect(apiCaps.auditPage).toBe(true);
     expect(apiCaps.tenantIllustrativeCharts).toBe(false);
     expect(apiCaps.liveProviderChecks).toBe(false);
+    // W0.6: headcounts, plan and invoice balance are on; MRR and seats stay off (Q2: no invented figures); lifecycle waits on Q1.
+    expect(apiCaps.tenantFiguresAndBilling).toBe(true);
+    expect(apiCaps.tenantMrrAndSeats).toBe(false);
+    expect(apiCaps.tenantLifecycleActions).toBe(false);
 
     initBackend({ kind: "supabase" });
     const sbCaps = platformCapabilities();
     expect(sbCaps.organizationsPage).toBe(true);
     expect(sbCaps.liveProviderChecks).toBe(true);
+    expect(sbCaps.tenantFiguresAndBilling).toBe(true);
+    expect(sbCaps.tenantMrrAndSeats).toBe(true);
   });
 
   it("routes platform incident list, declare and resolve calls through identity-scoped API endpoints", async () => {
@@ -441,5 +449,58 @@ describe("platform.ts on API backend & platformCapabilities", () => {
     api.on("GET /v1/platform/schools", { body: { items: [], page: { limit: 200, next_cursor: null } } });
     expect((await fetchPlatformNavCounts()).openIncidents).toBe(1);
     expect(api.callsTo("GET /v1/platform/incidents")[2]!.query.get("state")).toBe("open");
+  });
+});
+
+describe("platformInvoiceBalances (W0.6: what each school owes Figbloom)", () => {
+  const invoice = (over: Partial<PlatformBillingInvoice> & Pick<PlatformBillingInvoice, "invoiceId">): PlatformBillingInvoice => ({
+    tenantId: SCHOOL_A,
+    tenantName: "Alpha",
+    amountCents: 100_00,
+    dueDate: "2026-12-01",
+    status: "due",
+    paidAt: null,
+    createdAt: "2026-11-01T08:00:00.000Z",
+    ...over,
+  });
+
+  it("answers nothing for a school with no invoice, so the screen can say 'nothing billed yet'", () => {
+    expect(platformInvoiceBalances([], "2026-11-27").size).toBe(0);
+    const balances = platformInvoiceBalances([invoice({ invoiceId: "i1" })], "2026-11-27");
+    expect(balances.has(SCHOOL_B)).toBe(false);
+  });
+
+  it("adds up unpaid invoices per school and keeps one school's money out of another's", () => {
+    const balances = platformInvoiceBalances([
+      invoice({ invoiceId: "i1", amountCents: 150_000, dueDate: "2026-12-05" }),
+      invoice({ invoiceId: "i2", amountCents: 250_000, dueDate: "2026-12-20" }),
+      invoice({ invoiceId: "i3", tenantId: SCHOOL_B, amountCents: 999_00, dueDate: "2026-12-01" }),
+    ], "2026-11-27");
+    expect(balances.get(SCHOOL_A)).toMatchObject({ dueCount: 2, dueCents: 400_000, overdueCount: 0, overdueCents: 0, nextDueDate: "2026-12-05" });
+    expect(balances.get(SCHOOL_B)).toMatchObject({ dueCount: 1, dueCents: 99_900 });
+  });
+
+  it("calls an unpaid invoice overdue only after its due date, in the school's own day", () => {
+    const invoices = [
+      invoice({ invoiceId: "past", amountCents: 10_000, dueDate: "2026-11-26" }),
+      invoice({ invoiceId: "today", amountCents: 20_000, dueDate: "2026-11-27" }),
+      invoice({ invoiceId: "later", amountCents: 40_000, dueDate: "2026-11-28" }),
+    ];
+    const balance = platformInvoiceBalances(invoices, "2026-11-27").get(SCHOOL_A)!;
+    // due today is not late yet; only the one dated yesterday is
+    expect(balance.overdueCount).toBe(1);
+    expect(balance.overdueCents).toBe(10_000);
+    expect(balance.dueCents).toBe(70_000);
+    // the earliest unpaid due date is the overdue one
+    expect(balance.nextDueDate).toBe("2026-11-26");
+  });
+
+  it("leaves paid invoices out of what is owed and remembers the latest payment", () => {
+    const balance = platformInvoiceBalances([
+      invoice({ invoiceId: "p1", amountCents: 500_000, status: "paid", dueDate: "2026-10-01", paidAt: "2026-10-03T09:00:00.000Z" }),
+      invoice({ invoiceId: "p2", amountCents: 500_000, status: "paid", dueDate: "2026-11-01", paidAt: "2026-11-09T09:00:00.000Z" }),
+      invoice({ invoiceId: "p3", amountCents: 500_000, status: "paid", dueDate: "2026-09-01", paidAt: null }),
+    ], "2026-11-27").get(SCHOOL_A)!;
+    expect(balance).toMatchObject({ dueCount: 0, dueCents: 0, overdueCount: 0, nextDueDate: null, paidCount: 3, lastPaidAt: "2026-11-09T09:00:00.000Z" });
   });
 });

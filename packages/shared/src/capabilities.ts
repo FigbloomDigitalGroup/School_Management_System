@@ -995,8 +995,18 @@ export interface PlatformCapabilities {
   impersonationPage: boolean;
   /** `/platform/audit` — needs platform-wide audit read endpoint (slice P5) and Q5 retention policy. */
   auditPage: boolean;
-  /** MRR, learner seats, per-school headcounts and Figbloom invoice balances on `platform/tenants` (P4 / Q2). */
+  /**
+   * What each school's detail on `platform/tenants` shows besides its directory record: headcounts (active learners, staff and guardian
+   * links, `GET /v1/platform/usage`), its plan, price and renewal (`GET /v1/platform/subscriptions`), and its Figbloom invoice balance
+   * (`GET /v1/platform/invoices`). All three reads are counts or money records the platform already owns. MRR and seats are the next flag.
+   */
   tenantFiguresAndBilling: boolean;
+  /**
+   * MRR and learner seats (licensed against used) on `platform/tenants`. Hidden on the API build by decision, not by a missing read:
+   * the API owns Figbloom's billing (Q2, 2026-11-25) but no plan has a seat count, and a revenue figure worked out from list prices
+   * and trials would be an estimate shown as a fact ("do not invent MRR or seat counts", `docs/web-on-api/platform-console.md`).
+   */
+  tenantMrrAndSeats: boolean;
   /** Activate, suspend, reactivate and move between organisations on `platform/tenants` (Q1 / R5). */
   tenantLifecycleActions: boolean;
   /** School administrators list/invite/remove on `platform/tenants` (slice P3). */
@@ -1017,6 +1027,7 @@ const PLATFORM_ON_SUPABASE: PlatformCapabilities = {
   impersonationPage: true,
   auditPage: true,
   tenantFiguresAndBilling: true,
+  tenantMrrAndSeats: true,
   tenantLifecycleActions: true,
   tenantAdminsPanel: true,
   tenantIllustrativeCharts: true,
@@ -1032,7 +1043,8 @@ const PLATFORM_ON_API: PlatformCapabilities = {
   invoicesPage: true,
   impersonationPage: false,
   auditPage: true,
-  tenantFiguresAndBilling: false,
+  tenantFiguresAndBilling: true,
+  tenantMrrAndSeats: false,
   tenantLifecycleActions: false,
   tenantAdminsPanel: true,
   tenantIllustrativeCharts: false,
