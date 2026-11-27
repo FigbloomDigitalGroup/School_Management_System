@@ -28138,18 +28138,19 @@ components:
           anyOf:
             - type: string
               format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
             - type: "null"
         subject_id:
           anyOf:
             - type: string
               format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
             - type: "null"
         url:
           anyOf:
             - type: string
               maxLength: 2000
             - type: "null"
-      minProperties: 1
       additionalProperties: false
     PostGradingSchemesRequest:
       type: object

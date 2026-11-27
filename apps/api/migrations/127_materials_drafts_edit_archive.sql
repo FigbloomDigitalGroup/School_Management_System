@@ -1,5 +1,5 @@
 -- Learning materials: draft/publish, edit, external link and non-destructive archive (W1.2, docs/MATERIALS.md).
--- Migration 030's table, RLS, and storage metadata contract remain intact. File bytes are still not stored here.
+-- Forward-only. Migrations 001-126 are not edited. Migration 030's table, RLS, and storage metadata contract remain intact. File bytes are still not stored here.
 
 ALTER TABLE learning_materials
   ADD COLUMN url text,

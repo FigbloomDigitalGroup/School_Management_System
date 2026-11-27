@@ -1073,10 +1073,13 @@ function materialUrl(value: string | null | undefined): string | null {
   if (value == null || value.trim() === "") return null;
   const url = value.trim();
   if (url.length > 2000) throw validationError("url must be at most 2000 characters");
+  let parsed: URL;
   try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname) throw new Error("invalid");
+    parsed = new URL(url);
   } catch {
+    throw validationError("url must be a valid HTTPS link");
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname) {
     throw validationError("url must be a valid HTTPS link");
   }
   return url;

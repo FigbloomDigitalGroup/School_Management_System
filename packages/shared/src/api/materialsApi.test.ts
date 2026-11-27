@@ -54,10 +54,10 @@ describe("fetchMaterials and createLearningMaterial on API", () => {
       [`GET ${P}/learning-materials`]: (req) => (
         req.query.get("cursor")
           ? list("materials", [
-              { id: "m2", tenantId: T, title: "School revision pack", description: null, class_id: null, subject_id: null, storage_status: "metadata_only", created_at: "2026-05-01T08:00:00Z" },
+              { id: "m2", tenantId: T, title: "School revision pack", description: null, class_id: null, subject_id: null, storage_status: "metadata_only", published_at: "2026-05-01T08:00:00Z", created_at: "2026-04-30T08:00:00Z" },
             ])
           : list("materials", [
-              { id: "m1", tenantId: T, title: "Photosynthesis", description: "Read ch 1", class_id: C1, subject_id: S1, storage_status: "metadata_only", created_at: "2026-05-02T08:00:00Z" },
+              { id: "m1", tenantId: T, title: "Photosynthesis", description: "Read ch 1", class_id: C1, subject_id: S1, storage_status: "metadata_only", published_at: "2026-05-02T08:00:00Z", created_at: "2026-05-01T08:00:00Z" },
             ], "c-1")
       ),
       [`GET ${P}/academic-years`]: list("academic_years", [year()]),
