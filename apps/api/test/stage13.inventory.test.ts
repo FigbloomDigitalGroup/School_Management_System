@@ -34,10 +34,38 @@ describe("Stage 13 inventory", () => {
       method: "POST",
       url: `/v1/tenants/${ids.tenantA}/inventory/items`,
       headers: headers(),
-      payload: { name: "KLB Biology Form 2", category: "textbooks", tracking: "stock", quantity: 2 },
+      payload: {
+        name: "KLB Biology Form 2",
+        category: "textbooks",
+        tracking: "stock",
+        quantity: 2,
+        purchased_on: "2025-03-04",
+        unit_cost_cents: 12500,
+        notes: "Store in the library office",
+        unit: "copy",
+        consumable: false,
+        reorder_level: 1,
+      },
     });
     expect(created.statusCode, created.body).toBe(201);
     const itemId = created.json().item.id as string;
+    expect(created.json().item).toMatchObject({ purchased_on: "2025-03-04", unit_cost_cents: 12500, notes: "Store in the library office" });
+
+    const updated = await ctx.app.inject({
+      method: "PATCH",
+      url: `/v1/tenants/${ids.tenantA}/inventory/items/${itemId}`,
+      headers: headers(),
+      payload: { name: "KLB Biology Form 2, revised", notes: "Updated storage location", unit: "book", reorder_level: 2 },
+    });
+    expect(updated.statusCode, updated.body).toBe(200);
+    expect(updated.json().item).toMatchObject({ name: "KLB Biology Form 2, revised", notes: "Updated storage location", unit: "book", reorder_level: 2, quantity: 2 });
+    const invalidQuantity = await ctx.app.inject({
+      method: "PATCH",
+      url: `/v1/tenants/${ids.tenantA}/inventory/items/${itemId}`,
+      headers: headers(),
+      payload: { quantity: 99 },
+    });
+    expect(invalidQuantity.statusCode).toBe(400);
 
     const issue1 = await ctx.app.inject({
       method: "POST",
@@ -63,5 +91,19 @@ describe("Stage 13 inventory", () => {
     });
     expect(closed.statusCode, closed.body).toBe(200);
     expect(closed.json().issue.status).toBe("returned");
+
+    const retired = await ctx.app.inject({
+      method: "POST",
+      url: `/v1/tenants/${ids.tenantA}/inventory/items/${itemId}/retire`,
+      headers: headers(),
+    });
+    expect(retired.statusCode, retired.body).toBe(200);
+    const unretired = await ctx.app.inject({
+      method: "POST",
+      url: `/v1/tenants/${ids.tenantA}/inventory/items/${itemId}/unretire`,
+      headers: headers(),
+    });
+    expect(unretired.statusCode, unretired.body).toBe(200);
+    expect(unretired.json().item.retired_at).toBeNull();
   });
 });

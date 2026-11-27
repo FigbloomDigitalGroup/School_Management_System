@@ -372,6 +372,15 @@ describe("Global OpenAPI parity, static schema completeness & Stage 12–16 runt
     expect(itemGet.statusCode).toBe(200);
     check("GET", "/v1/tenants/{tenantId}/inventory/items/{itemId}", 200, itemGet.json());
 
+    const itemUpdate = await ctx.app.inject({
+      method: "PATCH",
+      url: `/v1/tenants/${ids.tenantA}/inventory/items/${itemId}`,
+      headers,
+      payload: { notes: "OA inventory notes", unit_cost_cents: 1600, purchased_on: "2026-04-02" },
+    });
+    expect(itemUpdate.statusCode).toBe(200);
+    check("PATCH", "/v1/tenants/{tenantId}/inventory/items/{itemId}", 200, itemUpdate.json());
+
     const issueCreate = await ctx.app.inject({
       method: "POST",
       url: `/v1/tenants/${ids.tenantA}/inventory/issues`,
@@ -406,6 +415,14 @@ describe("Global OpenAPI parity, static schema completeness & Stage 12–16 runt
     });
     expect(itemRetire.statusCode).toBe(200);
     check("POST", "/v1/tenants/{tenantId}/inventory/items/{itemId}/retire", 200, itemRetire.json());
+
+    const itemUnretire = await ctx.app.inject({
+      method: "POST",
+      url: `/v1/tenants/${ids.tenantA}/inventory/items/${itemId}/unretire`,
+      headers,
+    });
+    expect(itemUnretire.statusCode).toBe(200);
+    check("POST", "/v1/tenants/{tenantId}/inventory/items/{itemId}/unretire", 200, itemUnretire.json());
 
     // Leave
     const leaveSub = await ctx.app.inject({

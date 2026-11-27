@@ -178,13 +178,14 @@ No new permission: `resource.inventory.read` and `.write` already mean "the regi
    screens ask for at most a calendar year, 12 months or a term, so no screen is refused; the cap keeps a request inside
    the API's 30-second limit.
 
-## Not in S1a (said so on purpose)
+## Item edits (W1.6)
 
-- **No item PATCH.** The API has no item edit today (`editItem` is false on the API build). Changing an existing item's
-  unit, consumable flag or reorder level is part of that edit form, which stays hidden. The stock pages themselves do not
-  edit items. Adding PATCH is a separate change.
-- **No item price on create.** `unit_cost_cents`, `purchased_on` and `notes` stay out of the item shapes
-  (`itemCostAndNotes` is false on the API build). A priced delivery sets the price, and `GET /stock-levels` returns it.
+- `PATCH /inventory/items/{itemId}` edits item metadata, purchase date, unit cost, notes, and stock configuration. It
+  never changes tracking type or quantity; quantity changes remain stock movements. Retired items must be restored first.
+- `POST /inventory/items/{itemId}/unretire` clears `retired_at`. Repeating it on an active item is idempotent.
+- `POST /inventory/items` accepts `purchased_on`, `unit_cost_cents`, and `notes`; item reads return all three. The
+  integer cost is limited to JavaScript's safe integer range. Audit events contain the changed field names but never
+  note text or unit costs.
 - **No `Idempotency-Key`** on `POST /movements` (as on Supabase). A double tap records twice; the screen disables its button
   while saving.
 

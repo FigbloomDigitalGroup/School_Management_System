@@ -3972,6 +3972,24 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /** Update inventory item metadata */
+        patch: operations["inventoryUpdateItem"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/inventory/items/{itemId}/unretire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a retired inventory item */
+        post: operations["inventoryUnretireItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -9794,6 +9812,10 @@ export interface components {
             consumable: boolean;
             /** @description Warn when stock falls to this. Null for an asset. */
             reorder_level: number | null;
+            /** Format: date */
+            purchased_on: string | null;
+            unit_cost_cents: number | null;
+            notes: string | null;
         };
         InventoryItemCreateRequest: {
             name: string;
@@ -9812,6 +9834,26 @@ export interface components {
             /** @description Stock lines only (an asset that is consumable is 400). Default false. */
             consumable?: boolean;
             /** @description Stock lines only (an asset with a reorder level is 400). */
+            reorder_level?: number | null;
+            /** Format: date */
+            purchased_on?: string | null;
+            unit_cost_cents?: number | null;
+            notes?: string | null;
+        };
+        InventoryItemPatchRequest: {
+            name?: string;
+            /** @enum {string} */
+            category?: "textbooks" | "furniture" | "lab_equipment" | "sports" | "ict" | "uniforms" | "music" | "kitchen" | "stationery" | "tools" | "medical" | "other";
+            asset_tag?: string | null;
+            /** @enum {string} */
+            condition?: "new" | "good" | "fair" | "poor" | "broken";
+            location?: string | null;
+            /** Format: date */
+            purchased_on?: string | null;
+            unit_cost_cents?: number | null;
+            notes?: string | null;
+            unit?: string | null;
+            consumable?: boolean;
             reorder_level?: number | null;
         };
         InventoryMovementCreateRequest: {
@@ -20405,6 +20447,74 @@ export interface operations {
                 };
             };
             400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    inventoryUpdateItem: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryItemPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated item */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        item: components["schemas"]["InventoryItem"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    inventoryUnretireItem: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active item */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        item: components["schemas"]["InventoryItem"];
+                    };
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

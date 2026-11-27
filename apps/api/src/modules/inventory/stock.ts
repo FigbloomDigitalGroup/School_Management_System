@@ -4,7 +4,7 @@ import { decodeCursor, pageFingerprint, pageFromKeysetRows, type PageInfo } from
 import type { PageInput } from "../academics/pagination.js";
 import { recordSecurityEvent } from "../audit/audit.js";
 import { schoolToday } from "../tenancy/schoolClock.js";
-import { ITEM_COLS, type InventoryItem } from "./inventory.js";
+import { ITEM_COLS, mapInventoryItem, type InventoryItem, type InventoryItemRow } from "./inventory.js";
 
 /**
  * Stock in and stock out for consumables (docs/INVENTORY-STOCK.md, migration 115): deliveries, a day's use, waste and
@@ -101,7 +101,7 @@ export async function recordStockMovement(tx: Tx, input: MovementInput): Promise
   // The screens' own rule (movementProblem on Supabase), kept by the server too: a movement is something that happened.
   if (occurredOn > today) throw validationError("occurred_on cannot be in the future");
 
-  const locked = await tx.query<InventoryItem>(
+  const locked = await tx.query<InventoryItemRow>(
     `SELECT ${ITEM_COLS} FROM inventory_items WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
     [input.tenantId, input.itemId],
   );
@@ -145,7 +145,7 @@ export async function recordStockMovement(tx: Tx, input: MovementInput): Promise
   );
   const movementId = inserted.rows[0]!.id;
   const movement = await tx.query<MovementRow>(`${MOVEMENT_SELECT} WHERE m.tenant_id = $1 AND m.id = $2`, [input.tenantId, movementId]);
-  const after = await tx.query<InventoryItem>(`SELECT ${ITEM_COLS} FROM inventory_items WHERE tenant_id = $1 AND id = $2`, [
+  const after = await tx.query<InventoryItemRow>(`SELECT ${ITEM_COLS} FROM inventory_items WHERE tenant_id = $1 AND id = $2`, [
     input.tenantId,
     input.itemId,
   ]);
@@ -155,7 +155,7 @@ export async function recordStockMovement(tx: Tx, input: MovementInput): Promise
     tenantId: input.tenantId,
     detail: { movementId, itemId: input.itemId, kind },
   });
-  return { movement: toMovement(movement.rows[0]!), item: after.rows[0]! };
+  return { movement: toMovement(movement.rows[0]!), item: mapInventoryItem(after.rows[0]!) };
 }
 
 const MOVEMENTS_SORT = "occurred_on_desc_created_at_desc";

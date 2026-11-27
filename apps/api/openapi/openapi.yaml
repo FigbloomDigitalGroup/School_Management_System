@@ -13708,6 +13708,104 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      tags:
+        - inventory
+      summary: Update inventory item metadata
+      description: Updates item details and stock configuration. Tracking type and quantity cannot be changed here; record stock changes through inventory movements.
+      operationId: inventoryUpdateItem
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.write
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryItemPatchRequest"
+      responses:
+        "200":
+          description: Updated item
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - item
+                properties:
+                  item:
+                    $ref: "#/components/schemas/InventoryItem"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/inventory/items/{itemId}/unretire:
+    post:
+      tags:
+        - inventory
+      summary: Restore a retired inventory item
+      operationId: inventoryUnretireItem
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.inventory.write
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Active item
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - item
+                properties:
+                  item:
+                    $ref: "#/components/schemas/InventoryItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/inventory/items/{itemId}/retire:
     post:
       tags:
@@ -31470,6 +31568,9 @@ components:
         - unit
         - consumable
         - reorder_level
+        - purchased_on
+        - unit_cost_cents
+        - notes
       properties:
         id:
           type: string
@@ -31515,6 +31616,22 @@ components:
             - poor
             - broken
         location:
+          type:
+            - string
+            - "null"
+        purchased_on:
+          type:
+            - string
+            - "null"
+          format: date
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        unit_cost_cents:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          maximum: 9007199254740991
+        notes:
           type:
             - string
             - "null"
@@ -31616,6 +31733,91 @@ components:
           minimum: 0
           maximum: 2147483647
           description: Stock lines only (an asset with a reorder level is 400).
+        purchased_on:
+          type:
+            - string
+            - "null"
+          format: date
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        unit_cost_cents:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          maximum: 9007199254740991
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+    InventoryItemPatchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        category:
+          type: string
+          enum:
+            - textbooks
+            - furniture
+            - lab_equipment
+            - sports
+            - ict
+            - uniforms
+            - music
+            - kitchen
+            - stationery
+            - tools
+            - medical
+            - other
+        asset_tag:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 80
+        condition:
+          type: string
+          enum: [new, good, fair, poor, broken]
+        location:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        purchased_on:
+          type:
+            - string
+            - "null"
+          format: date
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        unit_cost_cents:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          maximum: 9007199254740991
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+        unit:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 20
+        consumable:
+          type: boolean
+        reorder_level:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          maximum: 2147483647
     InventoryMovementCreateRequest:
       type: object
       properties:
