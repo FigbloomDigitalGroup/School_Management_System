@@ -4264,7 +4264,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tenants/{tenantId}/activities/{activityId}/patrons": {
+    "/v1/tenants/{tenantId}/activities/{activityId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4273,9 +4273,45 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        post?: never;
+        /** Archive an activity */
+        delete: operations["activitiesArchive"];
+        options?: never;
+        head?: never;
+        /** Edit, close, or reopen an activity */
+        patch: operations["activitiesUpdate"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/activities/{activityId}/patrons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List activity patrons */
+        get: operations["activitiesListPatrons"];
+        put?: never;
         /** Add activity patron */
         post: operations["activitiesAddPatron"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/activities/{activityId}/patrons/{teacherUserId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove activity patron */
+        delete: operations["activitiesRemovePatron"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4297,6 +4333,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/activities/{activityId}/members/{learnerId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove activity member */
+        delete: operations["activitiesRemoveMember"];
+        options?: never;
+        head?: never;
+        /** Change activity member role */
+        patch: operations["activitiesUpdateMember"];
         trace?: never;
     };
     "/v1/tenants/{tenantId}/vehicles": {
@@ -10156,7 +10210,17 @@ export interface components {
             meeting_schedule: string;
             active: boolean;
             /** Format: date-time */
+            archived_at: string | null;
+            /** Format: date-time */
             created_at: string;
+        };
+        ActivityUpdateRequest: {
+            name?: string;
+            /** @enum {string} */
+            category?: "sport" | "club" | "arts" | "other";
+            description?: string;
+            meeting_schedule?: string;
+            active?: boolean;
         };
         ActivityCreateRequest: {
             name: string;
@@ -10169,6 +10233,11 @@ export interface components {
             /** Format: uuid */
             teacher_user_id: string;
         };
+        ActivityPatron: {
+            /** Format: uuid */
+            teacher_user_id: string;
+            full_name: string;
+        };
         ActivityAddMemberRequest: {
             /** Format: uuid */
             learner_id: string;
@@ -10180,6 +10249,9 @@ export interface components {
             role: string | null;
             /** Format: date */
             joined_on: string;
+        };
+        ActivityMemberUpdateRequest: {
+            role: string | null;
         };
         Vehicle: {
             /** Format: uuid */
@@ -21117,6 +21189,101 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    activitiesArchive: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                activityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived; the activity and its history remain stored */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    activitiesUpdate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                activityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivityUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated activity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        activity: components["schemas"]["Activity"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    activitiesListPatrons: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                activityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Activity patrons */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        patrons: components["schemas"]["ActivityPatron"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     activitiesAddPatron: {
         parameters: {
             query?: never;
@@ -21144,6 +21311,34 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    activitiesRemovePatron: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                activityId: string;
+                teacherUserId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -21207,6 +21402,67 @@ export interface operations {
         };
         responses: {
             /** @description Added */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    activitiesRemoveMember: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                activityId: string;
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    activitiesUpdateMember: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                activityId: string;
+                learnerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivityMemberUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
             204: {
                 headers: {
                     [name: string]: unknown;

@@ -128,8 +128,8 @@ const EXPECTED: Record<string, string[]> = {
   inventory_movements: ["INSERT", "SELECT"],
   leave_requests: ["INSERT", "SELECT"],
   activities: ["INSERT", "SELECT"],
-  activity_patrons: ["INSERT", "SELECT"],
-  activity_members: ["INSERT", "SELECT"],
+  activity_patrons: ["DELETE", "INSERT", "SELECT"],
+  activity_members: ["DELETE", "INSERT", "SELECT"],
   vehicles: ["INSERT", "SELECT"],
   transport_routes: ["INSERT", "SELECT"],
   route_stops: ["INSERT", "SELECT"],
@@ -345,6 +345,11 @@ const EXPECTED_ACADEMICS_079_UPDATE_COLUMNS: Record<string, string[]> = {
   homework_items: ["archived_at", "archived_by", "body", "class_id", "due_on", "hand_in", "parent_guide", "subject_id", "title", "updated_at"],
 };
 
+const EXPECTED_ACTIVITIES_UPDATE_COLUMNS: Record<string, string[]> = {
+  activities: ["active", "archived_at", "category", "description", "meeting_schedule", "name"],
+  activity_members: ["role"],
+};
+
 const ACADEMICS_079_NEVER_UPDATABLE: Record<string, string[]> = {
   classes: ["id", "tenant_id", "academic_year_id", "created_at", "created_by"],
   subjects: ["id", "tenant_id", "created_at", "created_by"],
@@ -542,6 +547,29 @@ describe("migration 009 grants and policies", () => {
         );
         expect(eff.rows[0]?.upd, `${table}.${column} UPDATE`).toBe(false);
       }
+      const priv = await ctx.pool.query<{ tbl: boolean; any_col: boolean }>(
+        `SELECT has_table_privilege('figbloom_app', $1, 'UPDATE') AS tbl,
+                has_any_column_privilege('figbloom_app', $1, 'UPDATE') AS any_col`,
+        [`public.${table}`],
+      );
+      expect(priv.rows[0]?.tbl, `${table} table-level UPDATE`).toBe(false);
+      expect(priv.rows[0]?.any_col, `${table} any-column UPDATE`).toBe(true);
+    }
+  });
+
+  it("activities: only detail/status/archive fields and member role are updatable", async () => {
+    const tables = Object.keys(EXPECTED_ACTIVITIES_UPDATE_COLUMNS);
+    const r = await ctx.pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.column_privileges
+        WHERE grantee = 'figbloom_app' AND table_schema = 'public' AND privilege_type = 'UPDATE'
+          AND table_name = ANY($1::text[])
+        ORDER BY table_name, column_name`,
+      [tables],
+    );
+    const by: Record<string, string[]> = {};
+    for (const row of r.rows) (by[row.table_name] ??= []).push(row.column_name);
+    expect(by).toEqual(EXPECTED_ACTIVITIES_UPDATE_COLUMNS);
+    for (const table of tables) {
       const priv = await ctx.pool.query<{ tbl: boolean; any_col: boolean }>(
         `SELECT has_table_privilege('figbloom_app', $1, 'UPDATE') AS tbl,
                 has_any_column_privilege('figbloom_app', $1, 'UPDATE') AS any_col`,

@@ -12,10 +12,11 @@ export interface Activity {
   description: string;
   meeting_schedule: string;
   active: boolean;
+  archived_at: string | null;
   created_at: string;
 }
 
-const COLS = `id, tenant_id, name, category, description, meeting_schedule, active, created_at`;
+const COLS = `id, tenant_id, name, category, description, meeting_schedule, active, archived_at, created_at`;
 
 export async function createActivity(
   tx: Tx,
@@ -63,7 +64,7 @@ export async function listActivities(
   rawCursor?: unknown,
 ): Promise<{ activities: Activity[]; page: PageInfo }> {
   const page: PageInput = { limit, rawCursor };
-  const inner = `SELECT ${COLS} FROM activities WHERE tenant_id = $1 AND active = true`;
+  const inner = `SELECT ${COLS} FROM activities WHERE tenant_id = $1 AND archived_at IS NULL`;
   const res = await pageQuery<Activity>(
     tx,
     inner,
@@ -75,12 +76,74 @@ export async function listActivities(
   return { activities, page: res.page };
 }
 
+export async function updateActivity(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    activityId: string;
+    actorUserId: string;
+    name?: string;
+    category?: string;
+    description?: string;
+    meeting_schedule?: string;
+    active?: boolean;
+  },
+): Promise<Activity> {
+  const assignments: string[] = [];
+  const values: unknown[] = [input.tenantId, input.activityId];
+  const add = (column: string, value: unknown) => {
+    values.push(value);
+    assignments.push(`${column} = $${values.length}`);
+  };
+  if (input.name !== undefined) add("name", input.name.trim());
+  if (input.category !== undefined) add("category", input.category);
+  if (input.description !== undefined) add("description", input.description.trim());
+  if (input.meeting_schedule !== undefined) add("meeting_schedule", input.meeting_schedule.trim());
+  if (input.active !== undefined) add("active", input.active);
+  try {
+    const res = await tx.query<Activity>(
+      `UPDATE activities SET ${assignments.join(", ")} WHERE tenant_id = $1 AND id = $2 AND archived_at IS NULL
+       RETURNING ${COLS}`,
+      values,
+    );
+    if (!res.rows[0]) throw notFound("Activity not found");
+    await recordSecurityEvent(tx, {
+      eventType: "activities.activity.updated",
+      actorUserId: input.actorUserId,
+      tenantId: input.tenantId,
+      detail: { activityId: input.activityId, fields: assignments.map((x) => x.split(" = ")[0]) },
+    });
+    return res.rows[0];
+  } catch (err) {
+    if ((err as { code?: string }).code === "23505") throw conflict("An activity with this name already exists");
+    throw err;
+  }
+}
+
+export async function archiveActivity(
+  tx: Tx,
+  input: { tenantId: string; activityId: string; actorUserId: string },
+): Promise<void> {
+  const res = await tx.query(
+    `UPDATE activities SET archived_at = now(), active = false
+      WHERE tenant_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id`,
+    [input.tenantId, input.activityId],
+  );
+  if (!res.rows[0]) throw notFound("Activity not found");
+  await recordSecurityEvent(tx, {
+    eventType: "activities.activity.archived",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { activityId: input.activityId },
+  });
+}
+
 export async function addPatron(
   tx: Tx,
   input: { tenantId: string; activityId: string; teacherUserId: string; actorUserId: string },
 ): Promise<void> {
   const activity = await tx.query(
-    `SELECT 1 FROM activities WHERE tenant_id = $1 AND id = $2 AND active = true`,
+    `SELECT 1 FROM activities WHERE tenant_id = $1 AND id = $2 AND active = true AND archived_at IS NULL`,
     [input.tenantId, input.activityId],
   );
   if (!activity.rows[0]) throw notFound("Activity not found");
@@ -103,11 +166,50 @@ export async function addPatron(
   });
 }
 
+export async function listPatrons(
+  tx: Tx,
+  input: { tenantId: string; activityId: string },
+): Promise<Array<{ teacher_user_id: string; full_name: string }>> {
+  const activity = await tx.query(`SELECT 1 FROM activities WHERE tenant_id = $1 AND id = $2 AND archived_at IS NULL`, [
+    input.tenantId,
+    input.activityId,
+  ]);
+  if (!activity.rows[0]) throw notFound("Activity not found");
+  const res = await tx.query<{ teacher_user_id: string; full_name: string }>(
+    `SELECT p.teacher_user_id, u.full_name
+       FROM activity_patrons p JOIN users u ON u.id = p.teacher_user_id
+      WHERE p.tenant_id = $1 AND p.activity_id = $2
+      ORDER BY u.full_name, p.teacher_user_id`,
+    [input.tenantId, input.activityId],
+  );
+  return res.rows;
+}
+
+export async function removePatron(
+  tx: Tx,
+  input: { tenantId: string; activityId: string; teacherUserId: string; actorUserId: string },
+): Promise<void> {
+  const res = await tx.query(
+    `DELETE FROM activity_patrons p USING activities a
+      WHERE p.tenant_id = $1 AND p.activity_id = $2 AND p.teacher_user_id = $3
+        AND a.tenant_id = p.tenant_id AND a.id = p.activity_id AND a.archived_at IS NULL
+      RETURNING p.teacher_user_id`,
+    [input.tenantId, input.activityId, input.teacherUserId],
+  );
+  if (!res.rows[0]) throw notFound("Activity patron not found");
+  await recordSecurityEvent(tx, {
+    eventType: "activities.patron.removed",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { activityId: input.activityId, teacherUserId: input.teacherUserId },
+  });
+}
+
 export async function addMember(
   tx: Tx,
   input: { tenantId: string; activityId: string; learnerId: string; role?: string | null; actorUserId: string },
 ): Promise<void> {
-  const activity = await tx.query(`SELECT 1 FROM activities WHERE tenant_id = $1 AND id = $2 AND active = true`, [
+  const activity = await tx.query(`SELECT 1 FROM activities WHERE tenant_id = $1 AND id = $2 AND active = true AND archived_at IS NULL`, [
     input.tenantId,
     input.activityId,
   ]);
@@ -135,7 +237,7 @@ export async function listMembers(
   tx: Tx,
   input: { tenantId: string; activityId: string; limit?: number; rawCursor?: unknown },
 ): Promise<{ members: Array<{ learner_id: string; role: string | null; joined_on: string }>; page: PageInfo }> {
-  const activity = await tx.query(`SELECT 1 FROM activities WHERE tenant_id = $1 AND id = $2`, [
+  const activity = await tx.query(`SELECT 1 FROM activities WHERE tenant_id = $1 AND id = $2 AND archived_at IS NULL`, [
     input.tenantId,
     input.activityId,
   ]);
@@ -154,4 +256,45 @@ export async function listMembers(
   );
   const members = res.rows.map(({ learner_id, role, joined_on }) => ({ learner_id, role, joined_on }));
   return { members, page: res.page };
+}
+
+export async function updateMemberRole(
+  tx: Tx,
+  input: { tenantId: string; activityId: string; learnerId: string; role: string | null; actorUserId: string },
+): Promise<void> {
+  const res = await tx.query(
+    `UPDATE activity_members m SET role = $4
+       FROM activities a
+      WHERE m.tenant_id = $1 AND m.activity_id = $2 AND m.learner_id = $3
+        AND a.tenant_id = m.tenant_id AND a.id = m.activity_id AND a.archived_at IS NULL
+      RETURNING m.learner_id`,
+    [input.tenantId, input.activityId, input.learnerId, input.role?.trim() || null],
+  );
+  if (!res.rows[0]) throw notFound("Activity member not found");
+  await recordSecurityEvent(tx, {
+    eventType: "activities.member.updated",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { activityId: input.activityId, learnerId: input.learnerId },
+  });
+}
+
+export async function removeMember(
+  tx: Tx,
+  input: { tenantId: string; activityId: string; learnerId: string; actorUserId: string },
+): Promise<void> {
+  const res = await tx.query(
+    `DELETE FROM activity_members m USING activities a
+      WHERE m.tenant_id = $1 AND m.activity_id = $2 AND m.learner_id = $3
+        AND a.tenant_id = m.tenant_id AND a.id = m.activity_id AND a.archived_at IS NULL
+      RETURNING m.learner_id`,
+    [input.tenantId, input.activityId, input.learnerId],
+  );
+  if (!res.rows[0]) throw notFound("Activity member not found");
+  await recordSecurityEvent(tx, {
+    eventType: "activities.member.removed",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { activityId: input.activityId, learnerId: input.learnerId },
+  });
 }

@@ -56,6 +56,8 @@ export const BODY_FIXTURES: Record<string, unknown> = {
   "PATCH /v1/tenants/{tenantId}/classes/{classId}": { room: "Fixture room" },
   // Homework patch requires at least one field; the generic schema sampler produces an empty object.
   "PATCH /v1/tenants/{tenantId}/homework-items/{homeworkId}": { title: "Fixture homework" },
+  // Activity patch (W1.4) also needs at least one field.
+  "PATCH /v1/tenants/{tenantId}/activities/{activityId}": { name: "Fixture activity" },
   "POST /v1/tenants/{tenantId}/classes": {
     academic_year_id: randomUUID(),
     name: "Form 1A",

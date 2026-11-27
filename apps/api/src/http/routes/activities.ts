@@ -2,7 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
 import { requirePermission } from "../../modules/rbac/authorize.js";
-import { addMember, addPatron, createActivity, listActivities, listMembers } from "../../modules/activities/activities.js";
+import {
+  addMember, addPatron, archiveActivity, createActivity, listActivities, listMembers, listPatrons,
+  removeMember, removePatron, updateActivity, updateMemberRole,
+} from "../../modules/activities/activities.js";
 import { assertUuid, inTenant, pageFrom } from "../routeKit.js";
 import { parseOrThrow } from "../validation.js";
 
@@ -18,6 +21,14 @@ const MemberBody = z.strictObject({
   learner_id: z.guid(),
   role: z.string().min(1).max(60).nullable().optional(),
 });
+const UpdateActivityBody = z.strictObject({
+  name: z.string().min(1).max(120).optional(),
+  category: z.enum(["sport", "club", "arts", "other"]).optional(),
+  description: z.string().max(2000).optional(),
+  meeting_schedule: z.string().max(300).optional(),
+  active: z.boolean().optional(),
+}).refine((body) => Object.keys(body).length > 0, "At least one field is required");
+const UpdateMemberBody = z.strictObject({ role: z.string().min(1).max(60).nullable() });
 
 const P = "/v1/tenants/:tenantId/activities";
 
@@ -41,6 +52,35 @@ export async function registerActivitiesRoutes(app: FastifyInstance, pool: AppPo
     });
   });
 
+  app.patch(`${P}/:activityId`, async (request) => {
+    const params = request.params as { tenantId: string; activityId: string };
+    assertUuid(params.activityId, "activityId");
+    const body = parseOrThrow(UpdateActivityBody, request.body, "At least one editable field is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.activity.write", { ip, deferAudit: true });
+      return { activity: await updateActivity(tx, { tenantId: params.tenantId, activityId: params.activityId, actorUserId: auth.user.id, ...body }) };
+    });
+  });
+
+  app.delete(`${P}/:activityId`, async (request, reply) => {
+    const params = request.params as { tenantId: string; activityId: string };
+    assertUuid(params.activityId, "activityId");
+    await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.activity.write", { ip, deferAudit: true });
+      await archiveActivity(tx, { tenantId: params.tenantId, activityId: params.activityId, actorUserId: auth.user.id });
+    });
+    return reply.status(204).send();
+  });
+
+  app.get(`${P}/:activityId/patrons`, async (request) => {
+    const params = request.params as { tenantId: string; activityId: string };
+    assertUuid(params.activityId, "activityId");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.activity.read", { ip, deferAudit: true });
+      return { patrons: await listPatrons(tx, { tenantId: params.tenantId, activityId: params.activityId }) };
+    });
+  });
+
   app.post(`${P}/:activityId/patrons`, async (request, reply) => {
     const params = request.params as { tenantId: string; activityId: string };
     assertUuid(params.activityId, "activityId");
@@ -53,6 +93,17 @@ export async function registerActivitiesRoutes(app: FastifyInstance, pool: AppPo
         teacherUserId: body.teacher_user_id,
         actorUserId: auth.user.id,
       });
+    });
+    return reply.status(204).send();
+  });
+
+  app.delete(`${P}/:activityId/patrons/:teacherUserId`, async (request, reply) => {
+    const params = request.params as { tenantId: string; activityId: string; teacherUserId: string };
+    assertUuid(params.activityId, "activityId");
+    assertUuid(params.teacherUserId, "teacherUserId");
+    await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.activity.write", { ip, deferAudit: true });
+      await removePatron(tx, { tenantId: params.tenantId, activityId: params.activityId, teacherUserId: params.teacherUserId, actorUserId: auth.user.id });
     });
     return reply.status(204).send();
   });
@@ -87,5 +138,28 @@ export async function registerActivitiesRoutes(app: FastifyInstance, pool: AppPo
         rawCursor: page.rawCursor,
       });
     });
+  });
+
+  app.patch(`${P}/:activityId/members/:learnerId`, async (request, reply) => {
+    const params = request.params as { tenantId: string; activityId: string; learnerId: string };
+    assertUuid(params.activityId, "activityId");
+    assertUuid(params.learnerId, "learnerId");
+    const body = parseOrThrow(UpdateMemberBody, request.body, "role is required");
+    await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.activity.write", { ip, deferAudit: true });
+      await updateMemberRole(tx, { tenantId: params.tenantId, activityId: params.activityId, learnerId: params.learnerId, role: body.role, actorUserId: auth.user.id });
+    });
+    return reply.status(204).send();
+  });
+
+  app.delete(`${P}/:activityId/members/:learnerId`, async (request, reply) => {
+    const params = request.params as { tenantId: string; activityId: string; learnerId: string };
+    assertUuid(params.activityId, "activityId");
+    assertUuid(params.learnerId, "learnerId");
+    await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.activity.write", { ip, deferAudit: true });
+      await removeMember(tx, { tenantId: params.tenantId, activityId: params.activityId, learnerId: params.learnerId, actorUserId: auth.user.id });
+    });
+    return reply.status(204).send();
   });
 }

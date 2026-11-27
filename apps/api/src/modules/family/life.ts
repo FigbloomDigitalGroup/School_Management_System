@@ -25,7 +25,7 @@ export async function childActivities(tx: Tx, input: { tenantId: string; learner
               WHERE p.tenant_id = a.tenant_id AND p.activity_id = a.id) AS patrons
        FROM activity_members m
        JOIN activities a ON a.tenant_id = m.tenant_id AND a.id = m.activity_id
-      WHERE m.tenant_id = $1 AND m.learner_id = $2
+      WHERE m.tenant_id = $1 AND m.learner_id = $2 AND a.archived_at IS NULL
       ORDER BY a.active DESC, a.name, a.id
       LIMIT 200`,
     [input.tenantId, input.learnerId],

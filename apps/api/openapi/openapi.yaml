@@ -14775,7 +14775,137 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/activities/{activityId}:
+    patch:
+      tags:
+        - activities
+      summary: Edit, close, or reopen an activity
+      operationId: activitiesUpdate
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.activity.write
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityUpdateRequest"
+      responses:
+        "200":
+          description: Updated activity
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [activity]
+                properties:
+                  activity:
+                    $ref: "#/components/schemas/Activity"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      tags:
+        - activities
+      summary: Archive an activity
+      operationId: activitiesArchive
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.activity.write
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Archived; the activity and its history remain stored
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/tenants/{tenantId}/activities/{activityId}/patrons:
+    get:
+      tags:
+        - activities
+      summary: List activity patrons
+      operationId: activitiesListPatrons
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.activity.read
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Activity patrons
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [patrons]
+                properties:
+                  patrons:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ActivityPatron"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       tags:
         - activities
@@ -14811,6 +14941,46 @@ paths:
           description: Added
         "400":
           $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/activities/{activityId}/patrons/{teacherUserId}:
+    delete:
+      tags:
+        - activities
+      summary: Remove activity patron
+      operationId: activitiesRemovePatron
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.activity.write
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: teacherUserId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Removed
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -14905,6 +15075,93 @@ paths:
           description: Added
         "400":
           $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/activities/{activityId}/members/{learnerId}:
+    patch:
+      tags:
+        - activities
+      summary: Change activity member role
+      operationId: activitiesUpdateMember
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.activity.write
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityMemberUpdateRequest"
+      responses:
+        "204":
+          description: Updated
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags:
+        - activities
+      summary: Remove activity member
+      operationId: activitiesRemoveMember
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions:
+        - resource.activity.write
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: learnerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Removed
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -32440,6 +32697,7 @@ components:
         - description
         - meeting_schedule
         - active
+        - archived_at
         - created_at
       properties:
         id:
@@ -32463,9 +32721,38 @@ components:
           type: string
         active:
           type: boolean
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
         created_at:
           type: string
           format: date-time
+    ActivityUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        category:
+          type: string
+          enum:
+            - sport
+            - club
+            - arts
+            - other
+        description:
+          type: string
+          maxLength: 2000
+        meeting_schedule:
+          type: string
+          maxLength: 300
+        active:
+          type: boolean
     ActivityCreateRequest:
       type: object
       additionalProperties: false
@@ -32499,6 +32786,18 @@ components:
         teacher_user_id:
           type: string
           format: uuid
+    ActivityPatron:
+      type: object
+      additionalProperties: false
+      required:
+        - teacher_user_id
+        - full_name
+      properties:
+        teacher_user_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
     ActivityAddMemberRequest:
       type: object
       additionalProperties: false
@@ -32532,6 +32831,17 @@ components:
         joined_on:
           type: string
           format: date
+    ActivityMemberUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 60
     Vehicle:
       type: object
       additionalProperties: false
