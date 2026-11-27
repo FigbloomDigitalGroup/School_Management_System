@@ -5417,7 +5417,7 @@ paths:
         - academics
       summary: List class memberships
       description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed
-        sort (`sort` is refused)."
+        sort (`sort` is refused). Archived papers are excluded."
       operationId: listClassMemberships
       security:
         - bearerAuth: []
@@ -8780,6 +8780,87 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/online-exam-papers/{paperId}:
+    patch:
+      tags: [academics]
+      summary: Edit an online exam paper
+      description: "Title remains editable after an attempt; max_score and questions are locked once any attempt has started."
+      operationId: updateOnlineExamPaper
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: paperId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchOnlineExamPapersRequest"
+      responses:
+        "200":
+          description: Updated paper
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [paper]
+                additionalProperties: false
+                properties:
+                  paper: { $ref: "#/components/schemas/OnlineExamPaper" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/online-exam-papers/{paperId}/archive:
+    post:
+      tags: [academics]
+      summary: Archive an online exam paper
+      description: "Hides the paper from lists and blocks new attempts. Existing in-progress attempts remain finishable. The row is retained."
+      operationId: archiveOnlineExamPaper
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: paperId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived paper
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [paper]
+                additionalProperties: false
+                properties:
+                  paper: { $ref: "#/components/schemas/OnlineExamPaper" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
   /v1/tenants/{tenantId}/online-exam-papers/{paperId}/attempts:
     post:
       tags:
@@ -8918,7 +8999,7 @@ paths:
         - academics
       summary: Publish an online exam paper to the learners of its class
       description: "Until a paper is published no learner sees it (migration 110, docs/STUDENT-ACCOUNTS.md). Publishing again
-        keeps the first time. There is no unpublish."
+        keeps the first time. Archived papers cannot be published. There is no unpublish."
       operationId: publishOnlineExamPaper
       security:
         - bearerAuth: []
@@ -27059,6 +27140,7 @@ components:
         - title
         - max_score
         - created_at
+        - archived_at
       properties:
         id:
           type: string
@@ -27086,6 +27168,12 @@ components:
             - "null"
           format: date-time
           description: When the paper was published to the learners of its class (null until then; migration 110).
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: When the paper was archived (null while active).
         questions:
           type:
             - array
@@ -28578,6 +28666,26 @@ components:
         - subject_id
         - title
         - max_score
+      additionalProperties: false
+    PatchOnlineExamPapersRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        max_score:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 10000
+        questions:
+          anyOf:
+            - type: array
+              items:
+                type: object
+                additionalProperties: true
+            - type: "null"
+      minProperties: 1
       additionalProperties: false
     PostOnlineExamPapersAttemptsRequest:
       type: object

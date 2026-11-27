@@ -6,6 +6,7 @@ import {
   createHeEnrolment,
   createHeSection,
   createOnlinePaper,
+  archiveOnlinePaper,
   correctHeGrade,
   getHeGradeForEnrolment,
   getHeGradeVersion,
@@ -24,6 +25,7 @@ import {
   startOnlineAttempt,
   submitOnlineAttempt,
   updateHeSectionInstructor,
+  updateOnlinePaper,
 } from "../../modules/academics/higherEd.js";
 import { parseIdempotencyKey, runIdempotent } from "../../modules/idempotency/idempotency.js";
 import { getLiveKitProvider } from "../../modules/communications/livekitProvider.js";
@@ -87,6 +89,11 @@ const PaperBody = z.strictObject({
   max_score: z.number().positive(),
   questions: z.array(QuestionSchema).nullable().optional(),
 });
+const PaperPatch = z.strictObject({
+  title: z.string().min(1).max(160).optional(),
+  max_score: z.number().positive().max(10000).optional(),
+  questions: z.array(QuestionSchema).nullable().optional(),
+}).refine((body) => Object.keys(body).length > 0, "At least one exam paper field is required");
 const AttemptBody = z.strictObject({ learner_id: z.guid() });
 const SubmitBody = z.strictObject({
   score: z.number().optional(),
@@ -102,6 +109,7 @@ export const HIGHER_REQUEST_SCHEMAS = {
   "POST /v1/tenants/{tenantId}/he-enrolments/{enrolmentId}/grade": GradeBody,
   "POST /v1/tenants/{tenantId}/he-enrolments/{enrolmentId}/grade-corrections": GradeCorrectionBody,
   "POST /v1/tenants/{tenantId}/online-exam-papers": PaperBody,
+  "PATCH /v1/tenants/{tenantId}/online-exam-papers/{paperId}": PaperPatch,
   "POST /v1/tenants/{tenantId}/online-exam-papers/{paperId}/attempts": AttemptBody,
   "POST /v1/tenants/{tenantId}/online-exam-attempts/{attemptId}/submit": SubmitBody,
 } as const;
@@ -356,6 +364,42 @@ export async function registerAcademicsHigherRoutes(app: FastifyInstance, pool: 
       const out = await listOnlinePapers(tx, { tenantId: params.tenantId, page: pageFrom(request) });
       return { papers: out.items, page: out.page };
     });
+  });
+
+  app.patch("/v1/tenants/:tenantId/online-exam-papers/:paperId", async (request) => {
+    const params = request.params as { tenantId: string; paperId: string };
+    assertUuid(params.paperId, "paperId");
+    const parsed = parseOrThrow(PaperPatch, request.body, "at least one exam paper field is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const paper = await updateOnlinePaper(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, paperId: params.paperId, ...parsed, ip });
+      return { paper };
+    });
+  });
+
+  app.post("/v1/tenants/:tenantId/online-exam-papers/:paperId/archive", async (request, reply) => {
+    const params = request.params as { tenantId: string; paperId: string };
+    assertUuid(params.paperId, "paperId");
+    const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      return runIdempotent(tx, {
+        key: parseIdempotencyKey(request.headers["idempotency-key"]),
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/online-exam-papers/:paperId/archive",
+        fingerprintInput: { params },
+        status: 200,
+        execute: async () => {
+          const paper = await archiveOnlinePaper(tx, { tenantId: params.tenantId, actorUserId: auth.user.id, paperId: params.paperId, ip });
+          return { value: { paper }, resourceType: "online_exam_paper_archived", resourceId: paper.id };
+        },
+        replay: async () => {
+          const paper = await getOnlinePaperById(tx, { tenantId: params.tenantId, id: params.paperId });
+          return paper ? { paper } : null;
+        },
+      });
+    });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
   });
 
   // Migration 110 (docs/STUDENT-ACCOUNTS.md): learners of the paper's class see it only once it is published. Naturally

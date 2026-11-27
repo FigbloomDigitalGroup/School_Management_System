@@ -81,6 +81,8 @@ export type SecurityEventType =
   | "academics.he.section.instructor_changed"
   | "academics.he.enrolment.created"
   | "academics.online_exam.created"
+    | "academics.online_exam.updated"
+    | "academics.online_exam.archived"
   | "academics.online_exam.attempt_started"
   | "academics.online_exam.attempt_submitted"
   | "academics.online_exam.published"
