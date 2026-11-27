@@ -467,7 +467,7 @@ function InstitutionGate({ children }: { children: ReactNode }) {
 /** The overview for full admins; a page of their own areas for a teacher or other staff member who holds some. */
 function AdminHome() {
   const session = useTenantSession();
-  return adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant) === "all" ? <AdminDashboard /> : <AreasHome />;
+  return adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant, session.delegatedOrgConsole) === "all" ? <AdminDashboard /> : <AreasHome />;
 }
 
 /** A teacher's own console home, relative to /s/<slug>/ (what the console switch links back to). */
@@ -482,7 +482,7 @@ const teacherHome = (tenant: Tenant) => homeRouteFor("teacher", tenant.slug, ten
 const AdminShell = ({ page, children }: { page: string; children: ReactNode }) => {
   const session = useTenantSession();
   const nav = useNavigate();
-  const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
+  const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant, session.delegatedOrgConsole);
   const full = access === "all";
   async function exitToOrganization() {
     const org = session.actingOrganization;

@@ -35,7 +35,8 @@ export const HR_ITEM_LABEL = "HR & Payroll";
  * it, or a teacher or other staff member holding the fees area (the bursar).
  * Anyone else isn't asked about it at all.
  */
-export function mayOfferHr(role: Role, adminAreas: readonly AdminArea[], actingForTenant = false): boolean {
+export function mayOfferHr(role: Role, adminAreas: readonly AdminArea[], actingForTenant = false, delegatedOrgConsole = false): boolean {
+  if (delegatedOrgConsole) return adminAreas.includes("fees");
   if (actingForTenant || role === "school_admin") return true;
   return (role === "teacher" || role === "staff") && adminAreas.includes("fees");
 }

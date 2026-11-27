@@ -12,6 +12,7 @@ import {
   platformOrganizationToOrg,
   platformSchoolToTenant,
 } from "./api/platformApi";
+import { apiClient } from "./api/client";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
 import type { EmailOutcome } from "./passwordReset";
@@ -172,6 +173,11 @@ export async function saveNewSchoolLogo(tenantId: string, logoUrl: string): Prom
 
 /** A school's address (its slug) from its id, for an organization's admin opening that school's console. */
 export async function fetchTenantSlug(tenantId: string): Promise<string> {
+  if (onApi()) {
+    const tenant = await apiClient().get("/v1/tenants/{tenantId}", { path: { tenantId }, tenantId });
+    if (typeof tenant.slug !== "string" || tenant.slug.length === 0) throw new Error("This school's address could not be found.");
+    return tenant.slug;
+  }
   const { data, error } = await supabase().from("tenants").select("slug").eq("id", tenantId).maybeSingle();
   if (error || !data) throw error ?? new Error("This school's address could not be found.");
   return (data as { slug: string }).slug;

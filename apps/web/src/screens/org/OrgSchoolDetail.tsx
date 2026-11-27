@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchOrganizationTenantSummaries, fetchTenantSlug, logOrganizationAccess, formatMoney, orgCapabilities } from "@figbloom/shared";
+import { apiFetchMySchoolAccess, fetchOrganizationTenantSummaries, fetchTenantSlug, logOrganizationAccess, formatMoney, onApi, orgCapabilities } from "@figbloom/shared";
 import { Badge, DELIVERY_MODE_LABEL, HIGHER_ED_SUBTYPE_LABEL } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { PageHead } from "../../components/ConsoleShell";
@@ -14,10 +14,8 @@ import { SchoolAccessPanel } from "./SchoolAccessPanel";
 
 /**
  * Aggregate figures (same organization_tenant_summary the schools list
- * reads) plus an "Open school console" entry point — an org owner gets the
- * exact same admin console this school's own school_admin has (FIG-391's
- * RLS grant is what actually authorizes it; this is just the door). Every
- * entry is logged, the same way viewing this page already is.
+ * reads) plus an "Open school console" entry point. On the API build, the
+ * school authorizes this with tenant.read and the console shows only delegated areas.
  */
 export function OrgSchoolDetail() {
   const { profile, organization } = useOrgSessionCtx();
@@ -25,9 +23,16 @@ export function OrgSchoolDetail() {
   const nav = useNavigate();
   const { data: summaries, loading, error } = useAsync(() => fetchOrganizationTenantSummaries(organization.id), [organization.id]);
   const school = summaries?.find((s) => s.tenant_id === tenantId) ?? null;
+  const apiBuild = onApi();
+  const { data: mySchoolAccess, loading: accessLoading, error: accessError } = useAsync(
+    () => apiBuild && school ? apiFetchMySchoolAccess(school.tenant_id) : Promise.resolve([] as string[]),
+    [apiBuild, school?.tenant_id],
+  );
   const [opening, setOpening] = useState(false);
-  // On the new API: name, address and status, and access for the organisation's admins; no figures, no school console (S11).
+  const [openError, setOpenError] = useState<string | null>(null);
+  // On the API: name, address and status, delegated access, and console entry when tenant.read is held.
   const caps = orgCapabilities();
+  const hasTenantRead = !apiBuild || !!mySchoolAccess?.includes("tenant.read");
 
   useEffect(() => {
     if (tenantId && orgCapabilities().pageViewLog) void logOrganizationAccess(organization.id, profile.id, "viewed_tenant_detail", tenantId);
@@ -36,10 +41,17 @@ export function OrgSchoolDetail() {
   async function openConsole() {
     if (!tenantId) return;
     setOpening(true);
+    setOpenError(null);
     try {
+      if (apiBuild && !(await apiFetchMySchoolAccess(tenantId)).includes("tenant.read")) {
+        setOpenError("This school must grant you tenant.read before you can open its console.");
+        return;
+      }
       const slug = await fetchTenantSlug(tenantId);
-      await logOrganizationAccess(organization.id, profile.id, "entered_school_console", tenantId);
+      if (caps.pageViewLog) await logOrganizationAccess(organization.id, profile.id, "entered_school_console", tenantId);
       nav(`/s/${slug}/admin`);
+    } catch (err) {
+      setOpenError(err instanceof Error ? err.message : "Could not open this school's console.");
     } finally {
       setOpening(false);
     }
@@ -79,7 +91,7 @@ export function OrgSchoolDetail() {
           <>
             <Button onClick={() => nav("../schools")}>Back to schools</Button>
             {caps.openSchoolConsole && (
-              <Button variant="accent" onClick={() => void openConsole()} disabled={opening}>
+              <Button variant="accent" onClick={() => void openConsole()} disabled={opening || accessLoading || !hasTenantRead}>
                 {opening ? "Opening…" : "Open school console"}
               </Button>
             )}
@@ -125,15 +137,16 @@ export function OrgSchoolDetail() {
 
         {caps.openSchoolConsole ? (
           <p className="mt-5 max-w-[560px] text-[12.5px] leading-relaxed text-ink-faint">
-            "Open school console" gives you the same access this school's own admin has — its students, staff, fees,
-            and everything else. Every visit is logged here and the school can see it, the same way this page view
-            already is.
+            You can open this school's console after it grants you tenant.read. Inside, you can use only the admin areas
+            explicitly delegated to you.
           </p>
         ) : (
           <p className="mt-5 max-w-[560px] text-[12.5px] leading-relaxed text-ink-faint">
-            Not on the new system yet: this school's learner numbers, attendance and fees, its own admins, and opening its console from here.
+            Not on the new system yet: this school's learner numbers, attendance and fees, and its own administrators.
           </p>
         )}
+        {caps.openSchoolConsole && accessError && <p role="status" className="mt-3 text-[12.5px] text-danger">Could not check school access: {accessError.message}</p>}
+        {openError && <p role="alert" className="mt-3 text-[12.5px] text-danger">{openError}</p>}
       </div>
     </>
   );

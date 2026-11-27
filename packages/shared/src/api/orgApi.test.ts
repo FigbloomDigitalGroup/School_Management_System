@@ -75,7 +75,7 @@ describe("capabilities", () => {
   it("on the API: the reads and school access; figures, kinds, adding schools and admins hidden", () => {
     boot({});
     expect(orgCapabilities()).toEqual({
-      schoolFigures: false, schoolKind: false, addSchool: false, openForSignIn: false, schoolAdmins: false, openSchoolConsole: false,
+      schoolFigures: false, schoolKind: false, addSchool: false, openForSignIn: false, schoolAdmins: false, openSchoolConsole: true,
       inviteOrgAdmin: false, createOrganization: false, pageViewLog: false, schoolAccess: true,
     });
   });

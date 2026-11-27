@@ -25,7 +25,7 @@ export function Fact({ label, children }: { label: string; children: ReactNode }
  * no admin console (a parent, a teacher with no admin areas) sees at all so far. In the admin shell it is the Dashboard page.
  */
 export function ApiOverview({ session, onSignOut, inShell }: { session: SchoolSession; onSignOut: () => Promise<void>; inShell: boolean }) {
-  const { profile, tenant, adminAreas } = session;
+  const { profile, tenant, adminAreas, delegatedOrgConsole } = session;
   const expires = apiClient().session()?.expiresAt;
   const [check, setCheck] = useState<string>("");
   const [checking, setChecking] = useState(false);
@@ -55,6 +55,9 @@ export function ApiOverview({ session, onSignOut, inShell }: { session: SchoolSe
           {profile.login_id && <Fact label="Login ID">{profile.login_id}</Fact>}
           {(profile.role === "teacher" || profile.role === "staff") && (
             <Fact label="Admin areas">{adminAreas.length ? adminAreas.join(", ") : "none"}</Fact>
+          )}
+          {delegatedOrgConsole && (
+            <Fact label="Delegated admin areas">{adminAreas.length ? adminAreas.join(", ") : "none"}</Fact>
           )}
           {profile.role === "school_admin" && <Fact label="Admin areas">{adminAccessFor(profile.role, adminAreas) === "all" ? "all of them" : "none"}</Fact>}
         </dl>

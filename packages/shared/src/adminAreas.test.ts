@@ -72,8 +72,13 @@ describe("presets", () => {
 describe("who has the admin console", () => {
   it("is everything for full admins and an org admin acting for the school", () => {
     expect(adminAccessFor("school_admin", [])).toBe("all");
-    expect(adminAccessFor("org_admin", [])).toBe("all");
+    expect(adminAccessFor("org_admin", [], true)).toBe("all");
+    expect(adminAccessFor("org_admin", [])).toEqual([]);
     expect(adminAccessFor("teacher", ["fees"], true)).toBe("all");
+  });
+  it("limits an API delegated org admin to the explicitly granted areas", () => {
+    expect(adminAccessFor("org_admin", ["fees", "attendance"], true, true)).toEqual(["fees", "attendance"]);
+    expect(adminAccessFor("org_admin", [], true, true)).toEqual([]);
   });
   it("is their areas for a teacher or other staff", () => {
     expect(adminAccessFor("teacher", ["fees", "people"])).toEqual(["people", "fees"]);

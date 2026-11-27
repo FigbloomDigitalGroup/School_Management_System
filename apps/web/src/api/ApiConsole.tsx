@@ -1,6 +1,6 @@
 import { lazy, type ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import { NAV, adminAccessFor, apiFetchMyStaffRecord, fetchAiStatus, hasAdminConsole, mayOpenAdminPage, showsAdminSwitch, showsLeaveToApprove } from "@figbloom/shared";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { NAV, adminAccessFor, apiFetchMyStaffRecord, fetchAiStatus, hasAdminConsole, logOrganizationAccess, mayOpenAdminPage, showsAdminSwitch, showsLeaveToApprove } from "@figbloom/shared";
 import { BloomFab } from "../components/BloomFab";
 import { ConsoleShell } from "../components/ConsoleShell";
 import { useAsync } from "../lib/useAsync";
@@ -17,17 +17,18 @@ import { Lazy } from "./pages/Lazy";
 const AdminDashboard = lazy(() => import("../screens/admin/Dashboard").then((m) => ({ default: m.AdminDashboard })));
 const AreasHome = lazy(() => import("../screens/admin/AreasHome").then((m) => ({ default: m.AreasHome })));
 
-function adminPagesFor(leaveAccess: ReturnType<typeof useHrLeaveAccess>): readonly string[] {
-  return showsLeaveToApprove(leaveAccess)
+function adminPagesFor(leaveAccess: ReturnType<typeof useHrLeaveAccess>, delegatedOrgConsole = false): readonly string[] {
+  const pages = showsLeaveToApprove(leaveAccess)
     ? API_ADMIN_PAGES
     : API_ADMIN_PAGES.filter((page) => page !== "admin/leave-to-approve");
+  return delegatedOrgConsole ? pages.filter((page) => page !== "admin/my-hr" && page !== "admin/leave-to-approve") : pages;
 }
 
 function ApiAdminHome({ session }: { session: SchoolSession }) {
   const leaveAccess = useHrLeaveAccess(session);
-  return adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant) === "all"
+  return adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant, session.delegatedOrgConsole) === "all"
     ? <AdminDashboard />
-    : <AreasHome allowedPages={adminPagesFor(leaveAccess)} />;
+    : <AreasHome allowedPages={adminPagesFor(leaveAccess, session.delegatedOrgConsole)} />;
 }
 
 // The pages themselves are registered by each area in `./pages/<area>.pages.tsx`, not here: a new area adds a file there and
@@ -37,28 +38,39 @@ export { API_ADMIN_PAGES, API_STAFF_PAGES, API_TEACHER_PAGES };
 /**
  * The console of a person with admin access: the same shell, menu and page gate as the Supabase app's AdminShell
  * (App.tsx), without the parts that read Supabase (unread counts, the visitor alerts). The guide and the Ask Bloom button run on /ai/query. Full admins see
- * every page this build has; a teacher or other staff member holding admin areas sees the pages of those areas. The "HR & Payroll" side item
+ * every page this build has; teachers and other staff see their areas, and organization delegates see only their delegated areas. The "HR & Payroll" side item
  * (`sideActions`, lib/useHrItem.ts) is in all three shells, as on Supabase: it asks the API whether the hand-off is on and shows only then.
  */
 function AdminPage({ page, session, children }: { page: string; session: SchoolSession; children: ReactNode }) {
-  const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
+  const nav = useNavigate();
+  const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant, session.delegatedOrgConsole);
   const leaveAccess = useHrLeaveAccess(session);
   const hrItem = useHrItem(session);
   // The guide (and the School assistant's chat) exist only where Bloom is on for the school, as on the Supabase build. While this is
   // being read, or when it cannot be read, the guide stays: it then says why it cannot answer.
   const { data: ai, loading: aiLoading } = useAsync(() => fetchAiStatus(session.tenant.id).catch(() => null), [session.tenant.id]);
-  if (!mayOpenAdminPage(access, page)) return <Navigate to={`/s/${session.tenant.slug}/admin`} replace />;
+  if (!mayOpenAdminPage(access, page) || (session.delegatedOrgConsole && (page === "admin/my-hr" || page === "admin/leave-to-approve"))) return <Navigate to={`/s/${session.tenant.slug}/admin`} replace />;
   const full = access === "all";
   const guideOn = aiLoading || ai === null || ai.aiEnabled;
+  async function exitToOrganization() {
+    const org = session.actingOrganization;
+    if (org) await logOrganizationAccess(org.id, session.profile.id, "exited_school_console", session.tenant.id).catch(() => {});
+    nav(org ? `/org/${encodeURIComponent(org.slug)}/schools/${session.tenant.id}` : "/signin");
+  }
   return (
     <ConsoleShell
       role="school_admin"
-      user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.profile.staff_title ?? (full ? "Principal" : "Admin") }}
-      hiddenNav={NAV.school_admin.map((i) => i.to).filter((to) => !adminPagesFor(leaveAccess).includes(to) || !mayOpenAdminPage(access, to))}
+      user={{ id: session.profile.id, name: session.profile.full_name, avatarUrl: session.profile.avatar_url, roleLabel: session.delegatedOrgConsole ? "Org admin (acting)" : session.profile.staff_title ?? (full ? "Principal" : "Admin") }}
+      hiddenNav={NAV.school_admin.map((i) => i.to).filter((to) => !adminPagesFor(leaveAccess, session.delegatedOrgConsole).includes(to) || !mayOpenAdminPage(access, to))}
       consoleSwitch={session.profile.role === "staff" && showsAdminSwitch("staff", session.adminAreas)
         ? { current: "admin", ownLabel: "Staff", ownTo: "staff", adminTo: "admin" }
         : undefined}
       sideActions={hrItem}
+      actingBanner={session.actingForTenant && session.actingOrganization ? {
+        orgName: session.actingOrganization.name,
+        schoolName: session.tenant.name,
+        onExit: () => void exitToOrganization(),
+      } : undefined}
       guide={guideOn ? { tenantId: session.tenant.id, adminAreas: !full } : undefined}
     >
       {children}
@@ -125,7 +137,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
   if (session.profile.role === "student") return <ApiStudentConsole session={session} />;
   // A driver has their own full-width pages (ApiDriver.tsx), not the console.
   if (session.profile.role === "driver") return <ApiDriverConsole session={session} />;
-  const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant);
+  const access = adminAccessFor(session.profile.role, session.adminAreas, session.actingForTenant, session.delegatedOrgConsole);
   const isStaff = session.profile.role === "staff";
   if (!hasAdminConsole(access)) {
     if (session.profile.role === "teacher") {
@@ -161,7 +173,7 @@ export function ApiConsole({ session, onSignOut }: { session: SchoolSession; onS
       {adminPageDefs.map((p) => <Route key={p.path} path={p.path} element={page(p.menu ?? p.path, p.element)} />)}
       {/* A teacher who holds admin areas lands in this console and has no console switch on the API build yet: their teacher
           pages are reachable by address only. */}
-      {teacherPageDefs
+      {(session.delegatedOrgConsole ? [] : teacherPageDefs)
         .filter((p) => p.inAdminConsole !== false)
         .map((p) => <Route key={p.path} path={p.path} element={page("admin", p.element)} />)}
       {isStaff && staffRoutes(session)}
