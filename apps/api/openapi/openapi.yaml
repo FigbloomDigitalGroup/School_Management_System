@@ -5935,7 +5935,8 @@ paths:
       description: "Holders of resource.academics.read (school admin, Academics area or delegation) see every class. A user
         without it who teaches (an active teaching assignment, or class teacher of an active class) sees only those
         classes (OD-2: read only, never a write). Anyone else gets 403. Newest first. Paged (FIG-1621): `limit` 1-200
-        (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+        (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused). Archived exams are excluded;
+        active rows include `marks_entered`."
       operationId: listAssessments
       security:
         - bearerAuth: []
@@ -5992,6 +5993,88 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/assessments/{assessmentId}:
+    patch:
+      tags: [academics]
+      summary: Rename an exam
+      description: "Only assessments with kind `exam` can be renamed. The row's status, marks, and report-card snapshots are unchanged."
+      operationId: renameExam
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: assessmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchAssessmentRequest"
+      responses:
+        "200":
+          description: Renamed exam
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assessment]
+                additionalProperties: false
+                properties:
+                  assessment: { $ref: "#/components/schemas/Assessment" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/assessments/{assessmentId}/archive:
+    post:
+      tags: [academics]
+      summary: Archive an exam
+      description: "Retains marks and report-card snapshots, removes the exam from active assessment lists and family results, and blocks further mark changes."
+      operationId: archiveExam
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: assessmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived exam
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assessment]
+                additionalProperties: false
+                properties:
+                  assessment: { $ref: "#/components/schemas/Assessment" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
   /v1/tenants/{tenantId}/assessments/{assessmentId}/publish:
     post:
       tags:
@@ -25595,6 +25678,8 @@ components:
         - max_score
         - status
         - published_at
+        - archived_at
+        - marks_entered
         - version
         - created_at
         - updated_at
@@ -25637,6 +25722,14 @@ components:
             - string
             - "null"
           format: date-time
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        marks_entered:
+          type: integer
+          minimum: 0
         version:
           type: integer
         created_at:
@@ -27757,6 +27850,15 @@ components:
         - title
         - kind
         - max_score
+      additionalProperties: false
+    PatchAssessmentRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
       additionalProperties: false
     PostAssessmentsMarksRequest:
       type: object
