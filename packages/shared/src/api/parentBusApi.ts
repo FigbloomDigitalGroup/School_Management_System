@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import { familyTenantId } from "./parentApi";
+import { API_PAGE_LIMIT, listAllPages } from "./paging";
 
 /**
  * Where each of a parent's children's buses is, from `GET .../me/transport` (the API side of the parent Bus page).
@@ -23,6 +24,17 @@ export interface FamilyRide {
   driverFirstName: string | null;
   trip: { id: string; direction: string; startedAt: string; status: RideStatus; statusAt: string | null } | null;
   location: { status: "live" | "stale" | "unavailable"; lat: number | null; lng: number | null; recordedAt: string | null; ageSeconds: number | null } | null;
+}
+
+export interface FamilyTransportNotification {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  learnerId: string | null;
+  deliveryStatus: string;
+  inAppReadAt: string | null;
+  createdAt: string;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -62,6 +74,49 @@ export function ridesFromTransport(body: unknown): FamilyRide[] {
 export async function apiFetchFamilyRides(): Promise<FamilyRide[]> {
   const tenantId = familyTenantId();
   return ridesFromTransport(await apiClient().get("/v1/tenants/{tenantId}/me/transport", { path: { tenantId }, tenantId }));
+}
+
+/** Reads the signed-in guardian's transport notifications, following the API cursor to the end. */
+export async function apiFetchTransportNotifications(): Promise<FamilyTransportNotification[]> {
+  const tenantId = familyTenantId();
+  const rows = await listAllPages<unknown>(async (cursor) => {
+    const body = await apiClient().get("/v1/tenants/{tenantId}/me/transport/notifications", {
+      path: { tenantId }, query: { limit: API_PAGE_LIMIT, cursor }, tenantId,
+    });
+    const value = isRecord(body) ? body : {};
+    const page: Record<string, unknown> = isRecord(value.page) ? value.page : {};
+    return {
+      items: Array.isArray(value.notifications) ? value.notifications : [],
+      page: { limit: typeof page.limit === "number" ? page.limit : API_PAGE_LIMIT, next_cursor: str(page.next_cursor) },
+    };
+  });
+  return transportNotificationsFromApi(rows);
+}
+
+/** Parses the API's intentionally open notification response without trusting optional fields. */
+export function transportNotificationsFromApi(value: unknown): FamilyTransportNotification[] {
+  const rows = Array.isArray(value) ? value : [];
+  return rows.flatMap((row) => {
+    if (!isRecord(row) || !str(row.id)) return [];
+    return [{
+      id: str(row.id)!,
+      kind: str(row.kind) ?? "transport_update",
+      title: str(row.title) ?? "Bus update",
+      body: str(row.body) ?? "",
+      learnerId: str(row.learner_id),
+      deliveryStatus: str(row.delivery_status) ?? "unknown",
+      inAppReadAt: str(row.in_app_read_at),
+      createdAt: str(row.created_at) ?? "",
+    }];
+  });
+}
+
+/** A guardian can mark only their own notification read; the API enforces ownership. */
+export async function apiMarkTransportNotificationRead(notificationId: string): Promise<void> {
+  const tenantId = familyTenantId();
+  await apiClient().post("/v1/tenants/{tenantId}/me/transport/notifications/{notificationId}/read", {
+    path: { tenantId, notificationId }, tenantId,
+  });
 }
 
 /** "Boarded at 7:42", "Waiting to be picked up": what the trip says about this child, in words. */

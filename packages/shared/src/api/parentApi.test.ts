@@ -18,7 +18,7 @@ import {
   apiFetchChildMaterials, apiFetchChildReportCards, apiFetchChildren, groupExams, levelOfChildClass, receiptsFromInvoices, subjectFromMark,
 } from "./parentApi";
 import { apiAnswerMedicationConsent, dayAndTime } from "./parentHealthApi";
-import { apiFetchFamilyRides, ridesFromTransport, rideStatusText } from "./parentBusApi";
+import { apiFetchFamilyRides, apiFetchTransportNotifications, apiMarkTransportNotificationRead, ridesFromTransport, rideStatusText } from "./parentBusApi";
 import { createMemoryTokenStore } from "./tokenStore";
 
 const T = "11111111-1111-4111-8111-111111111111";
@@ -430,6 +430,32 @@ describe("buses on the API", () => {
     expect(rideStatusText(rides[0]!)).toMatch(/^On the bus \(got on at/);
     expect(rideStatusText(rides[1]!)).toBe("The bus is not on a trip right now.");
   });
+
+  it("reads the guardian's notifications across pages and marks only the chosen notification read", async () => {
+    const notificationId = "f3333333-3333-4333-8333-333333333333";
+    let page = 0;
+    boot({
+      [`GET ${P}/me/transport/notifications`]: () => {
+        page += 1;
+        return ok({
+          notifications: page === 1
+            ? [{ id: notificationId, kind: "trip_started", title: "Bus left school", body: "Amina's bus is on the road.", learner_id: K1, delivery_status: "in_app_only", in_app_read_at: null, created_at: "2026-11-25T08:00:00Z" }]
+            : [{ id: "f4444444-4444-4444-8444-444444444444", title: "Second update", body: "", learner_id: K2, delivery_status: "queued", in_app_read_at: "2026-11-25T08:01:00Z", created_at: "2026-11-25T08:01:00Z" }],
+          page: { limit: 200, next_cursor: page === 1 ? "next-page" : null },
+        });
+      },
+      [`POST ${P}/me/transport/notifications/${notificationId}/read`]: ok({ notification: { id: notificationId, in_app_read_at: "2026-11-25T08:05:00Z" } }),
+    });
+
+    const notifications = await apiFetchTransportNotifications();
+    expect(notifications).toHaveLength(2);
+    expect(notifications[0]).toMatchObject({ id: notificationId, title: "Bus left school", learnerId: K1, deliveryStatus: "in_app_only", inAppReadAt: null });
+    expect(api.callsTo(`GET ${P}/me/transport/notifications`)).toHaveLength(2);
+    expect(api.callsTo(`GET ${P}/me/transport/notifications`)[1]!.query.get("cursor")).toBe("next-page");
+
+    await apiMarkTransportNotificationRead(notificationId);
+    expect(api.callsTo(`POST ${P}/me/transport/notifications/${notificationId}/read`)).toHaveLength(1);
+  });
 });
 
 describe("paying by M-Pesa from a parent's account", () => {
@@ -500,7 +526,7 @@ describe("what a parent can do on each backend", () => {
     const on = parentCapabilities();
     expect(on).toMatchObject({ inbox: true, homeworkDone: false, paymentProofSubmit: false, signatures: false, calls: false, childProfile: false, childLogins: false, examPapers: false, reportCardPdf: false, familyReportCards: true, medicationConsent: true });
     // Every flag the API turns on is supported on the API build.
-    expect(Object.entries(on).filter(([, v]) => v).map(([k]) => k).sort()).toEqual(["familyReportCards", "inbox", "medicationConsent"]);
+    expect(Object.entries(on).filter(([, v]) => v).map(([k]) => k).sort()).toEqual(["busUpdates", "familyReportCards", "inbox", "medicationConsent", "progressOverTime"]);
   });
 
   it("refuses Supabase-only learner login and password-reset queries on the API build", async () => {

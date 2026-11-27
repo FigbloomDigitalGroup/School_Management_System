@@ -509,7 +509,7 @@ export interface ParentCapabilities {
   calls: boolean;
   /** The child's bio data, health details and home address on Home (the family read has none of them, and no way to change them). */
   childProfile: boolean;
-  /** "Progress over time" under Results (no history read for a family). */
+  /** Published results over time from the family-scoped results read (up to 500 rows across terms). */
   progressOverTime: boolean;
   /** Online exam papers and tests under Results (not in the family read). */
   examPapers: boolean;
@@ -527,7 +527,7 @@ export interface ParentCapabilities {
   sickBayNotices: boolean;
   /** API only: the health details on file and the medicines waiting for a guardian's consent. */
   medicationConsent: boolean;
-  /** Today's bus updates and the notify button (the API has transport notifications, not ported here). */
+  /** The guardian's own transport notifications and mark-read action. */
   busUpdates: boolean;
   /** Send a payment proof (a slip or the pasted message): the proof's file needs object storage that is not set up (A5). */
   paymentProofSubmit: boolean;
@@ -546,8 +546,8 @@ const PARENT_ON_SUPABASE: ParentCapabilities = {
 
 const PARENT_ON_API: ParentCapabilities = {
   inbox: true, homeworkDone: false, homeworkFiles: false, materialFiles: false, liveClasses: false, signatures: false, calls: false, childProfile: false,
-  progressOverTime: false, examPapers: false, examAbsences: false, reportCardPdf: false, familyReportCards: true, activityEvents: false,
-  medicationRequests: false, sickBayNotices: false, medicationConsent: true, busUpdates: false, paymentProofSubmit: false, schoolPaymentDetails: false,
+  progressOverTime: true, examPapers: false, examAbsences: false, reportCardPdf: false, familyReportCards: true, activityEvents: false,
+  medicationRequests: false, sickBayNotices: false, medicationConsent: true, busUpdates: true, paymentProofSubmit: false, schoolPaymentDetails: false,
   childLogins: false,
 };
 
@@ -1061,7 +1061,7 @@ export interface StudentCapabilities {
   liveClasses: boolean;
   /** A higher-education learner's timetable and course results (no read of a learner's own sections or grades on the API: student-web-4). */
   higherEdPages: boolean;
-  /** "Progress over time" under Results (no history read for a learner). */
+  /** Published results over time from the learner's own family-scoped results read (up to 500 rows across terms). */
   progressOverTime: boolean;
   /** Missed or excused papers under an exam (not in the learner's read). */
   examAbsences: boolean;
@@ -1087,7 +1087,7 @@ const STUDENT_ON_SUPABASE: StudentCapabilities = {
 
 const STUDENT_ON_API: StudentCapabilities = {
   homeworkDone: false, homeworkFiles: false, homeworkDetails: false, materialFiles: false, liveClasses: false, higherEdPages: false,
-  progressOverTime: false, examAbsences: false, reportCardPdf: false, familyReportCards: true,
+  progressOverTime: true, examAbsences: false, reportCardPdf: false, familyReportCards: true,
   signatures: false, paymentProofSubmit: false, examScores: false, studyHelperChecks: false,
 };
 

@@ -47,7 +47,8 @@ The code is `packages/shared/src/api/schoolLookupApi.ts` (`apiLookupSchool`, `ap
 - **Learning materials:** by subject, the title, the date and the teacher's note. The files are not opened (see below), and the page says so once.
 - **Results:** the exams the learner has published marks for, newest first with a switcher: each mark with the school's own grade, "40 / 50" for a paper
   not marked out of 100, the class mean (the server gives one only when 3 or more learners have a mark), the mean grade and points; CBE strand
-  results; the published **report cards** as a summary (term, class, average, grade, strand levels and competency ratings).
+  results; the published **report cards** as a summary (term, class, average, grade, strand levels and competency ratings); progress over time from
+  the learner's own family-scoped results read across terms (up to 500 marks and 500 CBE rows), ordered by publication date.
 - **Sports & activities:** the clubs and teams the learner is in, with their role and patrons.
 - **Notices:** the notices that reach the learner (the whole school, their role, their class, their year group or them by name), newest first.
   A notice of the learner's class is "Class teacher", every other one "School office" (the inbox carries no author name).

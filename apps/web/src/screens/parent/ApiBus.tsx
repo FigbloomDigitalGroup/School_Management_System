@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { apiFetchFamilyRides, rideStatusText, userMessage, type BusOnRoute, type FamilyRide } from "@figbloom/shared";
+import { apiFetchFamilyRides, apiFetchTransportNotifications, apiMarkTransportNotificationRead, parentCapabilities, rideStatusText, userMessage, type BusOnRoute, type FamilyRide, type FamilyTransportNotification } from "@figbloom/shared";
 import { PageHead } from "../../components/ConsoleShell";
 import { LiveDot, LiveRouteMap, ROUTE_COLORS, fmtAgo, useNow } from "../../components/fleet/LiveRouteMap";
 import { EmptyState } from "../../components/ui/DataTable";
@@ -93,8 +93,107 @@ export function ApiParentBus() {
             </section>
           </>
         )}
+        {parentCapabilities().busUpdates && <TransportNotifications rides={rides} />}
       </div>
     </>
+  );
+}
+
+function notificationDate(value: string): string {
+  if (!value) return "Time unavailable";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Time unavailable" : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function TransportNotifications({ rides }: { rides: FamilyRide[] | null }) {
+  const [notifications, setNotifications] = useState<FamilyTransportNotification[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [marking, setMarking] = useState<string | null>(null);
+  const [markError, setMarkError] = useState<string | null>(null);
+  const alive = useRef(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const next = await apiFetchTransportNotifications();
+      if (!alive.current) return;
+      setNotifications(next);
+      setError(null);
+    } catch (err) {
+      if (alive.current) setError(userMessage(err));
+    } finally {
+      if (alive.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    alive.current = true;
+    void load();
+    return () => { alive.current = false; };
+  }, [load]);
+
+  const markRead = async (notification: FamilyTransportNotification) => {
+    setMarking(notification.id);
+    setMarkError(null);
+    try {
+      await apiMarkTransportNotificationRead(notification.id);
+      if (alive.current) {
+        const readAt = new Date().toISOString();
+        setNotifications((current) => current?.map((row) => row.id === notification.id ? { ...row, inAppReadAt: readAt } : row) ?? null);
+      }
+    } catch (err) {
+      if (alive.current) setMarkError(userMessage(err));
+    } finally {
+      if (alive.current) setMarking(null);
+    }
+  };
+
+  const learnerNames = useMemo(() => new Map((rides ?? []).map((ride) => [ride.learnerId, firstName(ride.learnerName)])), [rides]);
+
+  return (
+    <section className="mt-6 rounded-xl border border-line bg-white p-4" aria-label="Bus updates">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-[14px] font-semibold">Bus updates</h2>
+          <p className="text-[11.5px] text-ink-muted">Messages sent about your children’s transport.</p>
+        </div>
+        <button type="button" onClick={() => void load()} disabled={loading} className="rounded-md border border-line px-2.5 py-1.5 text-[11.5px] font-medium disabled:opacity-50">
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+      {error && <p role="status" className="mb-3 text-[12px] text-warn-ink">Could not load bus updates: {error}{notifications ? ". Showing the last loaded updates." : ""}</p>}
+      {markError && <p role="status" className="mb-3 text-[12px] text-warn-ink">Could not mark that update read: {markError}</p>}
+      {loading && !notifications ? (
+        <Skeleton className="h-20 rounded-lg" />
+      ) : notifications?.length === 0 ? (
+        <p className="rounded-lg bg-sunken px-3 py-4 text-center text-[12px] text-ink-muted">No bus updates yet.</p>
+      ) : (
+        <div className="divide-y divide-line-soft">
+          {notifications?.map((notification) => (
+            <article key={notification.id} className={`py-3 first:pt-0 last:pb-0 ${notification.inAppReadAt ? "" : "font-medium"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-[12.5px]">{notification.title}</h3>
+                  {notification.body && <p className="mt-0.5 whitespace-pre-wrap text-[12px] font-normal text-ink-muted">{notification.body}</p>}
+                  <p className="mt-1 text-[10.5px] font-normal text-ink-faint">
+                    {notification.learnerId && learnerNames.get(notification.learnerId) ? `${learnerNames.get(notification.learnerId)} · ` : ""}
+                    {notificationDate(notification.createdAt)} · Delivery: {notification.deliveryStatus.replaceAll("_", " ")}
+                  </p>
+                </div>
+                {notification.inAppReadAt ? (
+                  <span className="shrink-0 text-[10.5px] font-normal text-ink-faint">Read</span>
+                ) : (
+                  <button type="button" onClick={() => void markRead(notification)} disabled={marking === notification.id} className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-accent disabled:opacity-50">
+                    {marking === notification.id ? "Saving…" : "Mark read"}
+                  </button>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

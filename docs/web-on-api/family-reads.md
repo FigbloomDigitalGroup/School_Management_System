@@ -3,14 +3,15 @@
 Part of [the web app on the new API](../WEB_ON_THE_NEW_API.md), which explains why each area has its own file.
 
 
-The API now has the reads the parent pages need (PR #359; design and rules in `apps/api/docs/FAMILY-READS.md`). The parent
-pages that use them are described in [parent-pages.md](parent-pages.md); the student pages wait on student accounts (finding 14).
+The API has the reads the parent pages need (PR #359; design and rules in `apps/api/docs/FAMILY-READS.md`). The parent
+pages that use them are described in [parent-pages.md](parent-pages.md); signed-in learners use the same child-scoped results read for their own learner id.
 
 - `GET /v1/tenants/{t}/me/children`: the parent's own children in that school, with each child's current class.
 - Per child, `GET /v1/tenants/{t}/me/children/{learnerId}/…`: `attendance`, `results`, `report-cards`, `homework`,
   `materials`, `timetable`, `fees`, `activities`, `items`, `health`. Any learner who is not the caller's child is a 404.
 - `GET /v1/tenants/{t}/me/chat-contacts`: who a parent may start a chat with.
-- Bus: the existing `/me/transport`.
+- Bus: `/me/transport`; guardian notifications from `GET /me/transport/notifications`, with `POST .../{notificationId}/read` to acknowledge one.
+- Progress over time: the Results charts use `GET /me/children/{learnerId}/results` without a term filter, so every term in the response is included (up to 500 marks and 500 CBE rows). The family response has no term start date; exams are ordered by publication date.
 - Paying (M-Pesa prompt, invoice PDF, payment proof, AI-helper opt-in) now works for a parent whose account link reaches
   the learner. Class and form-level notices now reach the parents of children in them, and a parent may chat with their
   child's teachers.

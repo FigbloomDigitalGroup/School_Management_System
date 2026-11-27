@@ -23,13 +23,15 @@ activities, items, report cards, early sign-outs), `parentHealthApi.ts`, `parent
   status and reason. **Pay with M-Pesa** asks `POST /finance/mpesa/prompts` (allowed for a linked parent) and reads the payment back from
   the child's own fees until the provider says it settled; if M-Pesa is not set up for the school the dialog says so.
 - **Results:** published exams by title and term, each mark with the school's own grade, the class mean (the server gives one only for
-  3 or more marks) and "40 / 50" for a paper not marked out of 100; CBE strand results; the **published report cards** as a summary.
+  3 or more marks) and "40 / 50" for a paper not marked out of 100; CBE strand results; the **published report cards** as a summary;
+  progress over time from all terms in the family results read (up to 500 marks and 500 CBE rows), ordered by publication date.
 - **Homework, learning materials, sports & activities, issued items:** what the API lists for the child (homework due in the last
   three weeks or later; materials by subject; clubs with role and patrons; items out and returned).
 - **Health:** sick-bay visits, the medicines the school runs and their doses, the health details on file, and the medicines waiting
   for a guardian's consent: **I agree**, **No, do not give it** and **Withdraw my OK** use the existing consent endpoint.
 - **Bus:** each child's route, own stop, bus plate, driver's first name, what the running trip says about them, and the bus's position
-  while the trip runs. Read again every 15 seconds while the page is open (a plain timer: the API has no live feed).
+  while the trip runs. Read again every 15 seconds while the page is open (a plain timer: the API has no live feed). The page also lists
+  the guardian's own transport notifications, follows their cursor pages, lets the guardian mark one read, and shows the API's delivery status.
 - **Inbox (`parent/inbox`) and "From the school" on Home:** published school and class announcements addressed to the parent from
   `GET /v1/tenants/{tenantId}/communications/announcements/inbox`, reloaded on changes via polling (`subscribeAnnouncements`), with
   read acknowledgement sent via `POST .../read` when a message is opened.
@@ -55,11 +57,10 @@ activities, items, report cards, early sign-outs), `parentHealthApi.ts`, `parent
 | Open a material's file | files wait on A5: the title, subject, date and the teacher's note are shown, with a note saying so |
 | Report card PDF | the family read gives the child's own summary, not the subject rows; the PDF is made per class |
 | Online exam papers and tests; missed or excused papers | not in the family read |
-| Progress over time | no history read for a family |
 | Fixtures, trips and awards under activities | the family read has clubs and teams only |
 | Bio data, health details and home address (Home); live-class banner; call the school | not in the API (C13 for calls and online classes); a parent cannot change health details on the API yet |
 | Ask the nurse to give a medicine; notices from the sick bay | parents have no such write, and the sick bay never writes notices (finding 15) |
-| Today's bus updates and the notify button; arrival time on the map | the API sends no stop coordinates and no route line (finding `parent-2`); bus notifications are not ported here |
+| Request bus notifications with the notify button; arrival time on the map | there is no API opt-in endpoint, and the API sends no stop coordinates or route line (finding `parent-2`); existing notifications can be read above |
 | Inbox attachments, signature requests, and unread dots/badges | files wait on A5, signatures on C12, and `/communications/announcements/inbox` does not report per-recipient read state |
 | Chat file attachments, voice/video calls, unread badges, and chatting with learners | files wait on A5, calls on C13, unread counts are not reported, and learners have no accounts on the API yet |
 | Editing own name, phone or photo, and resetting a child's learner password (`parent/settings`) | `PATCH /v1/auth/me` and file storage (A5) do not exist yet, and learners have no sign-in accounts on the API yet (A4) |
