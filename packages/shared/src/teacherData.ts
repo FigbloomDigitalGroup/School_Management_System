@@ -8,10 +8,10 @@ import { apiFetchSchoolClassOptions, apiFetchSchoolSubjectOptions } from "./api/
 import { apiFetchNotices, apiFetchSentByMe, apiMarkNoticeRead, apiSendClassMessage } from "./api/noticesApi";
 import { onApi } from "./backend";
 import {
-  apiFetchExamsForTerm, apiFetchGradesAccess, apiFetchMarksForExamSubject, apiFetchPublishedSubjects, apiFetchTeacherSubjectsForClass,
+  apiCorrectPublishedMark, apiFetchExamsForTerm, apiFetchGradesAccess, apiFetchMarksForExamSubject, apiFetchPublishedSubjects, apiFetchTeacherSubjectsForClass,
   apiPublishMarks, apiSaveExamMarks, apiUnpublishMarks,
 } from "./api/gradesApi";
-import { FULL_GRADES_ACCESS, type GradesAccess } from "./capabilities";
+import { FULL_GRADES_ACCESS, NotOnApiError, type GradesAccess } from "./capabilities";
 import { fetchClassTimetableSlots } from "./timetable";
 import { formatWhen } from "./parentData";
 import type { NoticeInfo } from "./studentData";
@@ -270,6 +270,14 @@ export async function saveExamMarks(rows: MarkRow[], classId?: string): Promise<
   if (!rows.length) return;
   const { error, status } = await supabase().from("marks").upsert(rows, { onConflict: "exam_id,student_id,subject_id" });
   if (error) throw writeErrorFrom(error, status);
+}
+
+/** Records a reasoned, append-only correction to one published API mark. Supabase continues to use its existing inline edit path. */
+export async function correctPublishedMark(input: {
+  examId: string; classId: string; subjectId: string; learnerId: string; score: number; reason: string;
+}): Promise<void> {
+  if (onApi()) return apiCorrectPublishedMark(input);
+  throw new NotOnApiError("Recording a published mark correction");
 }
 
 /**

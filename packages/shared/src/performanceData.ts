@@ -1,8 +1,7 @@
 import {
-  apiFetchClassLearnerMeans, apiFetchClassLearnerNames, apiFetchClassOptions, apiFetchClassPerformance, apiFetchLearnerTrend,
+  apiFetchCbeBandReport, apiFetchCbeLevels, apiFetchClassLearnerMeans, apiFetchClassLearnerNames, apiFetchClassOptions, apiFetchClassPerformance, apiFetchLearnerTrend,
 } from "./api/performanceApi";
 import { onApi } from "./backend";
-import { gradesCapabilities } from "./capabilities";
 import { rubricFor, summariseStrands } from "./gradingSchemes";
 import { yearSortKey } from "./levels";
 import { fetchAllPages } from "./paging";
@@ -55,8 +54,7 @@ export async function fetchClassLearnerMeans(classId: string): Promise<LearnerMe
  * holds staff to the same line.
  */
 export async function fetchCbeLevels(scope: { studentId: string } | { classId: string } | { tenantId: string }): Promise<CbeLevelRow[]> {
-  // The CBE charts are not on the new system yet (gradesCapabilities().cbeReports): none, and the charts leave themselves out.
-  if (onApi() && !gradesCapabilities().cbeReports) return [];
+  if (onApi()) return apiFetchCbeLevels(scope);
   const rows = await fetchAllPages<{ level_code: string; cbe_assessments: { assessed_on: string } | null }>((from, to) => {
     let q = supabase()
       .from("cbe_results")
@@ -118,7 +116,7 @@ export type CbeBand = (typeof CBE_BANDS)[number];
 export interface CbeBandRow {
   key: string;
   className: string;
-  subjectName: string;
+  learningAreaName: string;
   assessmentTitle: string;
   counts: Record<CbeBand, number>;
   learners: number;
@@ -140,7 +138,7 @@ interface CbeReportRow {
  * Throws the database's message.
  */
 export async function fetchCbeBandReport(tenantId: string, termId: string, country: string): Promise<CbeBandRow[]> {
-  if (onApi() && !gradesCapabilities().cbeReports) return [];
+  if (onApi()) return apiFetchCbeBandReport(tenantId, termId, country);
   const { data, error } = await supabase().from("cbe_results")
     .select("student_id, level_code, cbe_assessments!inner(id, title, assessed_on, published_at, term_id, class_id, subject_id, subjects(name), classes(name, level, form_level))")
     .eq("tenant_id", tenantId)
@@ -175,9 +173,9 @@ export async function fetchCbeBandReport(tenantId: string, termId: string, count
       if (overall) counts[overall.code.slice(0, 2) as CbeBand] += 1;
     }
     rows.push({
-      key, className: g.a.classes?.name ?? "Class", subjectName: g.a.subjects?.name ?? "Learning area", assessmentTitle: g.a.title,
+      key, className: g.a.classes?.name ?? "Class", learningAreaName: g.a.subjects?.name ?? "Learning area", assessmentTitle: g.a.title,
       counts, learners: g.codes.size, sort: yearSortKey(level, g.a.classes?.form_level ?? 0),
     });
   }
-  return rows.sort((a, b) => a.sort - b.sort || a.className.localeCompare(b.className) || a.subjectName.localeCompare(b.subjectName));
+  return rows.sort((a, b) => a.sort - b.sort || a.className.localeCompare(b.className) || a.learningAreaName.localeCompare(b.learningAreaName));
 }

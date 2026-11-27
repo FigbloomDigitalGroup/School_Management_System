@@ -444,8 +444,10 @@ export interface GradesCapabilities {
   examMarkCounts: boolean;
   /** Take published marks back to draft (on the API a publication is final). */
   withdrawResults: boolean;
-  /** Change a mark after it was published (the API takes a recorded correction with a reason instead). */
+  /** Change a mark after it was published: inline on Supabase; as a recorded correction on the API. */
   editPublishedMarks: boolean;
+  /** API only: replace a published mark through the append-only correction endpoint, with a reason and Academics write access. */
+  recordPublishedMarkCorrections: boolean;
   /** The CBE strand gradebook (a subject has no learning area on the API, so its strands cannot be found). */
   cbeGradebook: boolean;
   /** The higher-education gradebook (a section's assessments and marks; the API has one final grade per enrolment). */
@@ -460,12 +462,14 @@ export interface GradesCapabilities {
 
 const GRADES_ON_SUPABASE: GradesCapabilities = {
   renameExam: true, deleteExam: true, examMarkCounts: true, withdrawResults: true, editPublishedMarks: true,
+  recordPublishedMarkCorrections: false,
   cbeGradebook: true, gpaGradebook: true, cbeReports: true, examPapers: false, fractionalMarks: false,
 };
 
 const GRADES_ON_API: GradesCapabilities = {
-  renameExam: false, deleteExam: false, examMarkCounts: false, withdrawResults: false, editPublishedMarks: false,
-  cbeGradebook: false, gpaGradebook: false, cbeReports: false, examPapers: true, fractionalMarks: true,
+  renameExam: false, deleteExam: false, examMarkCounts: false, withdrawResults: false, editPublishedMarks: true,
+  recordPublishedMarkCorrections: true,
+  cbeGradebook: false, gpaGradebook: false, cbeReports: true, examPapers: true, fractionalMarks: true,
 };
 
 export function gradesCapabilities(): GradesCapabilities {

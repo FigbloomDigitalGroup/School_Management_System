@@ -15,7 +15,7 @@ export function CbeReport({ tenantId, termId, country }: { tenantId: string; ter
         columns={[
           { key: "class", header: "Class", render: (r: CbeBandRow) => <span className="text-[13px] font-medium">{r.className}</span> },
           { key: "area", header: "Learning area", width: "1.4fr", render: (r: CbeBandRow) => (
-            <div className="min-w-0"><div className="truncate text-[13px]">{r.subjectName}</div><div className="truncate text-[11px] text-ink-faint">{r.assessmentTitle}</div></div>
+            <div className="min-w-0"><div className="truncate text-[13px]">{r.learningAreaName}</div><div className="truncate text-[11px] text-ink-faint">{r.assessmentTitle}</div></div>
           ) },
           { key: "spread", header: "Learners by overall level", width: "2fr", render: (r: CbeBandRow) => (
             <div>
