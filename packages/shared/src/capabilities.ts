@@ -93,9 +93,6 @@ export interface PeopleCapabilities {
   guardianColumn: boolean;
   /** Each learner's current-term fee status (Finance and Academics reads are required on the API). */
   learnerFees: boolean;
-  /** The bulk "Change class" and "Export" buttons (toast-only stubs on Supabase; not offered on the API until they work). */
-  bulkChangeClass: boolean;
-  bulkExport: boolean;
   /** Home address and bus route, health details, bio data and its approval requests, documents, early sign-outs, activities. */
   learnerHome: boolean;
   learnerHealth: boolean;
@@ -130,14 +127,14 @@ export interface PeopleCapabilities {
 }
 
 const PEOPLE_ON_SUPABASE: PeopleCapabilities = {
-  deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, guardianColumn: true, learnerFees: true, bulkChangeClass: true, bulkExport: true,
+  deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, guardianColumn: true, learnerFees: true,
   learnerHome: true, learnerHealth: true, bioData: true, learnerDocuments: true, learnerEarlySignOuts: true, learnerActivities: true, learnerBehaviour: true,
   photos: true, passwordResets: true, staffAccounts: true, staffSubjects: true, staffCalls: true, staffArchive: false, guardianContactForm: false,
   importByAreaHolders: true, learnerWithoutClass: false, unassignClass: true,
 };
 
 const PEOPLE_ON_API: PeopleCapabilities = {
-  deleteLearner: false, learnerLogins: true, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: true, bulkChangeClass: false, bulkExport: false,
+  deleteLearner: false, learnerLogins: true, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, guardianColumn: false, learnerFees: true,
   learnerHome: false, learnerHealth: false, bioData: false, learnerDocuments: false, learnerEarlySignOuts: true, learnerActivities: true, learnerBehaviour: true,
   photos: false, passwordResets: false, staffAccounts: false, staffSubjects: false, staffCalls: false, staffArchive: true, guardianContactForm: true,
   importByAreaHolders: false, learnerWithoutClass: true, unassignClass: true,
@@ -269,8 +266,6 @@ export function reportCardsCapabilities(): ReportCardsCapabilities {
 
 /** The timetable screens: teacher/timetable, and the Timetable window of a class on admin/classes. */
 export interface TimetableCapabilities {
-  /** The week-grid editor that saves a class's whole timetable at once (the API can only add a period). */
-  classTimetableEditor: boolean;
   /** API only: a class's periods listed, with an "Add a period" form. */
   classPeriods: boolean;
   /** The "Live classes" panel on a teacher's timetable (calls are not in the API). */
@@ -279,8 +274,8 @@ export interface TimetableCapabilities {
   coverageFlags: boolean;
 }
 
-const TIMETABLE_ON_SUPABASE: TimetableCapabilities = { classTimetableEditor: true, classPeriods: false, liveClasses: true, coverageFlags: true };
-const TIMETABLE_ON_API: TimetableCapabilities = { classTimetableEditor: false, classPeriods: true, liveClasses: false, coverageFlags: false };
+const TIMETABLE_ON_SUPABASE: TimetableCapabilities = { classPeriods: false, liveClasses: true, coverageFlags: true };
+const TIMETABLE_ON_API: TimetableCapabilities = { classPeriods: true, liveClasses: false, coverageFlags: false };
 
 export function timetableCapabilities(): TimetableCapabilities {
   return onApi() ? TIMETABLE_ON_API : TIMETABLE_ON_SUPABASE;

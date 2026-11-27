@@ -447,13 +447,10 @@ Corrected in the slice that handles the flag (W0.7 for the rest).
 - `Setup.classTimetable`: misleading. Listing and adding periods are live (`Timetable.classPeriods`); only edit is missing.
 - `Leave.hrLeave`: "Leave to approve" is live (#435). The flag now guards only staff applying through HR (L3, L4).
 - `ExamPapers.draftWorkflow`: out of date. Since migration 110 a new paper is unpublished and `POST .../publish` exists.
-- `Parent.progressOverTime`, `Student.progressOverTime`: "no history read" is wrong; the results read spans all terms.
-- `Parent.busUpdates`: "not ported" is wrong; the endpoints exist.
 - `Parent.childLogins`: cites A4, which is done. The real reason is the owner's decision that the office resets logins.
 - `Medical.guardianNoticesEmitted`: cites deferred account linking; guardian links exist now.
 - `Fleet.breakdownTellsFamilies`: `escalate` has `notify_guardians` and the web never calls it.
-- `WEB-ON-API-ROADMAP.md` sections 1 and 8: "163 capability flags in 25 areas" should read 179 in 28.
 
-Read by no screen, so flipping them does nothing until a screen reads them: `Parent.sickBayNotices`, `Parent.busUpdates`,
+Read by no screen, so flipping them does nothing until a screen reads them: `Parent.sickBayNotices`,
 `Parent.schoolPaymentDetails`, `Fleet.speedAlerts`, `Platform.tenantFiguresAndBilling`, `tenantLifecycleActions`,
-`tenantIllustrativeCharts`, `liveProviderChecks`, and the three dead flags in W0.7.
+`tenantIllustrativeCharts`, `liveProviderChecks`.
