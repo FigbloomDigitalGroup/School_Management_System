@@ -42,8 +42,8 @@ const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day
 export function Attendance() {
   const online = useOnline();
   const toast = useToast();
-  const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
-  const access = adminAccessFor(profile.role, adminAreas, actingForTenant);
+  const { profile, tenant, adminAreas, actingForTenant, delegatedOrgConsole } = useTenantSession();
+  const access = adminAccessFor(profile.role, adminAreas, actingForTenant, delegatedOrgConsole);
 
   const { data: classListData, loading: classesLoading } = useAsync(() => fetchTeacherClasses(profile.id), [profile.id]);
   const { data: term, loading: termLoading } = useAsync(() => fetchCurrentTerm(), [tenant.id]);

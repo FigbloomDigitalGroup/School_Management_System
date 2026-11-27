@@ -146,6 +146,8 @@ describe("the HR & Payroll sidebar item", () => {
   it("only people who may have it are asked about it", () => {
     expect(mayOfferHr("school_admin", [])).toBe(true);
     expect(mayOfferHr("staff", ["fees"])).toBe(true);
+    expect(mayOfferHr("org_admin", ["fees"], true, true)).toBe(true);
+    expect(mayOfferHr("org_admin", ["transport"], true, true)).toBe(false);
     expect(mayOfferHr("teacher", ["people"])).toBe(false);
     expect(mayOfferHr("parent", [])).toBe(false);
   });

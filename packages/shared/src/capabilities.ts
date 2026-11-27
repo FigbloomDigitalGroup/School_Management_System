@@ -752,7 +752,7 @@ export interface OrgCapabilities {
   openForSignIn: boolean;
   /** A school's own administrators on its page (a school-level read an org admin does not hold). */
   schoolAdmins: boolean;
-  /** "Open school console": an org admin inside a school's console is not on the API web build yet. */
+  /** "Open school console": API entry requires delegated tenant.read and is limited to delegated admin areas. */
   openSchoolConsole: boolean;
   /** "Invite admin" (owner decision 1: who may add an org admin). */
   inviteOrgAdmin: boolean;
@@ -770,7 +770,7 @@ const ORG_ON_SUPABASE: OrgCapabilities = {
 };
 
 const ORG_ON_API: OrgCapabilities = {
-  schoolFigures: false, schoolKind: false, addSchool: false, openForSignIn: false, schoolAdmins: false, openSchoolConsole: false,
+  schoolFigures: false, schoolKind: false, addSchool: false, openForSignIn: false, schoolAdmins: false, openSchoolConsole: true,
   inviteOrgAdmin: false, createOrganization: false, pageViewLog: false, schoolAccess: true,
 };
 

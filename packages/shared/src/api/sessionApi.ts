@@ -204,19 +204,57 @@ export interface ApiSchoolSession {
   tenant: Tenant | null;
   actingForTenant: boolean;
   actingOrganization: { id: string; name: string; slug: string } | null;
+  /** An organization administrator in this school has only the explicitly delegated area permissions. */
+  delegatedOrgConsole: boolean;
+  /** The current server-reported delegation set, retained to scope client-side cached school data. */
+  delegatedPermissions: string[];
   adminAreas: AdminArea[];
   schoolSuspended: boolean;
 }
 
-const noSchool = (): Omit<ApiSchoolSession, "profile"> => ({ tenant: null, actingForTenant: false, actingOrganization: null, adminAreas: [], schoolSuspended: false });
+const noSchool = (): Omit<ApiSchoolSession, "profile"> => ({ tenant: null, actingForTenant: false, actingOrganization: null, delegatedOrgConsole: false, delegatedPermissions: [], adminAreas: [], schoolSuspended: false });
+
+type OrgSchoolRow = components["schemas"]["OrgSchoolList"]["items"][number];
+type OrgRecord = components["schemas"]["MyOrganizationList"]["items"][number];
+
+/** Finds a school through the caller's own active organizations, never by trusting the URL slug alone. */
+async function findOrgSchool(slug: string): Promise<OrgSchoolRow | null> {
+  const rows = await listAllPages(async (cursor) => {
+    const res = await apiClient().get("/v1/org/schools", { query: { limit: API_PAGE_LIMIT, cursor }, tenantId: null });
+    return { items: res.items, page: res.page };
+  });
+  return rows.find((row) => row.slug === slug) ?? null;
+}
+
+async function findMyOrganization(organizationId: string): Promise<OrgRecord | null> {
+  const rows = await listAllPages(async (cursor) => {
+    const res = await apiClient().get("/v1/org/organizations", { query: { limit: API_PAGE_LIMIT, cursor }, tenantId: null });
+    return { items: res.items, page: res.page };
+  });
+  return rows.find((row) => row.id === organizationId) ?? null;
+}
+
+async function organizationForSchool(row: OrgSchoolRow): Promise<{ id: string; name: string; slug: string } | null> {
+  if (row.organizationName && row.organizationSlug) {
+    return { id: row.organizationId, name: row.organizationName, slug: row.organizationSlug };
+  }
+  const organization = await findMyOrganization(row.organizationId);
+  return organization ? { id: organization.id, name: organization.name, slug: organization.slug } : null;
+}
+
+/** The permission metadata is authoritative for the UI, while each later API request enforces it again. */
+async function delegatedPermissionCodes(tenantId: string): Promise<string[]> {
+  const res = await apiClient().get("/v1/rbac/permissions", { query: { limit: 1 }, tenantId });
+  return [...new Set(res.delegatedPermissions ?? [])];
+}
 
 /**
  * What a school's console knows about the signed-in person there (the API side of session.ts `loadSchoolSession`).
  * Null when nobody is signed in. A session the server no longer honours is cleared by the client and answers null.
  *
- * Not on the API yet, and so not answered: an org_admin or super_admin inside a school (they reach it through their
- * organization or the platform, which have no list the client can match a slug against). They get a null school, which
- * the screens treat as "not your school".
+ * An org_admin can find a school among their own organizations, but only enter it when tenant.read is explicitly delegated.
+ * The returned admin areas are exactly their delegated area.* permissions; this UI state does not grant API authority.
+ * A super_admin still cannot use this path until the platform console has an explicit school-console entry point.
  */
 export async function apiLoadSchoolSession(slug: string | null): Promise<ApiSchoolSession | null> {
   const c = apiClient();
@@ -242,6 +280,33 @@ export async function apiLoadSchoolSession(slug: string | null): Promise<ApiScho
 
   const found = await findMemberSchool(me, slug);
   if (!found) {
+    if (outside === "org_admin") {
+      const orgSchool = await findOrgSchool(slug);
+      if (orgSchool) {
+        const codes = await delegatedPermissionCodes(orgSchool.id);
+        if (codes.includes("tenant.read")) {
+          const [record, orgRecord] = await Promise.all([
+            tenantRecord(orgSchool.id),
+            organizationForSchool(orgSchool),
+          ]);
+          if (typeof record?.id === "string" && record.slug === slug && record.organizationId === orgSchool.organizationId && orgRecord) {
+            setApiActiveTenant(record.id);
+            setApiActiveRole("org_admin");
+            const schoolProfileView = await schoolProfile(record.id);
+            return {
+              profile: profileFromApi(me, null, "org_admin"),
+              tenant: tenantFromApi(record, schoolProfileView),
+              actingForTenant: true,
+              actingOrganization: { id: orgRecord.id, name: orgRecord.name, slug: orgRecord.slug },
+              delegatedOrgConsole: true,
+              delegatedPermissions: codes,
+              adminAreas: adminAreasFromPermissions(codes),
+              schoolSuspended: false,
+            };
+          }
+        }
+      }
+    }
     setApiActiveTenant(null);
     setApiActiveRole(null);
     return { ...noSchool(), profile: outside ? profileFromApi(me, null, outside) : null };
@@ -267,6 +332,8 @@ export async function apiLoadSchoolSession(slug: string | null): Promise<ApiScho
     tenant: tenantFromApi(record, prof),
     actingForTenant: false,
     actingOrganization: null,
+    delegatedOrgConsole: false,
+    delegatedPermissions: [],
     adminAreas: adminAreasFromPermissions(codes),
     schoolSuspended: false,
   };
