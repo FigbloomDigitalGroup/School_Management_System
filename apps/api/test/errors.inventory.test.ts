@@ -40,6 +40,7 @@ const EXPECTED: Record<string, number> = {
   "modules/finance/mpesa.ts": 2,
   "modules/finance/mpesaProvider.ts": 6,
   "modules/finance/payheroProvider.ts": 4,
+  "modules/inventory/inventory.ts": 1, // database bigint outside JS safe range; the write path cannot create this condition
   "modules/identity/password.ts": 1,
   "worker/index.ts": 1,
 };

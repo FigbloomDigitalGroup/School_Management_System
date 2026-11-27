@@ -20452,6 +20452,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    /** @description Updates item details and stock configuration. Tracking type and quantity cannot be changed here; record stock changes through inventory movements. */
     inventoryUpdateItem: {
         parameters: {
             query?: never;

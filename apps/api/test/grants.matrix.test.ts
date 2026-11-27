@@ -594,6 +594,16 @@ describe("migration 009 grants and policies", () => {
     expect(excess).toEqual([]);
   });
 
+  it("inventory item stock configuration uses only column-level UPDATE grants (migration 126)", async () => {
+    const cols = await ctx.pool.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.column_privileges
+        WHERE grantee = 'figbloom_app' AND table_schema = 'public'
+          AND table_name = 'inventory_items' AND privilege_type = 'UPDATE'
+        ORDER BY column_name`,
+    );
+    expect(cols.rows.map((r) => r.column_name)).toEqual(["consumable", "reorder_level", "unit"]);
+  });
+
   it("users: no table-level privilege; password_hash is neither selectable nor updatable by the runtime role (migrations 011 and 013)", async () => {
     const cols = await ctx.pool.query<{ column_name: string; privilege_type: string }>(
       `SELECT column_name, privilege_type
