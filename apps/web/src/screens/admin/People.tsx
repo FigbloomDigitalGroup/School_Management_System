@@ -32,7 +32,7 @@ import { StudentEarlySignOuts } from "../../components/learners/EarlySignOuts";
 import { emptyHealth, isHealthEmpty, saveStudentHealth, setHealthConsent, type StudentHealthInput } from "@figbloom/shared";
 import { CallButton } from "../../components/calls/CallButton";
 import { AdminAccessEditor } from "../../components/AdminAccess";
-import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, maySeeSignOutList, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
+import { adminAccessFor, describeAreas, effectiveAreas, fetchSchoolAdminAreas, fetchSchoolRoles, mayHoldAdminAreas, mayReadLearnerActivities, maySeeLearnerSignOuts, rolesHeldBy, type AdminArea, type SchoolRole } from "@figbloom/shared";
 import { confirmDialog } from "../../components/ui/Confirm";
 import { LearnerPlacementError, apiAddStaff, apiArchiveStaff, apiCreateStudentAccount, apiFetchArchivedStaff, apiFetchStudentAccountStatuses, apiRestoreStaff, onApi, peopleCapabilities } from "@figbloom/shared";
 
@@ -59,8 +59,7 @@ export function People() {
   const myAccess = adminAccessFor(profile.role, adminAreas, actingForTenant);
   const fullAdmin = myAccess === "all";
   const apiBuild = onApi();
-  // What the backend can do: on the new API there are no fees, health, home or photo records yet, staff are directory records that
-  // are archived rather than removed, and only a full administrator may import (see capabilities.ts peopleCapabilities).
+  // API-backed People controls are gated by the shared capability flags and the viewer's area permissions.
   const caps = peopleCapabilities();
   const mayImport = caps.importByAreaHolders || fullAdmin;
   const [tab, setTab] = useState<"students" | "staff">("students");
@@ -397,7 +396,7 @@ export function People() {
                 if (loginId === undefined) return <Badge tone="muted">{loginStatusError ? "Unavailable" : "Loading…"}</Badge>;
                 return loginId ? <Mono>{loginId}</Mono> : <Badge tone="muted">No login</Badge>;
               } }] : []),
-              ...(caps.learnerFees || view === "archived" ? [{ key: "fees", header: view === "archived" ? "Archived" : "Fees", align: "right" as const, render: (s: StudentRow) => {
+              ...(view === "archived" || (caps.learnerFees && data.feesReadable) ? [{ key: "fees", header: view === "archived" ? "Archived" : "Fees", align: "right" as const, render: (s: StudentRow) => {
                 if (view === "archived") return <span className="text-[12.5px] text-ink-muted">{s.archived_at ? new Date(s.archived_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>;
                 const inv = data.feeByStudent.get(s.id);
                 if (!inv) return <Badge tone="muted">No invoice</Badge>;
@@ -566,17 +565,17 @@ export function People() {
           {manage.kind === "students" && caps.learnerDocuments && (
             <StudentDocuments tenantId={tenant.id} uploaderId={profile.id} studentId={manageRow.id} toast={toast} />
           )}
-          {manage.kind === "students" && caps.learnerEarlySignOuts && maySeeSignOutList(myAccess) && <StudentEarlySignOuts studentId={manageRow.id} />}
+          {manage.kind === "students" && caps.learnerEarlySignOuts && maySeeLearnerSignOuts(myAccess) && <StudentEarlySignOuts studentId={manageRow.id} />}
           {manage.kind === "students" && caps.learnerBehaviour && (fullAdmin || adminAreas.includes("discipline")) && (
             <section className="mt-5">
               <h3 className="mb-2 text-small font-semibold">Behaviour</h3>
               <LearnerBehaviour studentId={manageRow.id} tenantId={tenant.id} staff firstName={manageRow.full_name.split(" ")[0] ?? null} canVoid={() => true} />
             </section>
           )}
-          {manage.kind === "students" && caps.learnerActivities && (
+          {manage.kind === "students" && caps.learnerActivities && mayReadLearnerActivities(myAccess) && (
             <section className="mt-5">
               <h3 className="mb-2 text-small font-semibold">Sports & activities</h3>
-              <LearnerActivitiesView tenantId={tenant.id} studentId={manageRow.id} first={manageRow.full_name.split(" ")[0] ?? null} compact />
+              <LearnerActivitiesView tenantId={tenant.id} studentId={manageRow.id} first={manageRow.full_name.split(" ")[0] ?? null} compact forOffice />
             </section>
           )}
           {manage.kind === "staff" && caps.staffSubjects && (manageRow as StaffRow).role === "teacher" && data && (
@@ -1271,7 +1270,7 @@ function StudentProfileEditor({ student, classes, onSaved, toast }: {
   const [classId, setClassId] = useState(student.class_id ?? "");
   const [boarding, setBoarding] = useState(student.boarding);
   const [saving, setSaving] = useState(false);
-  // On the new API a class a learner leaves cannot be given back that year, so "Unassigned" is offered only to a learner with no class.
+  // Unassigning is offered only on backends that can safely archive the current membership.
   const mayUnassign = peopleCapabilities().unassignClass || !student.class_id;
 
   async function save() {

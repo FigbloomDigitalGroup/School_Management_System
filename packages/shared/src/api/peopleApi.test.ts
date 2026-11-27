@@ -33,6 +33,19 @@ const page = (next: string | null = null) => ({ limit: 200, next_cursor: next })
 const list = (key: string, items: unknown[], next: string | null = null): FakeReply => ({ body: { [key]: items, page: page(next) } });
 const refused = (code: string, status: number, message = "no", details?: unknown) => ({ status, body: { error: { code, message, ...(details ? { details } : {}) } } });
 const created = (key: string, body: unknown): FakeReply => ({ status: 201, body: { [key]: body } });
+const TERM = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const term = (o: Record<string, unknown> = {}) => ({ id: TERM, tenantId: T, academic_year_id: YEAR, index: 2, label: "Term 2, 2026", starts_on: "2026-05-01", ends_on: "2026-08-01", is_current: true, ...stamp, ...o });
+const invoice = (n: number, learnerId: string, total: number, paid: number, o: Record<string, unknown> = {}) => ({
+  id: `inv-${n}`, tenantId: T, learner_id: learnerId, term_id: TERM, currency: "KES", due_on: "2026-05-15", lines_minor: total, charges_minor: 0, adjustments_minor: 0,
+  total_minor: total, paid_minor: paid, balance_minor: total - paid, overpaid_minor: 0, unapplied_minor: 0, status: paid >= total ? "paid" : paid > 0 ? "part_paid" : "unpaid",
+  billing_run_id: null, created_at: "2026-05-01T08:00:00Z", voided_at: null, void_reason: null, ...o,
+});
+/** What `GET /v1/rbac/permissions` answers: the codes the person holds in this school. */
+const permissions = (...items: string[]): FakeReply => ({
+  body: { role: "teacher", tenantId: T, mayAdminister: false, isOrgAdminForTenant: false, isSuperAdmin: false, delegatedPermissions: [], actingVia: "membership", items, page: page() },
+});
+const OFFICE = ["resource.learner.read", "resource.learner.write"];
+const BURSAR = ["resource.finance.read", "resource.academics.read"];
 
 let api: FakeApi;
 
@@ -117,6 +130,8 @@ describe("the roster", () => {
     [`GET ${P}/class-memberships`]: list("memberships", [member(1, C1), member(2, C2), member(3, C27, YEAR2), member(9, C1)]),
     [`GET ${P}/staff`]: list("staff", [staffRec("s2", "Zed Driver", "driver"), staffRec("s1", "Abel Teacher", "teacher")]),
     [`GET ${P}/subjects`]: list("subjects", [subject("su2", "Maths", "MATH"), subject("su1", "English", "ENG")]),
+    // an office person with no Fees area: nothing about fees is read
+    ["GET /v1/rbac/permissions"]: permissions(...OFFICE),
     ...extra,
   });
 
@@ -168,6 +183,77 @@ describe("the roster", () => {
     boot(roster({ [`GET ${P}/academic-years`]: list("academic_years", []) }));
     await fetchPeopleRoster(T);
     expect(api.callsTo(`GET ${P}/classes`)[0]!.query.has("academicYearId")).toBe(false);
+  });
+});
+
+describe("the roster's fee status (the Fees column)", () => {
+  const withFees = (extra: Record<string, FakeRoute> = {}) => ({
+    [`GET ${P}/academic-years`]: list("academic_years", [year()]),
+    [`GET ${P}/classes`]: list("classes", [klass(C1, "Form 1 East", 1)]),
+    [`GET ${P}/learners`]: list("learners", [learner(1), learner(2), learner(3)]),
+    [`GET ${P}/class-memberships`]: list("memberships", []),
+    [`GET ${P}/staff`]: list("staff", []),
+    [`GET ${P}/subjects`]: list("subjects", []),
+    ["GET /v1/rbac/permissions"]: permissions(...OFFICE, ...BURSAR),
+    [`GET ${P}/academic-terms`]: list("terms", [term({ id: "old-term", is_current: false, index: 1 }), term()]),
+    [`GET ${P}/finance/invoices`]: list("invoices", [invoice(1, "l-1", 5_000_000, 5_000_000), invoice(2, "l-2", 5_000_000, 1_000_000)]),
+    ...extra,
+  });
+
+  it("gives each learner the term's total and paid, in cents, from the current term's invoices", async () => {
+    boot(withFees());
+    const r = await fetchPeopleRoster(T);
+    expect(r.feesReadable).toBe(true);
+    expect([...r.feeByStudent]).toEqual([["l-1", { total: 5_000_000, paid: 5_000_000 }], ["l-2", { total: 5_000_000, paid: 1_000_000 }]]);
+    expect(r.feeByStudent.has("l-3")).toBe(false);
+    expect(api.callsTo(`GET ${P}/finance/invoices`)[0]!.query.get("termId")).toBe(TERM);
+    expect(api.callsTo(`GET ${P}/finance/invoices`)[0]!.query.get("limit")).toBe("200");
+  });
+
+  it("leaves a voided invoice out, adds up a learner's several invoices, and follows the pages", async () => {
+    boot(withFees({
+      [`GET ${P}/finance/invoices`]: (c: FakeCall) => (c.query.get("cursor")
+        ? list("invoices", [invoice(3, "l-1", 1_000_000, 0), invoice(4, "l-3", 9_000_000, 0, { status: "voided", voided_at: "2026-05-02T00:00:00Z" })])
+        : list("invoices", [invoice(1, "l-1", 5_000_000, 5_000_000)], "p2")),
+    }));
+    const r = await fetchPeopleRoster(T);
+    expect([...r.feeByStudent]).toEqual([["l-1", { total: 6_000_000, paid: 5_000_000 }]]);
+  });
+
+  it("reads no invoices, and says the column should not show, for a person without the finance right", async () => {
+    boot(withFees({ ["GET /v1/rbac/permissions"]: permissions(...OFFICE, "resource.academics.read") }));
+    const r = await fetchPeopleRoster(T);
+    expect(r.feesReadable).toBe(false);
+    expect(r.feeByStudent.size).toBe(0);
+    expect(api.callsTo(`GET ${P}/finance/invoices`)).toHaveLength(0);
+  });
+
+  it("also hides it when the person may not read terms (the current term needs the Academics right)", async () => {
+    boot(withFees({ ["GET /v1/rbac/permissions"]: permissions(...OFFICE, "resource.finance.read") }));
+    const r = await fetchPeopleRoster(T);
+    expect(r.feesReadable).toBe(false);
+    expect(api.callsTo(`GET ${P}/finance/invoices`)).toHaveLength(0);
+    expect(api.callsTo(`GET ${P}/academic-terms`)).toHaveLength(0);
+  });
+
+  it("hides it when the permission list itself is refused", async () => {
+    boot(withFees({ ["GET /v1/rbac/permissions"]: refused("forbidden", 403, "Insufficient permissions") }));
+    const r = await fetchPeopleRoster(T);
+    expect(r.feesReadable).toBe(false);
+    expect(r.students).toHaveLength(3);
+  });
+
+  it("shows the column with no invoices when no term is current yet", async () => {
+    boot(withFees({ [`GET ${P}/academic-terms`]: list("terms", [term({ is_current: false })]) }));
+    const r = await fetchPeopleRoster(T);
+    expect(r.feesReadable).toBe(true);
+    expect(r.feeByStudent.size).toBe(0);
+    expect(api.callsTo(`GET ${P}/finance/invoices`)).toHaveLength(0);
+  });
+
+  it("fails the page, rather than showing everyone as 'No invoice', when the invoices cannot be read for another reason", async () => {
+    boot(withFees({ [`GET ${P}/finance/invoices`]: refused("internal_error", 500, "boom") }));
+    await expect(fetchPeopleRoster(T)).rejects.toMatchObject({ code: "internal_error" });
   });
 });
 
@@ -268,16 +354,29 @@ describe("changing a learner's details and class", () => {
     expect(writes()).toEqual(["PATCH /learners/l-1", "POST /class-memberships"]);
   });
 
-  it("reads the learner's ended memberships too, to see what the API would refuse", async () => {
+  it("reads only the learner's active memberships (an ended one blocks nothing since migration 101)", async () => {
     boot(routes([member(1, C2)]));
     await updateLearnerDetails("l-1", change);
-    expect(api.callsTo(`GET ${P}/class-memberships`)[0]!.query.has("active")).toBe(false);
+    const read = api.callsTo(`GET ${P}/class-memberships`)[0]!;
+    expect(read.query.get("active")).toBe("true");
+    expect(read.query.get("learnerId")).toBe("l-1");
   });
 
-  it("refuses, before changing anything, to put a learner back in a class they left this year (the API would refuse it)", async () => {
+  it("puts a learner back in a class they left earlier this year: the API allows it, so nothing is refused first", async () => {
     boot(routes([member(1, C1), member(1, C2, YEAR, { id: "m-old", active: false, archived_at: "2026-02-01T00:00:00Z" })]));
-    await expect(updateLearnerDetails("l-1", change)).rejects.toThrow("This learner was in Form 2 West earlier this year and left it. The new system cannot place them back in it yet.");
-    expect(writes()).toEqual(["PATCH /learners/l-1"]);
+    await updateLearnerDetails("l-1", change);
+    expect(writes()).toEqual(["PATCH /learners/l-1", "POST /class-memberships/m-1-c1/archive", "POST /class-memberships"]);
+    expect(api.callsTo(`POST ${P}/class-memberships`)[0]!.body).toEqual({ learner_id: "l-1", class_id: C2 });
+  });
+
+  it("gives a learner the class they were just taken out of straight back", async () => {
+    // unassign, then choose the same class again: the second step places them where they were
+    boot(routes([member(1, C2)], { [`POST ${P}/class-memberships/m-1-c2/archive`]: { body: { membership: member(1, C2, YEAR, { active: false }) } } }));
+    await updateLearnerDetails("l-1", { ...change, classId: null });
+    expect(writes()).toEqual(["PATCH /learners/l-1", "POST /class-memberships/m-1-c2/archive"]);
+    boot(routes([], {}));
+    await updateLearnerDetails("l-1", change);
+    expect(writes()).toEqual(["PATCH /learners/l-1", "POST /class-memberships"]);
   });
 
   it("says plainly that a learner has no class when the new class is refused after the old one ended (it cannot be given back)", async () => {
@@ -303,6 +402,23 @@ describe("changing a learner's details and class", () => {
     boot(routes([member(1, C1), member(1, C27, YEAR2)], { [`POST ${P}/class-memberships/m-1-c7/archive`]: { body: {} } }));
     await updateLearnerDetails("l-1", { ...change, classId: null });
     expect(writes()).toEqual(["PATCH /learners/l-1", "POST /class-memberships/m-1-c1/archive"]);
+  });
+
+  it("has nothing to end when 'Unassigned' is chosen for a learner with no class this year", async () => {
+    boot(routes([member(1, C27, YEAR2)]));
+    await updateLearnerDetails("l-1", { ...change, classId: null });
+    expect(writes()).toEqual(["PATCH /learners/l-1"]);
+  });
+
+  it("does nothing about the class when no academic year is current (there is no year's class to end)", async () => {
+    boot(routes([member(1, C1)], { [`GET ${P}/academic-years`]: list("academic_years", []) }));
+    await updateLearnerDetails("l-1", { ...change, classId: null });
+    expect(writes()).toEqual(["PATCH /learners/l-1"]);
+  });
+
+  it("passes on a refusal to end the class in the API's words (a person without the Academics area)", async () => {
+    boot(routes([member(1, C1)], { [`POST ${P}/class-memberships/m-1-c1/archive`]: refused("forbidden", 403, "Insufficient permissions") }));
+    await expect(updateLearnerDetails("l-1", { ...change, classId: null })).rejects.toMatchObject({ code: "forbidden", message: "Insufficient permissions" });
   });
 
   it("passes on the API's refusal to edit an archived learner", async () => {
@@ -595,12 +711,12 @@ describe("peopleCapabilities", () => {
     expect(c).toMatchObject({ deleteLearner: true, learnerLogins: true, inviteGuardians: true, guardianInvitations: false, staffSignIn: false, staffAccounts: true, learnerHome: true, bulkChangeClass: true, staffArchive: false, guardianContactForm: false, learnerWithoutClass: false, importByAreaHolders: true, unassignClass: true });
   });
 
-  it("offers on the API only what it can do: archive, guardian contacts, sign-in invitations, and not what has no endpoint", () => {
+  it("offers on the API the learner record reads and writes it supports", () => {
     initBackend({ kind: "api", apiUrl: BASE });
     const c = peopleCapabilities();
-    expect(c).toMatchObject({ staffArchive: true, guardianContactForm: true, learnerWithoutClass: true, learnerLogins: true, unassignClass: false, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, staffAccounts: false });
+    expect(c).toMatchObject({ staffArchive: true, guardianContactForm: true, learnerWithoutClass: true, learnerLogins: true, learnerFees: true, learnerEarlySignOuts: true, learnerActivities: true, unassignClass: true, inviteGuardians: false, guardianInvitations: true, staffSignIn: true, staffAccounts: false });
     // learnerBehaviour: the behaviour log is on the API (docs/web-on-api/behaviour.md)
-    const on = ["staffArchive", "guardianContactForm", "learnerWithoutClass", "learnerLogins", "guardianInvitations", "staffSignIn", "learnerBehaviour"];
+    const on = ["staffArchive", "guardianContactForm", "learnerWithoutClass", "learnerLogins", "learnerFees", "learnerEarlySignOuts", "learnerActivities", "unassignClass", "guardianInvitations", "staffSignIn", "learnerBehaviour"];
     const off = Object.entries(c).filter(([k]) => !on.includes(k)).filter(([, v]) => v);
     expect(off).toEqual([]);
   });

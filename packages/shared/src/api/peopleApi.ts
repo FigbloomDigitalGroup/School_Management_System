@@ -7,7 +7,8 @@ import { ApiError, isApiError, userMessage } from "./errors";
 import { API_PAGE_LIMIT, listAllPages } from "./paging";
 import { chunk, settlePool } from "./pool";
 import type { components } from "./schema";
-import { byYear, classGroupFromApi, currentAcademicYear, listApiSubjects, listClasses, subjectFromApi } from "./setupApi";
+import { permissionCodes } from "./sessionApi";
+import { byYear, classGroupFromApi, currentAcademicYear, listAcademicTerms, listApiSubjects, listClasses, subjectFromApi } from "./setupApi";
 
 /**
  * The People area on the API (FIG-1890): the API side of peopleRoster.ts, learners.ts and learnerBio.ts's guardian list, plus
@@ -29,6 +30,7 @@ import { byYear, classGroupFromApi, currentAcademicYear, listApiSubjects, listCl
 type Learner = components["schemas"]["Learner"];
 type StaffMember = components["schemas"]["StaffMember"];
 type Membership = components["schemas"]["ClassMembership"];
+type FinanceInvoice = components["schemas"]["FinanceInvoice"];
 
 /** The school this tab is acting for, for the calls whose shared signature does not carry it (archive these learners). */
 export function activeTenantId(): string {
@@ -145,16 +147,50 @@ const byName = (a: { full_name: string }, b: { full_name: string }) => a.full_na
 
 // ---------------------------------------------------------------- the roster
 
-/** Everyone in the school with what the People screen shows beside them. No fee figures, subjects of teachers or logins exist on the API. */
+/** Current-term fee totals are only read when the caller may read both Finance and academic terms. */
+async function rosterFees(tenantId: string): Promise<{ feesReadable: boolean; feeByStudent: Map<string, { total: number; paid: number }> }> {
+  const hidden = { feesReadable: false, feeByStudent: new Map<string, { total: number; paid: number }>() };
+  let permissions: string[];
+  try {
+    permissions = await permissionCodes(tenantId);
+  } catch (err) {
+    if (isApiError(err) && err.code === "forbidden") return hidden;
+    throw err;
+  }
+  if (!permissions.includes("resource.finance.read") || !permissions.includes("resource.academics.read")) return hidden;
+
+  const terms = await listAcademicTerms(tenantId);
+  const currentTerm = terms.find((term) => term.is_current);
+  if (!currentTerm) return { feesReadable: true, feeByStudent: new Map() };
+
+  const invoices: FinanceInvoice[] = await listAllPages(async (cursor) => {
+    const r = await apiClient().get("/v1/tenants/{tenantId}/finance/invoices", {
+      path: { tenantId }, query: { termId: currentTerm.id, limit: API_PAGE_LIMIT, cursor }, tenantId,
+    });
+    return { items: r.invoices, page: r.page };
+  });
+  const feeByStudent = new Map<string, { total: number; paid: number }>();
+  for (const invoice of invoices) {
+    if (invoice.status === "voided" || invoice.voided_at) continue;
+    const current = feeByStudent.get(invoice.learner_id) ?? { total: 0, paid: 0 };
+    current.total += invoice.total_minor;
+    current.paid += invoice.paid_minor;
+    feeByStudent.set(invoice.learner_id, current);
+  }
+  return { feesReadable: true, feeByStudent };
+}
+
+/** Everyone in the school with what the People screen may show beside them. */
 export async function apiFetchPeopleRoster(tenantId: string): Promise<PeopleRoster> {
   return guarded(async () => {
     const year = await tolerant(() => currentAcademicYear(tenantId), null);
-    const [classes, learners, memberships, staff, subjects] = await Promise.all([
+    const [classes, learners, memberships, staff, subjects, fees] = await Promise.all([
       tolerant(() => listClasses(tenantId, year?.id), []),
       listLearners(tenantId, true),
       tolerant(() => listMemberships(tenantId), []),
       listStaffMembers(tenantId, true),
       tolerant(() => listApiSubjects(tenantId), []),
+      rosterFees(tenantId),
     ]);
     const shown = classes.map((c) => classGroupFromApi(c, tenantId)).sort(byYear);
     const classOf = classOfLearners(memberships, new Set(classes.map((c) => c.id)));
@@ -162,7 +198,8 @@ export async function apiFetchPeopleRoster(tenantId: string): Promise<PeopleRost
       classes: shown.map((c) => ({ id: c.id, name: c.name })),
       students: learners.map((l) => rosterLearnerFromApi(l, classOf.get(l.id) ?? null)),
       staff: staff.map(rosterStaffFromApi).sort(byName),
-      feeByStudent: new Map(),
+      feeByStudent: fees.feeByStudent,
+      feesReadable: fees.feesReadable,
       subjects: subjects.map((s) => subjectFromApi(s, tenantId)).sort((a, b) => a.name.localeCompare(b.name)),
       subjectIdsByTeacher: new Map(),
     };
@@ -202,15 +239,11 @@ async function endMembership(tenantId: string, membershipId: string): Promise<vo
  * Puts a learner in a class, or (null) takes them out of the current year's class. A learner has one active membership per academic
  * year, so a move ends the one in that year and makes the new one. A class of another year is an addition (the history stays).
  *
- * The API keeps one membership per learner, class and year for good: one that has ENDED still blocks placing the learner in that
- * class again that year (a unique index that also counts ended memberships, answered as "already has an active class membership").
- * So a move back to a class the learner left this year is refused here, before anything changes, and a move cannot be undone by
- * putting the old membership back: if the new one is refused after the old one ended, the learner is left with no class and the
- * message says so.
+ * Ended memberships are history, not a block: migration 101 allows a learner to return to a class they left. Only active rows are
+ * read, and the active membership in the target year is ended before the new class is assigned.
  */
 export async function apiMoveLearnerToClass(tenantId: string, learnerId: string, classId: string | null): Promise<void> {
-  const all = await listMemberships(tenantId, learnerId, true);
-  const active = all.filter((m) => m.active);
+  const active = await listMemberships(tenantId, learnerId);
   if (classId === null) {
     const year = await tolerant(() => currentAcademicYear(tenantId), null);
     if (!year) return;
@@ -220,9 +253,6 @@ export async function apiMoveLearnerToClass(tenantId: string, learnerId: string,
   const target = (await apiClient().get("/v1/tenants/{tenantId}/classes/{classId}", { path: { tenantId, classId }, tenantId })).school_class;
   const sameYear = active.filter((m) => m.academic_year_id === target.academic_year_id);
   if (sameYear.some((m) => m.class_id === classId)) return;
-  if (all.some((m) => !m.active && m.class_id === classId && m.academic_year_id === target.academic_year_id)) {
-    throw new Error(`This learner was in ${target.name} earlier this year and left it. The new system cannot place them back in it yet.`);
-  }
   for (const m of sameYear) await endMembership(tenantId, m.id);
   try {
     await assignToClass(tenantId, learnerId, classId);
