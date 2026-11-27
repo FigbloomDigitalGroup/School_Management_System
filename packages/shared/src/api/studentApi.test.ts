@@ -36,7 +36,8 @@ const mark = (o: Record<string, unknown> = {}) => ({
   grade: "B", class_mean: "60.50", subject: { id: SUBJ_MATH, name: "Mathematics" }, term, ...o,
 });
 const homework = (id: string, due: string, o: Record<string, unknown> = {}) => ({
-  id, title: `Work ${id}`, body: "Do it.", due_on: due, term_id: TERM, subject: { id: SUBJ_MATH, name: "Mathematics" }, created_at: "2026-11-01T08:00:00Z", ...o,
+  id, title: `Work ${id}`, body: "Do it.", due_on: due, term_id: TERM, subject: { id: SUBJ_MATH, name: "Mathematics" },
+  hand_in: "upload", parent_guide: { needs: ["Calculator"], minutes: 20 }, teacher_name: "Wanjiku", created_at: "2026-11-01T08:00:00Z", ...o,
 });
 const inboxItem = (id: string, kind: string, at: string) => ({
   id, tenant_id: T, author_id: "staff-1", subject: `Notice ${id}`, body: "Body", audience: { kind }, status: "published", published_at: at, created_at: at,
@@ -148,7 +149,7 @@ describe("loadStudentData on the API", () => {
     });
     const data = await loadStudentData("profile-ignored");
     expect(data).toMatchObject({ studentId: L, classId: CLS, className: "Form 2 West", classLevel: "secondary", examName: "Mid-term" });
-    expect(data!.work.map((w) => [w.id, w.state, w.teacher])).toEqual([["a", "open", ""], ["b", "open", ""]]);
+    expect(data!.work.map((w) => [w.id, w.state, w.teacher])).toEqual([["a", "open", "Wanjiku"], ["b", "open", "Wanjiku"]]);
     expect(data!.subjects.map((s) => [s.name, s.score, s.rawScore, s.maxScore])).toEqual([["English", 80, 40, 50], ["Mathematics", 72, 72, 100]]);
     expect(data!.exams).toHaveLength(1);
     // The newest notice first; a class notice is the class teacher's, any other the school office's.
@@ -204,7 +205,7 @@ describe("the timetable", () => {
 describe("what a learner cannot do on the API", () => {
   it("turns off the controls the API has no endpoint for", () => {
     initBackend({ kind: "api", apiUrl: BASE });
-    expect(studentCapabilities()).toMatchObject({ homeworkDone: false, homeworkFiles: false, materialFiles: false, liveClasses: false, higherEdPages: false, progressOverTime: true, reportCardPdf: false, familyReportCards: true });
+    expect(studentCapabilities()).toMatchObject({ homeworkDone: false, homeworkFiles: false, homeworkDetails: true, materialFiles: false, liveClasses: false, higherEdPages: false, progressOverTime: true, reportCardPdf: false, familyReportCards: true });
     initBackend({ kind: "supabase" });
     expect(Object.values(studentCapabilities()).filter((v) => v === false)).toEqual([false]);
     expect(studentCapabilities().familyReportCards).toBe(false);
@@ -230,9 +231,9 @@ describe("what a learner cannot do on the API", () => {
 });
 
 describe("a piece of work from the family read", () => {
-  it("has no teacher, hand-in method, guide or file: the API gives none", () => {
+  it("shows the teacher, hand-in method and learner-safe guide fields", () => {
     expect(workItemFromFamily(homework("w1", "2026-12-01") as never)).toEqual({
-      id: "w1", title: "Work w1", subject: "Mathematics", teacher: "", dueOn: "2026-12-01", state: "open", how: "", body: "Do it.", needs: [], minutes: null, hasFile: false,
+      id: "w1", title: "Work w1", subject: "Mathematics", teacher: "Wanjiku", dueOn: "2026-12-01", state: "open", how: "Upload online", body: "Do it.", needs: ["Calculator"], minutes: 20, hasFile: false,
     });
   });
 });

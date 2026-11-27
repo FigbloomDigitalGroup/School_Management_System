@@ -5,6 +5,7 @@ import type { EarlySignOut } from "../earlySignOut";
 import type { ExamSubject, PublishedExam } from "../examResults";
 import { receiptRef } from "../fees";
 import type { FeeCharge } from "../feeCharges";
+import { normaliseGuide } from "../homework";
 import { rubricFor, summariseStrands } from "../gradingSchemes";
 import type { ChildHomework, HomeworkItem } from "../homework";
 import type { InventoryCategory, InventoryIssueRow, IssueStatus, ItemCondition } from "../inventory";
@@ -315,7 +316,8 @@ export async function apiLoadParentData(): Promise<ParentData> {
 // ---------------------------------------------------------------- homework
 
 const homeworkItem = (h: FamilyHomework): HomeworkItem => ({
-  id: h.id, title: h.title, body: h.body, subject: h.subject.name, teacher: "", dueOn: h.due_on, handIn: null, guide: null,
+  id: h.id, title: h.title, body: h.body, subject: h.subject.name, teacher: h.teacher_name ?? "The class teacher", dueOn: h.due_on,
+  handIn: h.hand_in, guide: normaliseGuide(h.parent_guide),
   done: false, doneBy: null, hasFile: false,
 });
 
