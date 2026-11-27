@@ -6,6 +6,7 @@ import { BASE, createFakeApi, type FakeApi, type FakeCall, type FakeReply, type 
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
 import { examIdOf } from "./gradesApi";
 import { classPerformanceRows, clearPublishedMarksCache, learnerHistoryRows, learnerMeanRows, PERFORMANCE_REFUSED } from "./performanceApi";
+import { setApiActiveRole } from "./ownLearner";
 import { createMemoryTokenStore } from "./tokenStore";
 
 const T = "11111111-1111-4111-8111-111111111111";
@@ -66,6 +67,7 @@ function boot(routes: Record<string, FakeRoute>) {
 beforeEach(() => clearPublishedMarksCache());
 afterEach(() => {
   vi.unstubAllGlobals();
+  setApiActiveRole(null);
   resetApiClient();
   initBackend({ kind: "supabase" });
 });
@@ -211,6 +213,30 @@ describe("each learner's mean and one learner's history", () => {
     // Mathematics (average 75) is stronger than English (60).
     expect(subjectStandings(trend)[0]!.name).toBe("Mathematics");
     expect(api.callsTo(`GET ${P}/class-memberships`)[0]!.query.get("learnerId")).toBe(L1);
+  });
+
+  it("builds parent and learner progress from their own results across terms, including CBE levels", async () => {
+    const results = {
+      marks: [
+        { assessment_id: "old", title: "Opener", kind: "exam", status: "published", published_at: "2026-02-20T08:00:00Z", max_score: "100", score: "70", grade: "B", class_mean: "60", subject: { id: S1, name: "Mathematics" }, term: { id: TERM1, label: "Term 1, 2026" } },
+        { assessment_id: "new", title: "Mock 1", kind: "exam", status: "published", published_at: "2026-06-10T08:00:00Z", max_score: "50", score: "40", grade: "A", class_mean: "30", subject: { id: S1, name: "Mathematics" }, term: { id: TERM2, label: "Term 2, 2026" } },
+        { assessment_id: "hw", title: "Homework", kind: "homework", status: "published", published_at: "2026-06-11T08:00:00Z", max_score: "10", score: "10", grade: null, class_mean: null, subject: { id: S1, name: "Mathematics" }, term: { id: TERM2, label: "Term 2, 2026" } },
+      ],
+      cbe_results: [{ assessment_date: "2026-06-08", published_at: "2026-06-08T08:00:00Z", level_code: "EE1" }],
+    };
+    boot({ [`GET ${P}/me/children/${L1}/results`]: { body: results } });
+
+    for (const role of ["parent", "student"] as const) {
+      setApiActiveRole(role);
+      const trend = await fetchLearnerTrend(L1);
+      expect(trend.exams.map((exam) => [exam.name, exam.termName])).toEqual([["Opener", "Term 1, 2026"], ["Mock 1", "Term 2, 2026"]]);
+      expect(trend.subjects).toEqual([{ id: S1, name: "Mathematics", scores: [70, 80], classMeans: [60, 60] }]);
+      expect(await fetchCbeLevels({ studentId: L1 })).toEqual([{ assessedOn: "2026-06-08", levelCode: "EE1" }]);
+    }
+
+    expect(api.callsTo(`GET ${P}/me/children/${L1}/results`)).toHaveLength(4);
+    expect(api.callsTo(`GET ${P}/class-memberships`)).toHaveLength(0);
+    expect(api.callsTo(`GET ${P}/me/children/${L1}/results`)[0]!.query.get("termId")).toBeNull();
   });
 
   it("has no trend for a learner who is in no class", async () => {

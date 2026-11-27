@@ -1,9 +1,10 @@
 import type { CbeBand, CbeBandRow, ClassOption } from "../performanceData";
 import {
-  learnerTrend, type ClassPerformanceRow, type LearnerHistoryRow, type LearnerMeanRow, type LearnerTrend,
+  learnerTrend, type CbeLevelRow, type ClassPerformanceRow, type LearnerHistoryRow, type LearnerMeanRow, type LearnerTrend,
 } from "../performance";
 import { apiFetchClassRoster } from "./attendanceApi";
 import { apiClient } from "./client";
+import { apiFetchChildResults, type FamilyResults } from "./parentApi";
 import { examIdOf, examPapersOf, listAssessments, listMarksOf, numberOf } from "./gradesApi";
 import { isApiError } from "./errors";
 import { API_PAGE_LIMIT, listAllPages } from "./paging";
@@ -333,6 +334,53 @@ export function learnerHistoryRows(
     });
   }
   return rows;
+}
+
+/**
+ * Family results already contain the caller's own published marks across terms (up to the endpoint's 500-row cap).
+ * The family contract omits term start dates, so the existing chart orders these rows by publication date.
+ */
+export function learnerHistoryRowsFromFamilyResults(results: FamilyResults): LearnerHistoryRow[] {
+  const marks = results.marks.filter((mark) => mark.kind === "exam");
+  const firstOut = new Map<string, string>();
+  for (const mark of marks) {
+    if (!mark.published_at) continue;
+    const id = examIdOf(mark.term.id, mark.title);
+    const current = firstOut.get(id);
+    if (!current || mark.published_at < current) firstOut.set(id, mark.published_at);
+  }
+
+  return marks.map((mark) => {
+    const id = examIdOf(mark.term.id, mark.title);
+    const max = numberOf(mark.max_score);
+    const toPercent = (value: string) => round1(percent(numberOf(value), max));
+    return {
+      exam_id: id,
+      exam_name: mark.title,
+      term_id: mark.term.id,
+      term_name: mark.term.label,
+      term_starts_on: "",
+      published_at: firstOut.get(id) ?? mark.published_at,
+      subject_id: mark.subject.id,
+      subject_name: mark.subject.name,
+      score: toPercent(mark.score),
+      class_mean: mark.class_mean === null ? null : toPercent(mark.class_mean),
+    };
+  });
+}
+
+/** A parent's or learner's own results, without staff-only roster, class or subject reads. */
+export async function apiFetchFamilyLearnerTrend(learnerId: string): Promise<LearnerTrend> {
+  return learnerTrend(learnerHistoryRowsFromFamilyResults(await apiFetchChildResults(learnerId)));
+}
+
+/** CBE judgements already present in the same family-scoped results read. */
+export async function apiFetchFamilyCbeLevels(learnerId: string): Promise<CbeLevelRow[]> {
+  const results = await apiFetchChildResults(learnerId);
+  return results.cbe_results.map((result) => ({
+    assessedOn: result.assessment_date ?? result.published_at?.slice(0, 10) ?? "",
+    levelCode: result.level_code,
+  }));
 }
 
 // ---------------------------------------------------------------- what performanceData.ts calls

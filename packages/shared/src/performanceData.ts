@@ -1,6 +1,7 @@
 import {
-  apiFetchCbeBandReport, apiFetchCbeLevels, apiFetchClassLearnerMeans, apiFetchClassLearnerNames, apiFetchClassOptions, apiFetchClassPerformance, apiFetchLearnerTrend,
+  apiFetchCbeBandReport, apiFetchCbeLevels, apiFetchClassLearnerMeans, apiFetchClassLearnerNames, apiFetchClassOptions, apiFetchClassPerformance, apiFetchFamilyCbeLevels, apiFetchFamilyLearnerTrend, apiFetchLearnerTrend,
 } from "./api/performanceApi";
+import { apiActiveRole } from "./api/ownLearner";
 import { onApi } from "./backend";
 import { rubricFor, summariseStrands } from "./gradingSchemes";
 import { yearSortKey } from "./levels";
@@ -20,7 +21,12 @@ import type { ClassGroup, ClassLevel } from "./types";
 
 /** One learner's published marks across every exam, as series. Families and staff alike. */
 export async function fetchLearnerTrend(studentId: string): Promise<LearnerTrend> {
-  if (onApi()) return apiFetchLearnerTrend(studentId);
+  if (onApi()) {
+    const role = apiActiveRole();
+    return role === "parent" || role === "student"
+      ? apiFetchFamilyLearnerTrend(studentId)
+      : apiFetchLearnerTrend(studentId);
+  }
   const { data, error } = await supabase().rpc("learner_results_history", { p_student_id: studentId });
   if (error) throw new Error(error.message);
   return learnerTrend((data ?? []) as LearnerHistoryRow[]);
@@ -54,7 +60,12 @@ export async function fetchClassLearnerMeans(classId: string): Promise<LearnerMe
  * holds staff to the same line.
  */
 export async function fetchCbeLevels(scope: { studentId: string } | { classId: string } | { tenantId: string }): Promise<CbeLevelRow[]> {
-  if (onApi()) return apiFetchCbeLevels(scope);
+  if (onApi()) {
+    const role = apiActiveRole();
+    return "studentId" in scope && (role === "parent" || role === "student")
+      ? apiFetchFamilyCbeLevels(scope.studentId)
+      : apiFetchCbeLevels(scope);
+  }
   const rows = await fetchAllPages<{ level_code: string; cbe_assessments: { assessed_on: string } | null }>((from, to) => {
     let q = supabase()
       .from("cbe_results")

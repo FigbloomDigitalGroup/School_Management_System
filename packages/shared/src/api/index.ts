@@ -39,7 +39,7 @@ export {
   apiFetchChildMaterials, apiFetchChildReportCards, apiFetchParentMessages, levelOfChildClass, type FamilyMaterialView, type FamilyReportCardView,
 } from "./parentApi";
 export { apiAnswerMedicationConsent, type FamilyHealthView, type MedicationAuthorizationView } from "./parentHealthApi";
-export { apiFetchFamilyRides, rideStatusText, ridesFromTransport, type FamilyRide, type RideStatus } from "./parentBusApi";
+export { apiFetchFamilyRides, apiFetchTransportNotifications, apiMarkTransportNotificationRead, transportNotificationsFromApi, rideStatusText, ridesFromTransport, type FamilyRide, type FamilyTransportNotification, type RideStatus } from "./parentBusApi";
 export { apiFetchMyStaffRecord, myStaffRecordFromApi, staffMayKeepVisitors, staffMayReadItems, type MyStaffRecord } from "./otherStaffApi";
 export { API_BLOOM_PROMPT_MAX, apiFetchBloomReadiness, formatBloomPrompt, type BloomReadiness, type BloomScope } from "./aiApi";
 export { SCHOOL_ACCESS_CODES, apiFetchMySchoolAccess, apiGrantSchoolAccess, apiRemoveSchoolAccess, orgHomePath } from "./orgApi";

@@ -33,7 +33,7 @@ import type { components } from "./schema";
 
 export type FamilyChild = components["schemas"]["FamilyChild"];
 type FamilyAttendance = components["schemas"]["FamilyAttendance"];
-type FamilyResults = components["schemas"]["FamilyResults"];
+export type FamilyResults = components["schemas"]["FamilyResults"];
 type FamilyInvoice = components["schemas"]["FamilyInvoice"];
 type FamilyHomework = components["schemas"]["FamilyHomework"];
 type FamilyMaterial = components["schemas"]["FamilyMaterial"];

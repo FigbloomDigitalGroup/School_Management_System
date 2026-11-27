@@ -204,7 +204,7 @@ describe("the timetable", () => {
 describe("what a learner cannot do on the API", () => {
   it("turns off the controls the API has no endpoint for", () => {
     initBackend({ kind: "api", apiUrl: BASE });
-    expect(studentCapabilities()).toMatchObject({ homeworkDone: false, homeworkFiles: false, materialFiles: false, liveClasses: false, higherEdPages: false, progressOverTime: false, reportCardPdf: false, familyReportCards: true });
+    expect(studentCapabilities()).toMatchObject({ homeworkDone: false, homeworkFiles: false, materialFiles: false, liveClasses: false, higherEdPages: false, progressOverTime: true, reportCardPdf: false, familyReportCards: true });
     initBackend({ kind: "supabase" });
     expect(Object.values(studentCapabilities()).filter((v) => v === false)).toEqual([false]);
     expect(studentCapabilities().familyReportCards).toBe(false);
