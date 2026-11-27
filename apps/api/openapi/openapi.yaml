@@ -6390,6 +6390,7 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /v1/tenants/{tenantId}/homework-items/{homeworkId}/archive:
     post:
       tags:
         - academics

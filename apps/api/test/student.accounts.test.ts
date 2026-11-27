@@ -342,7 +342,7 @@ describe("student accounts", () => {
       expect(JSON.stringify(results)).not.toContain(draft);
       const hw = (await call("GET", t(`/me/children/${s1}/homework`), me.token)).json();
       expect(hw.homework.map((h: { title: string }) => h.title)).toEqual(["Fractions sheet"]);
-      expect(hw.homework[0]).toMatchObject({ hand_in: "paper", teacher_name: null, parent_guide: { needs: ["Exercise book"], minutes: 15 } });
+      expect(hw.homework[0]).toMatchObject({ hand_in: "paper", teacher_name: "Admin A", parent_guide: { needs: ["Exercise book"], minutes: 15 } });
       expect(JSON.stringify(hw.homework[0])).not.toContain("Parent only context");
       expect(JSON.stringify(hw.homework[0])).not.toContain("Parent help text");
       expect(JSON.stringify(hw.homework[0])).not.toContain("Parent warning");

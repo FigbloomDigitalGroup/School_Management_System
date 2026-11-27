@@ -78,23 +78,39 @@ with tm as (insert into terms (tenant_id, name, year, index, starts_on, ends_on,
 with tm as (insert into terms (tenant_id, name, year, index, starts_on, ends_on, is_current)
               values (current_setting('t.k')::uuid, 'QA10 March 2020', 2020, 1, '2020-03-01', '2020-03-31', false) returning id)
   select set_config('t.kterm20', (select id::text from tm), true);
--- Around today: a term of the school's own that covers yesterday to tomorrow (the seeded current one, usually). Only when there is
--- none is one made up, after the school's last term: since 20261105550000 a school's terms may not overlap or run out of order.
-select set_config('t.nowterm', coalesce(
-  (select id::text from terms where tenant_id = current_setting('t.a')::uuid
-      and starts_on <= school_today(current_setting('t.a')::uuid) - 1 and ends_on >= school_today(current_setting('t.a')::uuid) + 1
-    order by starts_on desc limit 1), ''), true);
-create function pg_temp.make_nowterm() returns text language plpgsql as $$
-declare v uuid;
+-- Around today: reuse a term that contains the date, or create a test-only term in a gap
+-- between terms. This stays valid when the seeded current term ends today or has expired.
+create function pg_temp.term_for(p_on date) returns text language plpgsql as $$
+declare
+  v_id uuid;
+  v_start date;
+  v_end date;
+  v_year integer;
+  v_tenant uuid := current_setting('t.a')::uuid;
 begin
+  select id into v_id
+    from terms
+   where tenant_id = v_tenant and starts_on <= p_on and ends_on >= p_on
+   order by starts_on desc limit 1;
+  if found then return v_id::text; end if;
+
+  select coalesce(max(year), 2020) + 1 into v_year
+    from terms where tenant_id = v_tenant;
+  select greatest(p_on - 30, coalesce(max(ends_on) + 1, p_on - 30)) into v_start
+    from terms where tenant_id = v_tenant and ends_on < p_on;
+  select least(p_on + 30, coalesce(min(starts_on) - 1, p_on + 30)) into v_end
+    from terms where tenant_id = v_tenant and starts_on > p_on;
+  if v_start > p_on or v_end < p_on then
+    raise exception 'QA10 cannot make a non-overlapping term around %', p_on;
+  end if;
+
   insert into terms (tenant_id, name, year, index, starts_on, ends_on, is_current)
-  select current_setting('t.a')::uuid, 'QA10 around today', coalesce(max(year), 2020) + 1, 1,
-         school_today(current_setting('t.a')::uuid) - 30, school_today(current_setting('t.a')::uuid) + 30, false
-    from terms where tenant_id = current_setting('t.a')::uuid
-  returning id into v;
-  return v::text;
+  values (v_tenant, 'QA10 around today', v_year, 1, v_start, v_end, false)
+  returning id into v_id;
+  return v_id::text;
 end $$;
-select set_config('t.nowterm', pg_temp.make_nowterm(), true) where current_setting('t.nowterm') = '';
+select set_config('t.nowterm', pg_temp.term_for(school_today(current_setting('t.a')::uuid)), true);
+
 
 select pg_temp.check('the seed has what these checks need (Alliance teacher, admin, term and two classes with learners; a Kijani Ridge class)',
   current_setting('t.teacher') <> '' and current_setting('t.admin') <> '' and current_setting('t.curterm') <> ''
@@ -186,16 +202,17 @@ select pg_temp.check('a register sent with no date is filed under today in the s
 -- The time zone is the school's: 14 hours ahead of UTC (Kiritimati) and 11 behind (Pago Pago) are never on the same date.
 update tenants set timezone = 'Pacific/Kiritimati' where id = current_setting('t.a')::uuid;
 create temp table qa_tz_east as select school_today(current_setting('t.a')::uuid) as d, (now() at time zone 'Pacific/Kiritimati')::date as want;
+select set_config('t.eastterm', pg_temp.term_for((select d from qa_tz_east)), true);
 update tenants set timezone = 'Pacific/Pago_Pago' where id = current_setting('t.a')::uuid;
 create temp table qa_tz_west as select school_today(current_setting('t.a')::uuid) as d, (now() at time zone 'Pacific/Pago_Pago')::date as want;
 select pg_temp.check('school_today follows the school''s time zone (UTC+14 and UTC-11 are on different dates, each its own)',
   (select d = want from qa_tz_east) and (select d = want from qa_tz_west) and (select e.d > w.d from qa_tz_east e, qa_tz_west w));
 delete from attendance where student_id = current_setting('t.kid_x')::uuid and taken_on >= (select d from qa_tz_west);
 select pg_temp.check('a school at UTC-11 refuses a register dated for the day that has already begun at UTC+14',
-  pg_temp.file((select d from qa_tz_east), current_setting('t.nowterm')::uuid) like '23514 This register is dated % but today is %');
+  pg_temp.file((select d from qa_tz_east), current_setting('t.eastterm')::uuid) like '23514 This register is dated % but today is %');
 update tenants set timezone = 'Pacific/Kiritimati' where id = current_setting('t.a')::uuid;
 select pg_temp.check('the same register is taken once the school is at UTC+14',
-  pg_temp.file((select d from qa_tz_east), current_setting('t.nowterm')::uuid) = 'allowed');
+  pg_temp.file((select d from qa_tz_east), current_setting('t.eastterm')::uuid) = 'allowed');
 select pg_temp.check('an unknown time zone is refused when a school is set up or changed',
   pg_temp.run(format('update tenants set timezone = %L where id = %L', 'Mars/Olympus', current_setting('t.a'))) = 'refused 22023'
   and pg_temp.run(format('update tenants set timezone = %L where id = %L', '', current_setting('t.a'))) = 'refused 22023');

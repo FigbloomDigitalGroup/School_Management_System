@@ -2011,11 +2011,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Archive a homework item
-         * @description One-way archive. The item leaves all lists and family reads; no data is deleted and there is no restore. Requires `resource.academics.write`.
-         */
-        post: operations["archiveHomeworkItem"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2024,6 +2020,26 @@ export interface paths {
          * @description Partial update. The term, tenant, creator, and creation time cannot change. An archived item cannot be changed. `parent_guide: null` clears the guide; fields omitted from the request stay unchanged.
          */
         patch: operations["updateHomeworkItem"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/homework-items/{homeworkId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive a homework item
+         * @description One-way archive. The item leaves all lists and family reads; no data is deleted and there is no restore. Requires `resource.academics.write`.
+         */
+        post: operations["archiveHomeworkItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/tenants/{tenantId}/learning-materials": {
@@ -15373,42 +15389,6 @@ export interface operations {
             422: components["responses"]["IdempotencyKeyReused"];
         };
     };
-    archiveHomeworkItem: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
-                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
-                /** @description Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours, for the same school, caller and key: the same request again returns the ORIGINAL status with the resource re-read by reference (so it reflects the resource's current state; header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce one effect. A caller who is not (or no longer) authorised is refused as usual: a key never grants access. Guarantee: at most one committed effect per (school, caller, key) in the window; not exactly-once across client, network or process failures. Header-less requests are unchanged. */
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                tenantId: string;
-                homeworkId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Archived homework item */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        homework: components["schemas"]["Homework"];
-                    };
-                };
-            };
-            400: components["responses"]["ValidationError"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["IdempotencyKeyReused"];
-        };
-    };
     updateHomeworkItem: {
         parameters: {
             query?: never;
@@ -15444,6 +15424,42 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    archiveHomeworkItem: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+                /** @description Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours, for the same school, caller and key: the same request again returns the ORIGINAL status with the resource re-read by reference (so it reflects the resource's current state; header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce one effect. A caller who is not (or no longer) authorised is refused as usual: a key never grants access. Guarantee: at most one committed effect per (school, caller, key) in the window; not exactly-once across client, network or process failures. Header-less requests are unchanged. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantId: string;
+                homeworkId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived homework item */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        homework: components["schemas"]["Homework"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["IdempotencyKeyReused"];
         };
     };
     listLearningMaterials: {

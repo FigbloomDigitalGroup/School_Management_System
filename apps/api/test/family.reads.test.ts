@@ -360,7 +360,7 @@ describe("family reads (A1)", () => {
       expect(hw.json().homework[0].subject).toEqual({ id: maths, name: "Mathematics" });
       expect(hw.json().homework[0]).toMatchObject({
         hand_in: "in_person",
-        teacher_name: null,
+        teacher_name: "Admin A",
         parent_guide: { about: "Fractions practice", needs: ["Exercise book"], help: "Ask the child to explain their answer", avoid: "Do not give the answer", minutes: 20 },
       });
       const all = await child(c1, `/homework?from=${isoDay(-60)}`);
