@@ -27,8 +27,8 @@ export function AttendanceDetail({ classId, className, date, onClose }: {
   classId: string; className: string; date: string; onClose: () => void;
 }) {
   const toast = useToast();
-  const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
-  const access = adminAccessFor(profile.role, adminAreas, actingForTenant);
+  const { profile, tenant, adminAreas, actingForTenant, delegatedOrgConsole } = useTenantSession();
+  const access = adminAccessFor(profile.role, adminAreas, actingForTenant, delegatedOrgConsole);
   const [data, setData] = useState<ClassAttendanceDetail | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [pick, setPick] = useState("");

@@ -144,6 +144,10 @@ export interface SchoolSessionSnapshot {
   actingForTenant: boolean;
   /** The organization that gives that access, while actingForTenant. */
   actingOrganization: { id: string; name: string; slug: string } | null;
+  /** On the API build, an org administrator has only the explicitly delegated area permissions. */
+  delegatedOrgConsole: boolean;
+  /** Current API delegation set, used to prevent client caches crossing a permission change. */
+  delegatedPermissions: string[];
   /** A teacher's or other staff member's admin areas; empty for everyone else. */
   adminAreas: AdminArea[];
   /** The person's own school is suspended, so the console shows that instead of bouncing to sign-in. */
@@ -188,7 +192,7 @@ export async function loadSchoolSession(slug: string | null): Promise<SchoolSess
   // Only asked inside a school's routes, and only when that school couldn't be read.
   const schoolSuspended = slug ? await sessionSchoolSuspended(profile ?? null, !!tenant) : false;
 
-  return { profile: profile ?? null, tenant, actingForTenant, actingOrganization, adminAreas, schoolSuspended };
+  return { profile: profile ?? null, tenant, actingForTenant, actingOrganization, delegatedOrgConsole: false, delegatedPermissions: [], adminAreas, schoolSuspended };
 }
 
 /** What the org-admin console knows about the signed-in person (the web's useOrgSession). */

@@ -18,9 +18,13 @@ export interface Session {
    *  purposes (App.tsx's RoleGate) so they land on the same admin console
    *  a school_admin would, not a 403-shaped dead end. */
   actingForTenant: boolean;
+  /** The API school console is limited to the org admin's explicit delegated areas. */
+  delegatedOrgConsole: boolean;
+  /** Current API delegation set, included in the query cache scope. */
+  delegatedPermissions: string[];
   /** Populated only while actingForTenant is true — the organization whose
-   *  membership is what actually grants this access, and the "Exit to
-   *  organization" link's destination. */
+   *  membership is what grants access, and the "Exit to organization" link's
+   *  destination. On the API build, this still does not imply full school-admin access. */
   actingOrganization: { id: string; name: string; slug: string } | null;
   /** A teacher's or other staff member's admin areas (20261031000000): their
    *  own and their school roles'. Empty for everyone else; full admins don't
@@ -46,7 +50,7 @@ interface InternalState extends Session {
 }
 
 const EMPTY: Omit<InternalState, "resolvedFor"> = {
-  loading: false, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [],
+  loading: false, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, delegatedOrgConsole: false, delegatedPermissions: [], adminAreas: [],
   schoolSuspended: false,
 };
 
@@ -55,7 +59,7 @@ const EMPTY: Omit<InternalState, "resolvedFor"> = {
  * than querying auth directly, so impersonation is honoured in one place.
  */
 export function useSession(slug: string | null): Session {
-  const [state, setState] = useState<InternalState>({ loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [], schoolSuspended: false, resolvedFor: null });
+  const [state, setState] = useState<InternalState>({ loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, delegatedOrgConsole: false, delegatedPermissions: [], adminAreas: [], schoolSuspended: false, resolvedFor: null });
 
   useEffect(() => {
     let alive = true;
@@ -70,7 +74,8 @@ export function useSession(slug: string | null): Session {
 
       // The screens' cache belongs to this person in this school: signing out, another person
       // signing in, or moving to another school (or impersonating one) starts it empty.
-      setCacheScope(snapshot.profile ? `${snapshot.profile.id}:${snapshot.tenant?.id ?? ""}:${impersonating ? JSON.stringify(impersonating) : ""}` : null);
+      const authority = snapshot.delegatedOrgConsole ? `delegated:${snapshot.delegatedPermissions.join(",")}` : snapshot.actingForTenant ? "acting" : "member";
+      setCacheScope(snapshot.profile ? `${snapshot.profile.id}:${snapshot.tenant?.id ?? ""}:${authority}:${impersonating ? JSON.stringify(impersonating) : ""}` : null);
       if (alive) setState({ loading: false, ...snapshot, impersonating, resolvedFor: slug });
     }
 
@@ -80,7 +85,7 @@ export function useSession(slug: string | null): Session {
   }, [slug]);
 
   if (state.resolvedFor !== slug) {
-    return { loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, adminAreas: [], schoolSuspended: false };
+    return { loading: true, profile: null, tenant: null, impersonating: null, actingForTenant: false, actingOrganization: null, delegatedOrgConsole: false, delegatedPermissions: [], adminAreas: [], schoolSuspended: false };
   }
   return state;
 }

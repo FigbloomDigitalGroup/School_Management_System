@@ -8,6 +8,7 @@ import { BASE, createFakeApi, type FakeApi, type FakeRoute } from "../testing/fa
 import { apiClient, resetApiClient, setApiTokenStore } from "./client";
 import { adminAreasFromPermissions, accentFromApi, forgetApiSchools, profileFromApi, roleOutsideSchools, tenantFromApi, viewOfMe, type MeView } from "./sessionApi";
 import { createMemoryTokenStore, type TokenStore } from "./tokenStore";
+import { fetchTenantSlug } from "../platform";
 
 const SCHOOL = "11111111-1111-4111-8111-111111111111";
 const OTHER_SCHOOL = "22222222-2222-4222-8222-222222222222";
@@ -176,6 +177,47 @@ describe("loadSchoolSession on the API", () => {
     expect(apiClient().activeTenant()).toBeNull();
   });
 
+  it("opens an organization school only with delegated tenant.read and exposes only delegated areas", async () => {
+    const organizationId = "33333333-3333-4333-8333-333333333333";
+    boot({
+      "GET /v1/auth/me": { body: me({ memberships: [], authz: { role: "org_admin", tenantId: null, isSuperAdmin: false } }) },
+      "GET /v1/org/schools": { body: { items: [{ id: SCHOOL, name: "Alliance High", slug: "alliance", status: "active", organizationId, organizationName: "Alliance Trust", organizationSlug: "alliance-trust" }], page: { limit: 200, next_cursor: null } } },
+      "GET /v1/org/organizations": { body: { items: [{ id: organizationId, name: "Alliance Trust", slug: "alliance-trust", kind: "group_owner", status: "active" }], page: { limit: 200, next_cursor: null } } },
+      "GET /v1/rbac/permissions": { body: { role: "org_admin", tenantId: SCHOOL, mayAdminister: false, isOrgAdminForTenant: true, isSuperAdmin: false, delegatedPermissions: ["tenant.read", "area.fees"], actingVia: "org_admin_delegation", items: [], page: { limit: 1, next_cursor: null } } },
+      [`GET /v1/tenants/${SCHOOL}`]: { body: tenant() },
+      [`GET /v1/tenants/${SCHOOL}/school-profile`]: { status: 403, body: { error: { code: "forbidden", message: "profile is not delegated" } } },
+    });
+
+    const s = await loadSchoolSession("alliance");
+
+    expect(s).toMatchObject({
+      profile: { role: "org_admin", tenant_id: null },
+      tenant: { id: SCHOOL, slug: "alliance", name: "Alliance High" },
+      actingForTenant: true,
+      actingOrganization: { id: organizationId, name: "Alliance Trust", slug: "alliance-trust" },
+      delegatedOrgConsole: true,
+      delegatedPermissions: ["tenant.read", "area.fees"],
+      adminAreas: ["fees"],
+    });
+    expect(apiClient().activeTenant()).toBe(SCHOOL);
+    expect(api.callsTo("GET /v1/tenants/" + SCHOOL)[0]?.headers["x-tenant-id"]).toBe(SCHOOL);
+  });
+
+  it("does not load an organization school when tenant.read was not delegated", async () => {
+    const organizationId = "33333333-3333-4333-8333-333333333333";
+    boot({
+      "GET /v1/auth/me": { body: me({ memberships: [], authz: { role: "org_admin", tenantId: null, isSuperAdmin: false } }) },
+      "GET /v1/org/schools": { body: { items: [{ id: SCHOOL, name: "Alliance High", slug: "alliance", status: "active", organizationId }], page: { limit: 200, next_cursor: null } } },
+      "GET /v1/rbac/permissions": { body: { role: "org_admin", tenantId: SCHOOL, mayAdminister: false, isOrgAdminForTenant: true, isSuperAdmin: false, delegatedPermissions: ["area.fees"], actingVia: "org_admin_delegation", items: [], page: { limit: 1, next_cursor: null } } },
+    });
+
+    const s = await loadSchoolSession("alliance");
+
+    expect(s).toMatchObject({ profile: { role: "org_admin" }, tenant: null, delegatedOrgConsole: false, adminAreas: [] });
+    expect(api.callsTo(`GET /v1/tenants/${SCHOOL}`)).toHaveLength(0);
+    expect(apiClient().activeTenant()).toBeNull();
+  });
+
   it("finds the right school among several", async () => {
     boot(school({
       "GET /v1/auth/me": { body: me({ memberships: [membership({ tenantId: OTHER_SCHOOL, role: "parent" }), membership()] }) },
@@ -217,6 +259,12 @@ describe("loadSchoolSession on the API", () => {
     boot({ "GET /v1/auth/me": { status: 500, body: { error: { code: "internal_error", message: "x" } } } });
     await expect(loadSchoolSession("alliance")).rejects.toMatchObject({ code: "internal_error" });
     expect(store.get()).not.toBeNull();
+  });
+
+  it("reads a tenant slug on the API through the permission-checked tenant endpoint", async () => {
+    boot({ [`GET /v1/tenants/${SCHOOL}`]: { body: tenant() } });
+    expect(await fetchTenantSlug(SCHOOL)).toBe("alliance");
+    expect(api.callsTo(`GET /v1/tenants/${SCHOOL}`)[0]?.headers["x-tenant-id"]).toBe(SCHOOL);
   });
 });
 

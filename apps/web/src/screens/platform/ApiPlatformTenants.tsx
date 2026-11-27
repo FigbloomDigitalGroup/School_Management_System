@@ -1,17 +1,29 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   acceptInviteLink,
+  apiFetchPlatformInvoices,
   apiFetchPlatformSchoolAdmins,
   apiFetchPlatformSchools,
+  apiFetchPlatformSubscriptions,
+  apiFetchPlatformUsage,
   apiProvisionSchool,
+  formatMoney,
   formatShortDate,
   normalizeSlug,
+  platformCapabilities,
+  platformInvoiceBalances,
   suggestSlug,
   tenantPath,
+  today,
   userMessage,
   validateSlug,
   type Organization,
+  type PlatformBillingInvoice,
+  type PlatformInvoiceBalance,
+  type PlatformPlanCode,
   type PlatformSchoolItem,
+  type PlatformSubscriptionsData,
+  type PlatformUsageSummary,
   type ProvisionSchoolResult,
   type TenantStatus,
 } from "@figbloom/shared";
@@ -47,6 +59,31 @@ const ORG_STATUS_TONE: Record<Organization["status"], Tone> = {
   rejected: "warn",
 };
 
+const PLAN_LABEL: Record<PlatformPlanCode, string> = { standard: "Standard", institution: "Institution", county: "County" };
+
+/** One figures read: what it gave, whether it is still coming, and why it failed. Each read stands alone, so one failing leaves the others. */
+interface FigureRead<T> {
+  data: T | null;
+  loading: boolean;
+  error: Error | null;
+}
+
+/** The three platform reads behind a school's headcounts and billing (`platformCapabilities().tenantFiguresAndBilling`). */
+interface SchoolFigures {
+  usage: FigureRead<PlatformUsageSummary>;
+  subscriptions: FigureRead<PlatformSubscriptionsData>;
+  invoices: FigureRead<PlatformBillingInvoice[]>;
+  /** Worked out from the invoices at the time they were read; null until they are. */
+  balances: Map<string, PlatformInvoiceBalance> | null;
+}
+
+/** "20 Dec" for a timestamp, in Nairobi's day (the platform's own: `today()` and invoice due dates are Nairobi dates too). */
+function shortDateInNairobi(timestamp: string): string {
+  const at = new Date(timestamp);
+  if (!Number.isFinite(at.getTime())) return "Not set";
+  return at.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Nairobi" });
+}
+
 function schoolNeedsAttention(status: TenantStatus): boolean {
   return status === "overdue" || status === "suspended" || status === "setup_stalled";
 }
@@ -58,13 +95,21 @@ function initials(name: string): string {
 /**
  * Platform Tenants screen on the new API (slice P2 of apps/api/docs/PLATFORM-CONSOLE.md).
  *
- * Shows only real directory data from `GET /v1/platform/schools` (no invented MRR, seats, DAU or adoption charts)
- * and onboards new schools through `POST /v1/platform/schools` (re-auth prompted automatically by ApiSessionGuard).
+ * Shows only real data (no invented MRR, seats, DAU or adoption charts): the directory from `GET /v1/platform/schools`, and,
+ * on each school, its headcounts, plan and Figbloom invoice balance from the usage, subscriptions and invoices reads (W0.6).
+ * It onboards new schools through `POST /v1/platform/schools` (re-auth prompted automatically by ApiSessionGuard).
  */
 export function ApiPlatformTenants() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { data: schools, loading: fetching, error } = useAsync(() => apiFetchPlatformSchools(), [refreshKey]);
   const loading = fetching && !schools;
+  // Money and headcounts are read fresh each time (no remembered copy), and a failed read is reported in its own section.
+  const showFigures = platformCapabilities().tenantFiguresAndBilling;
+  const usage = useAsync(() => (showFigures ? apiFetchPlatformUsage() : Promise.resolve(null)), [showFigures, refreshKey], { cache: false });
+  const subscriptions = useAsync(() => (showFigures ? apiFetchPlatformSubscriptions() : Promise.resolve(null)), [showFigures, refreshKey], { cache: false });
+  const invoices = useAsync(() => (showFigures ? apiFetchPlatformInvoices() : Promise.resolve(null)), [showFigures, refreshKey], { cache: false });
+  const balances = useMemo(() => (invoices.data ? platformInvoiceBalances(invoices.data, today()) : null), [invoices.data]);
+  const figures: SchoolFigures | null = showFigures ? { usage, subscriptions, invoices, balances } : null;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("All");
   const [query, setQuery] = useState("");
@@ -221,7 +266,7 @@ export function ApiPlatformTenants() {
 
           <div className="min-w-0 flex-1 overflow-auto">
             {selected ? (
-              <SchoolDetail school={selected} />
+              <SchoolDetail school={selected} figures={figures} />
             ) : (
               !loading && (
                 <EmptyState
@@ -248,7 +293,118 @@ export function ApiPlatformTenants() {
   );
 }
 
-function SchoolDetail({ school }: { school: PlatformSchoolItem }) {
+/** A section's own failure line: the other sections of the page are unaffected. */
+function FigureError({ what, error }: { what: string; error: Error }) {
+  return <p className="mt-2 text-small text-warn-ink">Could not load {what}: {userMessage(error)}</p>;
+}
+
+function Figure({ label, value, sub, alarming }: { label: string; value: string; sub?: string; alarming?: boolean }) {
+  return (
+    <div>
+      <dt className="text-[11.5px] text-ink-faint">{label}</dt>
+      <dd className={`mt-0.5 font-mono text-[15px] font-semibold ${alarming ? "text-warn-ink" : "text-ink"}`}>{value}</dd>
+      {sub && <div className="mt-0.5 text-[11.5px] text-ink-muted">{sub}</div>}
+    </div>
+  );
+}
+
+/** Active learners, staff and guardian links for one school: counts only, from `GET /v1/platform/usage`. */
+function HeadcountsSection({ schoolId, usage }: { schoolId: string; usage: FigureRead<PlatformUsageSummary> }) {
+  const row = usage.data?.items.find((i) => i.tenantId === schoolId) ?? null;
+  return (
+    <section className="rounded-lg border border-line bg-white p-4" aria-label="Headcounts">
+      <div className="font-mono text-micro uppercase tracking-[0.1em] text-ink-faint">Headcounts</div>
+      {usage.error ? (
+        <FigureError what="headcounts" error={usage.error} />
+      ) : usage.loading && !usage.data ? (
+        <Skeleton className="mt-3 h-12 w-full" />
+      ) : row ? (
+        <>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+            <Figure label="Active learners" value={row.activeLearners.toLocaleString()} />
+            <Figure label="Active staff" value={row.activeStaff.toLocaleString()} sub="admins, teachers, drivers and other staff" />
+            <Figure label="Guardian links" value={row.activeGuardianLinks.toLocaleString()} sub="to active learners" />
+          </dl>
+          <p className="mt-3 text-[11.5px] text-ink-faint">Counts only; no names or personal data are read.</p>
+        </>
+      ) : (
+        <p className="mt-2 text-small text-ink-muted">No headcount has been taken for this school yet.</p>
+      )}
+    </section>
+  );
+}
+
+/** The school's plan and renewal, and what it owes Figbloom: `GET /v1/platform/subscriptions` and `GET /v1/platform/invoices`. */
+function BillingSection({ schoolId, figures }: { schoolId: string; figures: SchoolFigures }) {
+  const { subscriptions, invoices, balances } = figures;
+  const sub = subscriptions.data?.items.find((s) => s.tenantId === schoolId) ?? null;
+  const listPrice = sub ? subscriptions.data?.pricing.find((p) => p.plan === sub.plan)?.priceCents : undefined;
+  const effectivePrice = sub ? sub.priceCentsOverride ?? listPrice : undefined;
+  const balance = balances?.get(schoolId) ?? null;
+  // A school on trial has a trial end; any other has a renewal date. Either can be unset (then it says so).
+  const term = !sub
+    ? null
+    : sub.status === "trial"
+      ? { label: "Trial ends", value: sub.trialEndsAt ? shortDateInNairobi(sub.trialEndsAt) : "Not set" }
+      : { label: "Renews", value: sub.renewsOn ? formatShortDate(sub.renewsOn) : "Not set" };
+  return (
+    <section className="rounded-lg border border-line bg-white p-4" aria-label="Billing">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-mono text-micro uppercase tracking-[0.1em] text-ink-faint">Billing</div>
+        <span className="text-[11.5px] text-ink-faint">Invoices are marked paid by hand on the Invoices page.</span>
+      </div>
+
+      {subscriptions.error ? (
+        <FigureError what="the plan" error={subscriptions.error} />
+      ) : subscriptions.loading && !subscriptions.data ? (
+        <Skeleton className="mt-3 h-12 w-full" />
+      ) : sub ? (
+        <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+          <Figure label="Plan" value={PLAN_LABEL[sub.plan]} />
+          <Figure
+            label="Price"
+            value={effectivePrice === undefined ? "Not configured" : formatMoney(effectivePrice, "KE")}
+            sub={effectivePrice === undefined ? "set on the Subscriptions page" : sub.priceCentsOverride !== null ? "this school's own price" : "the plan's list price"}
+          />
+          {term && <Figure label={term.label} value={term.value} />}
+        </dl>
+      ) : (
+        <p className="mt-2 text-small text-ink-muted">No subscription is recorded for this school.</p>
+      )}
+
+      <div className="mt-4 border-t border-line-soft pt-3">
+        {invoices.error ? (
+          <FigureError what="invoices" error={invoices.error} />
+        ) : invoices.loading && !invoices.data ? (
+          <Skeleton className="h-12 w-full" />
+        ) : !balance ? (
+          <p className="text-small text-ink-muted">No invoice has been raised for this school.</p>
+        ) : (
+          <dl className="grid gap-3 sm:grid-cols-3">
+            <Figure
+              label="Owed to Figbloom"
+              value={formatMoney(balance.dueCents, "KE")}
+              sub={balance.dueCount === 0 ? "nothing unpaid" : `${balance.dueCount} unpaid invoice${balance.dueCount === 1 ? "" : "s"}`}
+            />
+            <Figure
+              label="Overdue"
+              value={formatMoney(balance.overdueCents, "KE")}
+              sub={balance.overdueCount === 0 ? "none past due" : `${balance.overdueCount} past the due date`}
+              alarming={balance.overdueCount > 0}
+            />
+            <Figure
+              label={balance.nextDueDate ? "Earliest due date" : "Last paid"}
+              value={balance.nextDueDate ? formatShortDate(balance.nextDueDate) : balance.lastPaidAt ? shortDateInNairobi(balance.lastPaidAt) : "Never"}
+              sub={`${balance.paidCount} paid invoice${balance.paidCount === 1 ? "" : "s"}`}
+            />
+          </dl>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SchoolDetail({ school, figures }: { school: PlatformSchoolItem; figures: SchoolFigures | null }) {
   const { data: admins, loading: adminsLoading, error: adminsError } = useAsync(
     () => apiFetchPlatformSchoolAdmins(school.id),
     [school.id],
@@ -267,7 +423,7 @@ function SchoolDetail({ school }: { school: PlatformSchoolItem }) {
                 <Badge tone={STATUS_TONE[school.status]}>{STATUS_LABEL[school.status]}</Badge>
               </div>
               <div className="mt-1 break-words font-mono text-[11.5px] text-ink-muted">
-                {tenantPath(school.slug)} · {school.timezone} · created {formatShortDate(school.createdAt)}
+                {tenantPath(school.slug)} · {school.timezone} · created {shortDateInNairobi(school.createdAt)}
               </div>
             </div>
           </div>
@@ -317,10 +473,13 @@ function SchoolDetail({ school }: { school: PlatformSchoolItem }) {
             </div>
             <div>
               <dt className="text-[11.5px] text-ink-faint">Created</dt>
-              <dd className="mt-0.5 font-mono text-[12px] text-ink">{formatShortDate(school.createdAt)}</dd>
+              <dd className="mt-0.5 font-mono text-[12px] text-ink">{shortDateInNairobi(school.createdAt)}</dd>
             </div>
           </dl>
         </section>
+
+        {figures && <HeadcountsSection schoolId={school.id} usage={figures.usage} />}
+        {figures && <BillingSection schoolId={school.id} figures={figures} />}
 
         <section className="rounded-lg border border-line bg-white p-4" aria-label="HR & Payroll">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -330,7 +489,7 @@ function SchoolDetail({ school }: { school: PlatformSchoolItem }) {
           {school.hrRequestedAt ? (
             <>
               <p className="mt-2 text-small text-ink">
-                This school asked Figbloom for HR &amp; Payroll on {formatShortDate(school.hrRequestedAt)}. Switch HR on for it in the platform, then it can open HR from its menu.
+                This school asked Figbloom for HR &amp; Payroll on {shortDateInNairobi(school.hrRequestedAt)}. Switch HR on for it in the platform, then it can open HR from its menu.
               </p>
               {school.hrRequestedBy && (
                 <p className="mt-1 font-mono text-[11.5px] text-ink-muted">Asked by account {school.hrRequestedBy}</p>
@@ -366,7 +525,7 @@ function SchoolDetail({ school }: { school: PlatformSchoolItem }) {
                     <div className="font-mono text-[11.5px] text-ink-muted">{a.email ?? "No email"}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-ink-faint">since {formatShortDate(a.since)}</span>
+                    <span className="font-mono text-[11px] text-ink-faint">since {shortDateInNairobi(a.since)}</span>
                     <Badge tone={a.status === "active" ? "ok" : "muted"}>{a.status}</Badge>
                   </div>
                 </li>
@@ -482,7 +641,7 @@ function ProvisionSchoolModal({
             <div className="mt-1">
               <span className="font-medium">Invitation delivery:</span>{" "}
               {result.res.invitation.delivery === "sent"
-                ? `Emailed (expires ${formatShortDate(result.res.invitation.expiresAt)}).`
+                ? `Emailed (expires ${shortDateInNairobi(result.res.invitation.expiresAt)}).`
                 : "Email delivery is not configured on this server — share the one-time link below."}
             </div>
           </div>
@@ -491,7 +650,7 @@ function ProvisionSchoolModal({
             <OneTimeValue
               label="Invitation link"
               value={acceptInviteLink(window.location.origin, result.res.invitation.token)}
-              note={`Works once, expires ${formatShortDate(result.res.invitation.expiresAt)}. Shown only now.`}
+              note={`Works once, expires ${shortDateInNairobi(result.res.invitation.expiresAt)}. Shown only now.`}
             />
           )}
 

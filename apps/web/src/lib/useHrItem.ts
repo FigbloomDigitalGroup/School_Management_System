@@ -5,7 +5,7 @@ import type { Session } from "./useSession";
 import { openHrLaunchTab } from "./hrLaunch";
 import type { ShellAction } from "../components/ConsoleShell";
 
-type HrSession = Pick<Session, "profile" | "tenant" | "adminAreas" | "actingForTenant">;
+type HrSession = Pick<Session, "profile" | "tenant" | "adminAreas" | "actingForTenant" | "delegatedOrgConsole">;
 
 /** The last answer per person and school, so moving between pages (each mounts its shell again) doesn't ask every time. */
 const CACHE_MS = 60_000;
@@ -37,7 +37,7 @@ export interface HrStatusState {
  */
 export function useHrStatus(session: HrSession): HrStatusState {
   const tenantId = session.tenant?.id ?? null;
-  const eligible = !!session.profile && !!tenantId && mayOfferHr(session.profile.role, session.adminAreas, session.actingForTenant);
+  const eligible = !!session.profile && !!tenantId && mayOfferHr(session.profile.role, session.adminAreas, session.actingForTenant, session.delegatedOrgConsole);
   const key = eligible && session.profile ? `${session.profile.id}:${tenantId}` : null;
   const [status, setStatus] = useState<HrStatus | null>(() => freshAnswer(key));
   const [failed, setFailed] = useState(false);

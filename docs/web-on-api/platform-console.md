@@ -51,6 +51,15 @@ Unblocked slices (**P1–P6**) are implemented. Remaining platform console work 
   - Lists all schools from `GET /v1/platform/schools` (keyset-paginated, `tenantId: null`) with search and status filters.
   - Shows only real directory fields (name, slug, status, timezone, created date, organisation name/slug/kind/status) — no
     invented MRR, seat counts, DAU or role-adoption charts (Risk R6).
+  - **Headcounts and Billing on each school (W0.6, `platformCapabilities().tenantFiguresAndBilling`).** *Headcounts*: active
+    learners, active staff and guardian links from `GET /v1/platform/usage` (counts only). *Billing*: the school's plan, its
+    price (its own override, else the plan's list price, else "Not configured"), and its trial end or renewal date from
+    `GET /v1/platform/subscriptions`; and what it owes from `GET /v1/platform/invoices`: the unpaid total and count, the
+    overdue part (an unpaid invoice whose due date is before today in Nairobi: the API has only `due` and `paid`, so overdue
+    is worked out in `platformInvoiceBalances`), the earliest unpaid due date (or the last payment when nothing is owed) and
+    how many invoices are paid. A school with no invoice says "No invoice has been raised", not a zero balance. The three
+    reads are independent: when one fails its own part says "Could not load ...", and the rest of the page is unaffected.
+    They are read fresh each time (no remembered copy) and again after a school is onboarded.
   - **+ Onboard** modal calls `POST /v1/platform/schools` (automatic password re-auth prompt when needed) and either confirms
     email delivery or shows the one-time acceptance link (`OneTimeValue` + `acceptInviteLink`) when email delivery is not configured.
 - **`platform/health` (`apps/web/src/screens/platform/ApiPlatformHealth.tsx`)**:
@@ -63,7 +72,7 @@ Unblocked slices (**P1–P6**) are implemented. Remaining platform console work 
 |---|---|
 | `platform/organizations` | **P3**: needs `GET /v1/platform/organizations` + `/{id}` (`platform.organizations.read`, migration); **Q1 answered 2026-11-26: this API's console owns lifecycle**, so approve and reject come with sign-up (slice S6) and suspend and reactivate later. API schools in `console.figbloom.org` need that console's contract |
 | School admins panel on `platform/tenants` | **P3**: needs `GET /v1/platform/schools/{tenantId}/admins` (`platform.tenants.admins.read`, read-audited) |
-| `platform/usage` & per-school headcounts | **P4**: needs counts-only owner function (`GET /v1/platform/usage`, `platform.usage.read`); seats wait on Q2 |
+| MRR and learner seats on `platform/tenants` (`tenantMrrAndSeats`, split from `tenantFiguresAndBilling` in W0.6) | **Hidden by decision, not by a missing read.** Q2 (2026-11-25) gave Figbloom's billing to the API but says not to invent MRR or seat counts: no plan has a seat count, and revenue worked out from list prices and trials would be an estimate shown as a fact. It returns only if the owner defines seats and what MRR counts |
 | `platform/audit` | **P5**: needs platform-wide audit read (`platform.audit.read`) reusing migration 106's allowlist; retention waits on Q5 |
 | Suspend / reactivate / move organisation | **Q1** (and Risk R5 for org-delegation FK when moving schools) |
 | `platform/impersonation` | **Closed by decision (Q3 answered 2026-11-25: no impersonation).** Hidden for good. The page was an empty log (nothing ever wrote to it). Still open as a separate question: a super admin can act inside any school with full powers and no record the school can read |
@@ -71,6 +80,29 @@ Unblocked slices (**P1–P6**) are implemented. Remaining platform console work 
 | `platform/curriculum` | **Closed by decision (Q6 answered 2026-11-25: each school verifies its own catalogue, as the API already works).** Hidden for good; there is no platform-wide catalogue to show |
 | Live external provider checks on `platform/health` | **Q7** (worker/queue ops status is shown today) |
 | Super-admin + org-admin dual accounts | **Q8** (Risk R4) |
+
+## W0.6, platform half: notes and what was checked
+
+Roadmap slice W0.6 (`docs/handoffs/HIDDEN-CONTROLS-ROADMAP.md`) names two controls: `Platform.tenantFiguresAndBilling` (this
+file) and `Org.openSchoolConsole` ([`org-console.md`](org-console.md)). They are separate pieces of work and separate PRs; the
+organisation half is not in this PR (finding org-5: the API build's school session has no org admin inside a school).
+
+- **No endpoint or database change.** The three reads existed (P4, S6a, S6c). The flag was read by no screen, so the work is the
+  screen: two sections on the school detail, one pure helper (`platformInvoiceBalances`, unit-tested) and the flag.
+- **The flag was split.** Its old comment bundled MRR, seats, headcounts and invoice balances. `tenantFiguresAndBilling` now means
+  the three real reads above (on); `tenantMrrAndSeats` is new and stays off on the API build for the reason in the table. Both are
+  on for Supabase, whose own Tenants screen does not read either flag.
+- **Fixed on the way: "Invalid Date" on this screen.** Six places passed an ISO timestamp (`createdAt` twice, `hrRequestedAt`, an
+  administrator's `since`, an invitation's `expiresAt` twice) to `formatShortDate`, which wants a date-only string, so the school
+  header said "created Invalid Date" and the one-time-link modal said "expires Invalid Date". They now use one local helper that
+  formats a timestamp as a Nairobi day.
+- **Checked** (throwaway API, migrations to 125, seeded Alliance and a second school, Edge in a browser, 23 of 23 checks): headcounts equal
+  what `GET /v1/platform/usage` sent the page; the owed, overdue, earliest-due and paid figures equal the `platform_invoices` rows
+  read straight from the database (two unpaid, KSh 5,000, one overdue KSh 2,500, one paid); a trial school with its own price and no
+  invoice; each of the invoices and usage reads forced to fail in turn left the other parts of the page standing; no MRR or seats
+  text on the page; `usage`, `invoices` and `subscriptions` still open.
+- **Not checked:** the Supabase build (its Tenants screen is a different component this PR does not touch); a platform with many
+  schools (the three reads page through everything, as the Subscriptions and Invoices pages already do); narrow screens.
 
 ## Where the code is
 

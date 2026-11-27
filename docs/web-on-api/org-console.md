@@ -21,6 +21,11 @@ may do is `apps/api/docs/ORG-ADMIN-POLICY.md`.
   (`delegatedPermissions` of `GET /v1/rbac/permissions` with the school), giving another admin of the organisation access
   (`POST /v1/rbac/org-delegations`) and taking all of their access away (`DELETE`). Both changes ask for the password again
   (the session guard's prompt, `reauth_required`).
+- **Delegated school console:** the Open school console button appears only when the signed-in admin holds `tenant.read` in
+  that school. The API session finds the school through the caller's own organizations, rechecks the tenant record, and
+  loads only delegated `area.*` permissions. The shell shows an organization banner and an exit link; the API still checks
+  every screen request. With no delegated areas, the admin gets the school overview and no admin pages. School-profile
+  fields stay hidden when the delegate cannot read them, and the HR handoff is offered only to a delegate with `area.fees`.
 - **Admins:** the organisation's admins, with "(you)" on the signed-in person (`GET /v1/org/organizations/{id}/admins`).
 - **Audit log:** the signed-in admin's own recorded actions in the organisation and its schools, the latest 200
   (`GET /v1/org/organizations/{id}/audit-events`), with the school's name.
@@ -38,7 +43,6 @@ may do is `apps/api/docs/ORG-ADMIN-POLICY.md`.
 | "+ Add school", and adding a school's first administrator | School provisioning is a super-admin act on the API (`POST /v1/platform/schools`) |
 | "Open for sign-in" | On the API a school opens when its first administrator accepts the invitation |
 | A school's own administrators on its page | A school-level read an org admin does not hold |
-| "Open school console" | The API build's school session does not yet handle an org admin inside a school (org-5) |
 | "+ Invite admin", and removing an admin | Owner decisions 1 and 2: who may add or remove an org admin (org-2) |
 | Other admins' actions in the Audit log, and the page-view log | Owner decision 3; the API records actions, not page views (org-4). `logOrganizationAccess` and `fetchTenantOrgAccessLog` throw `NotOnApiError` |
 | What another admin holds in a school | Listing delegations by org admins is still open in the policy (org-3) |
@@ -50,6 +54,8 @@ On the API the numeric fields of an `OrganizationTenantSummary` are 0 and never 
 
 - `packages/shared/src/api/orgApi.ts`: the API side of `organizations.ts` (organisations, schools, admins, own audit), of
   `session.ts` `loadOrgSession` and `loadMyWorkspaces`, the post-sign-in path for org admins, and the school-access calls.
+- `packages/shared/src/api/sessionApi.ts`: finds an org school by slug only inside the caller's organizations and enables
+  the limited school session only when `tenant.read` is delegated.
 - `apps/web/src/api/ApiOrg.tsx` (shell, gate, on-hold page) and `ApiOrgRoutes.tsx` (the two routes, lazy; one line in
   `ApiApp.tsx`).
 - `apps/web/src/screens/org/SchoolAccessPanel.tsx`: Access in this school (API build only).
@@ -68,8 +74,8 @@ On the API the numeric fields of an `OrganizationTenantSummary` are 0 and never 
   "take away all access" per person.
 - **org-4. The audit read is the caller's own actions only** (owner decision 3). There is no page-view log on the API, and a
   member school cannot see its organisation's visits (the Supabase `organization_access_log` had both).
-- **org-5. An org admin cannot open a school's console on the API build** even with delegated access: the web's
-  `apiLoadSchoolSession` finds a school only through the person's own school memberships. Web work, not API work; it needs
-  the API's school record and the delegated areas for a school the person is not a member of.
+- **org-5. Resolved in W0.6:** the web finds a school through the org admin's own organization list, requires delegated
+  `tenant.read`, and limits the console to delegated `area.*` permissions. Every server request rechecks the delegation;
+  the client permission list only controls navigation and presentation.
 - **org-6. `rbac.school_roles.manage` is delegable but gives nothing** (no API route uses it; `ORG-ADMIN-POLICY.md`, "School
   roles"). It is left out of the access picker.

@@ -115,9 +115,10 @@ export function mayHoldAdminAreas(role: Role): boolean {
 /** "all" for a full admin, otherwise the areas held (possibly none). */
 export type AdminAccess = "all" | readonly AdminArea[];
 
-/** Full admins see everything; a teacher or other staff member sees their areas; nobody else has any. */
-export function adminAccessFor(role: Role, areas: readonly AdminArea[], actingForTenant = false): AdminAccess {
-  if (actingForTenant || role === "school_admin" || role === "super_admin" || role === "org_admin") return "all";
+/** Full admins see everything; a delegated org admin on the API sees only the delegated areas. */
+export function adminAccessFor(role: Role, areas: readonly AdminArea[], actingForTenant = false, delegatedOrgConsole = false): AdminAccess {
+  if (delegatedOrgConsole) return sortAreas(areas);
+  if (actingForTenant || role === "school_admin" || role === "super_admin") return "all";
   return mayHoldAdminAreas(role) ? sortAreas(areas) : [];
 }
 

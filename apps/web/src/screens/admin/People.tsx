@@ -54,9 +54,9 @@ const DOC_TYPES: { value: string; label: string }[] = [
  */
 export function People() {
   const toast = useToast();
-  const { profile, tenant, adminAreas, actingForTenant } = useTenantSession();
+  const { profile, tenant, adminAreas, actingForTenant, delegatedOrgConsole } = useTenantSession();
   // Admin access (20261031000000) is managed by full admins only; someone here through the people area manages records, not access.
-  const myAccess = adminAccessFor(profile.role, adminAreas, actingForTenant);
+  const myAccess = adminAccessFor(profile.role, adminAreas, actingForTenant, delegatedOrgConsole);
   const fullAdmin = myAccess === "all";
   const apiBuild = onApi();
   // API-backed People controls are gated by the shared capability flags and the viewer's area permissions.

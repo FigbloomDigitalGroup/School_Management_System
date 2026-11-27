@@ -563,6 +563,48 @@ export async function apiMarkPlatformInvoicePaid(invoiceId: string): Promise<boo
   return res.changed;
 }
 
+/**
+ * What one school owes Figbloom and has paid, worked out from the invoices read (W0.6). The API has two invoice states, `due`
+ * and `paid`: a `due` invoice whose due date is before `today` is overdue here, not in the database, and nothing about it
+ * changes the school's status (owner decision Q2: overdue invoices do not suspend a school).
+ */
+export interface PlatformInvoiceBalance {
+  /** Unpaid invoices and what they add up to, overdue ones included. */
+  dueCount: number;
+  dueCents: number;
+  /** The unpaid ones whose due date has passed. */
+  overdueCount: number;
+  overdueCents: number;
+  /** The earliest due date among the unpaid ones, or null when nothing is owed. */
+  nextDueDate: string | null;
+  paidCount: number;
+  /** The latest time an invoice was marked paid, or null when none has been. */
+  lastPaidAt: string | null;
+}
+
+/** Each school's balance, keyed by school id. A school with no invoice has no entry: read it as "nothing billed yet". */
+export function platformInvoiceBalances(invoices: readonly PlatformBillingInvoice[], today: string): Map<string, PlatformInvoiceBalance> {
+  const byTenant = new Map<string, PlatformInvoiceBalance>();
+  for (const invoice of invoices) {
+    const balance = byTenant.get(invoice.tenantId)
+      ?? { dueCount: 0, dueCents: 0, overdueCount: 0, overdueCents: 0, nextDueDate: null, paidCount: 0, lastPaidAt: null };
+    if (invoice.status === "paid") {
+      balance.paidCount += 1;
+      if (invoice.paidAt && (!balance.lastPaidAt || invoice.paidAt > balance.lastPaidAt)) balance.lastPaidAt = invoice.paidAt;
+    } else {
+      balance.dueCount += 1;
+      balance.dueCents += invoice.amountCents;
+      if (invoice.dueDate < today) {
+        balance.overdueCount += 1;
+        balance.overdueCents += invoice.amountCents;
+      }
+      if (!balance.nextDueDate || invoice.dueDate < balance.nextDueDate) balance.nextDueDate = invoice.dueDate;
+    }
+    byTenant.set(invoice.tenantId, balance);
+  }
+  return byTenant;
+}
+
 // ---------------------------------------------------------------- provisioning (POST /v1/platform/schools)
 
 export interface ProvisionSchoolInput {
