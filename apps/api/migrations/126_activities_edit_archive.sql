@@ -1,5 +1,5 @@
 -- Activities: details, closure, association management and non-destructive archive (W1.4, docs/ACTIVITIES.md).
--- Migration 056 tables and constraints remain unchanged; no delete privilege is added on activities.
+-- Forward-only. Migrations 001-125 are not edited. Migration 056 tables and constraints remain unchanged; no delete privilege is added on activities.
 
 ALTER TABLE activities ADD COLUMN archived_at timestamptz;
 
