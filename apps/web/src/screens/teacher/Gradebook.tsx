@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  ABSENCE_LABEL, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchGradesAccess, fetchMarkAbsences, fetchMarksForExamSubject, fetchPublishedSubjects,
+  ABSENCE_LABEL, correctPublishedMark, fetchClassRoster, fetchCurrentTerm, fetchExamsForTerm, fetchGradesAccess, fetchMarkAbsences, fetchMarksForExamSubject, fetchPublishedSubjects,
   fetchTeacherClasses, fetchTeacherSubjectsForClass, GRADE_INK, gradeFor, gradesCapabilities, gradingSchemeFor, parseScoreInput, publishMarks, saveExamMarks,
   summarise, unpublishMarks, type MarkAbsence,
 } from "@figbloom/shared";
@@ -14,6 +14,8 @@ import { useAsync } from "../../lib/useAsync";
 import { useTenantSession } from "../../lib/sessionContext";
 import { Skeleton, TableSkeleton } from "../../components/ui/Skeleton";
 import { confirmDialog } from "../../components/ui/Confirm";
+import { Modal } from "../../components/ui/Modal";
+import { TextArea, TextField } from "../../components/ui/Field";
 
 /**
  * Bulk entry, keyboard first. A teacher entering 40 marks should never touch
@@ -38,6 +40,8 @@ export function Gradebook() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [scores, setScores] = useState<Record<string, string>>({});
   const [marksVersion, setMarksVersion] = useState(0);
+  const [correction, setCorrection] = useState<{ learnerId: string; learnerName: string; score: string; reason: string } | null>(null);
+  const [correctionSaving, setCorrectionSaving] = useState(false);
 
   // "My classes" links here with ?class=<id> so the shortcut lands on the right class.
   useEffect(() => {
@@ -123,8 +127,9 @@ export function Gradebook() {
   const outOf = exam?.out_of ?? 100;
   const scoreOptions = { decimals: caps.fractionalMarks };
   const toPercent = (n: number) => (outOf === 100 ? n : Math.round((n * 1000) / outOf) / 10);
-  // Published marks are final on the new system: the boxes are read-only and the office records a correction instead.
-  const locked = isPublished && !caps.editPublishedMarks;
+  // API published marks stay read-only in the grid: edits go through a reasoned, append-only correction.
+  const locked = isPublished && (!caps.editPublishedMarks || caps.recordPublishedMarkCorrections);
+  const mayCorrectPublished = isPublished && caps.recordPublishedMarkCorrections && access?.publish === true;
   const mayPublish = access?.publish !== false;
 
   const value = (id: string) => {
@@ -166,6 +171,37 @@ export function Gradebook() {
     const el = document.querySelector<HTMLInputElement>(`[data-row="${i + 1}"]`);
     el?.focus();
     el?.select();
+  }
+
+  function startCorrection(learnerId: string, learnerName: string) {
+    const current = existingMarks[learnerId];
+    setCorrection({ learnerId, learnerName, score: current === null || current === undefined ? "" : String(current), reason: "" });
+  }
+
+  async function saveCorrection() {
+    if (!correction || !examId || !subjectId || !classId) return;
+    const parsed = parseScoreInput(correction.score, outOf, scoreOptions);
+    if (!parsed.ok || parsed.score === null) return;
+    const reason = correction.reason.trim();
+    if (reason.length < 5 || reason.length > 500) return;
+    setCorrectionSaving(true);
+    try {
+      await correctPublishedMark({ examId, classId, subjectId, learnerId: correction.learnerId, score: parsed.score, reason });
+    } catch (err) {
+      toast(`Could not correct the mark: ${err instanceof Error ? err.message : String(err)}`, "error");
+      setCorrectionSaving(false);
+      return;
+    }
+    const key = `${classId}|${examId}|${subjectId}|${correction.learnerId}`;
+    setScores((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setCorrectionSaving(false);
+    setCorrection(null);
+    setMarksVersion((v) => v + 1);
+    toast(`${correction.learnerName}'s mark was corrected. The reason is recorded.`);
   }
 
   function buildMarkRows() {
@@ -339,7 +375,9 @@ export function Gradebook() {
           )}
           {locked && (
             <p className="mb-3 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[12.5px] text-ink-muted">
-              These marks are published, and published marks are final on the new system. To correct one, ask the school office.
+              {caps.recordPublishedMarkCorrections
+                ? "Published marks are read-only here. Use Correct beside a mark to record a change and its reason."
+                : "These marks are published, and published marks are final on the new system. To correct one, ask the school office."}
             </p>
           )}
           {!mayPublish && !isPublished && (
@@ -381,6 +419,7 @@ export function Gradebook() {
                       className="w-[92px] rounded-md border px-2.5 py-1.5 font-mono text-[13px] outline-none focus:border-forest"
                       style={{ borderColor: err ? "#B8460A" : "#D3DAD5" }}
                     />
+                    {mayCorrectPublished && <Button className="mt-1 px-2 py-1 text-[11px]" onClick={() => startCorrection(s.id, s.full_name)}>Correct</Button>}
                     {err && <div className="mt-1 text-[11px] text-warn-ink">{err}</div>}
                   </div>
                   <div className="font-mono text-[14px] font-medium" style={{ color: grade ? GRADE_INK[grade] : "#9AA69E" }}>
@@ -402,9 +441,69 @@ export function Gradebook() {
           then only school staff can see the marks, so a mistyped mark never reaches a parent before you have checked the column.
           {caps.withdrawResults
             ? "If you spot a mistake afterwards, withdraw the results, correct them and publish again."
-            : "Published marks are final on the new system, so check the column before the office publishes it."}
+            : caps.recordPublishedMarkCorrections
+              ? "If you spot a mistake afterwards, use Correct beside the learner's mark and enter a reason. The API keeps an append-only correction history."
+              : "Published marks are final on the new system, so check the column before the office publishes it."}
         </p>
       </div>
+      <Modal
+        open={correction !== null}
+        onClose={() => { if (!correctionSaving) setCorrection(null); }}
+        eyebrow="Published mark correction"
+        title={correction ? `Correct ${correction.learnerName}'s mark` : "Correct a published mark"}
+        blurb="The new mark and your reason are kept in the correction history. Only staff with Academics write access can record one."
+        footNote="Reason required · 5–500 characters"
+        actions={(
+          <>
+            <Button disabled={correctionSaving} onClick={() => setCorrection(null)}>Cancel</Button>
+            <Button variant="primary" disabled={correctionSaving || !correction || !(() => {
+              const parsed = parseScoreInput(correction.score, outOf, scoreOptions);
+              const length = correction.reason.trim().length;
+              return parsed.ok && parsed.score !== null && length >= 5 && length <= 500;
+            })()} onClick={() => { void saveCorrection(); }}>
+              {correctionSaving ? "Recording…" : "Record correction"}
+            </Button>
+          </>
+        )}
+      >
+        {correction && (() => {
+          const parsed = parseScoreInput(correction.score, outOf, scoreOptions);
+          const current = existingMarks[correction.learnerId];
+          const sameMark = parsed.ok && parsed.score !== null && current !== null && current !== undefined && parsed.score === current;
+          const scoreError = correction.score.trim() === ""
+            ? "Enter the corrected mark."
+            : !parsed.ok ? parsed.message : sameMark ? "Enter a different mark to record a correction." : undefined;
+          const reasonLength = correction.reason.trim().length;
+          const reasonError = correction.reason.trim() && reasonLength < 5
+            ? "Give a reason with at least 5 characters."
+            : reasonLength > 500 ? "Keep the reason to 500 characters or fewer." : undefined;
+          return (
+            <div className="space-y-4">
+              <TextField
+                id="published-mark-correction-score"
+                label={`New mark (out of ${outOf})`}
+                type="number"
+                inputMode={caps.fractionalMarks ? "decimal" : "numeric"}
+                min={0}
+                max={outOf}
+                step={caps.fractionalMarks ? "any" : 1}
+                value={correction.score}
+                error={scoreError}
+                onChange={(event) => setCorrection({ ...correction, score: event.target.value })}
+              />
+              <TextArea
+                id="published-mark-correction-reason"
+                label="Reason for correction"
+                hint="This explanation is part of the permanent correction history."
+                error={reasonError || undefined}
+                maxLength={500}
+                value={correction.reason}
+                onChange={(event) => setCorrection({ ...correction, reason: event.target.value })}
+              />
+            </div>
+          );
+        })()}
+      </Modal>
     </>
   );
 }

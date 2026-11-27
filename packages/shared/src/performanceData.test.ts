@@ -111,7 +111,7 @@ describe("fetchCbeBandReport", () => {
       result("s1", "EE1", mathsNew), result("s2", "ME2", mathsNew), result("s3", "ME1", mathsNew),
     ] }));
     const [row] = await fetchCbeBandReport("t1", "term-3", "KE");
-    expect(row).toMatchObject({ key: "Grade 7 East:maths", className: "Grade 7 East", subjectName: "Mathematics", assessmentTitle: "Mathematics 2026-11-05", learners: 3 });
+    expect(row).toMatchObject({ key: "Grade 7 East:maths", className: "Grade 7 East", learningAreaName: "Mathematics", assessmentTitle: "Mathematics 2026-11-05", learners: 3 });
     // 8 levels fold into their band: EE1 is EE, ME2 and ME1 are ME
     expect(row!.counts).toEqual({ EE: 1, ME: 2, AE: 0, BE: 0 });
   });
@@ -150,7 +150,7 @@ describe("fetchCbeBandReport", () => {
       result("s1", "EE1", mathsNew), result("s1", "EE1", alphaMaths), result("s1", "EE1", english4), result("s1", "EE1", eastArt),
     ] }));
     const rows = await fetchCbeBandReport("t1", "term-3", "KE");
-    expect(rows.map((r) => `${r.className} / ${r.subjectName}`)).toEqual([
+    expect(rows.map((r) => `${r.className} / ${r.learningAreaName}`)).toEqual([
       "Grade 4 West / English", "Grade 7 Alpha / Mathematics", "Grade 7 East / Art", "Grade 7 East / Mathematics",
     ]);
   });
@@ -158,7 +158,7 @@ describe("fetchCbeBandReport", () => {
   it("names a class or learning area that is missing, and treats it as a primary class", async () => {
     fake(() => ({ data: [{ student_id: "s1", level_code: "EE", cbe_assessments: { id: "a9", title: "Check", assessed_on: "2026-11-01", class_id: "c9", subject_id: "x9", subjects: null, classes: null } }] }));
     const [row] = await fetchCbeBandReport("t1", "term-3", "KE");
-    expect(row).toMatchObject({ className: "Class", subjectName: "Learning area", assessmentTitle: "Check" });
+    expect(row).toMatchObject({ className: "Class", learningAreaName: "Learning area", assessmentTitle: "Check" });
     expect(row!.counts.EE).toBe(1);
   });
 

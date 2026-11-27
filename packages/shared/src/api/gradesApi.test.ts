@@ -5,7 +5,7 @@ import { actOnPapers, countPaperMarks, createExam, deleteExam, fetchExamSetPaper
 import { fetchMarkAbsences } from "../examExtensions";
 import { parseScoreInput } from "../grading";
 import {
-  fetchExamsForTerm, fetchGradesAccess, fetchMarksForExamSubject, fetchPublishedSubjects, fetchTeacherSubjectsForClass, publishMarks, saveExamMarks, unpublishMarks,
+  correctPublishedMark, fetchExamsForTerm, fetchGradesAccess, fetchMarksForExamSubject, fetchPublishedSubjects, fetchTeacherSubjectsForClass, publishMarks, saveExamMarks, unpublishMarks,
 } from "../teacherData";
 import { BASE, createFakeApi, type FakeApi, type FakeCall, type FakeReply, type FakeRoute } from "../testing/fakeApi";
 import { resetApiClient, setApiActiveTenant, setApiTokenStore } from "./client";
@@ -320,6 +320,37 @@ describe("the Gradebook", () => {
     await expect(saveExamMarks([row(L1, 5), row(L2, 6), row(L3, 7)], C1)).rejects.toThrow("Saved 2 of 3 marks (1 failed: The mark was updated by someone else)");
     boot(saveRoutes({ [`POST ${P}/assessments/${PAPER}/marks`]: refused("conflict", 409, "Marks of a published assessment are locked.") }));
     await expect(saveExamMarks([row(L1, 5)], C1)).rejects.toThrow("Marks of a published assessment are locked.");
+  });
+
+  it("records a published mark correction with the current version and a trimmed reason", async () => {
+    boot(saveRoutes({
+      [`POST ${P}/assessments/${PAPER}/mark-corrections`]: { status: 201, body: { correction: {}, mark: mark(L1, "12.5", 5) } },
+    }, [mark(L1, "10", 4)], "published"));
+    await correctPublishedMark({ examId: examIdOf(TERM, "Mock 1"), classId: C1, subjectId: S1, learnerId: L1, score: 12.5, reason: "  Checked against the source paper  " });
+    expect(api.callsTo(`POST ${P}/assessments/${PAPER}/mark-corrections`).map((call) => call.body)).toEqual([{
+      learner_id: L1, score: 12.5, reason: "Checked against the source paper", row_version: 4,
+    }]);
+  });
+
+  it("uses version zero for a first mark and refuses drafts, unchanged marks, invalid reasons and out-of-range scores", async () => {
+    boot(saveRoutes({ [`POST ${P}/assessments/${PAPER}/mark-corrections`]: { status: 201, body: { correction: {}, mark: mark(L1, "12") } } }, [], "closed"));
+    await correctPublishedMark({ examId: examIdOf(TERM, "Mock 1"), classId: C1, subjectId: S1, learnerId: L1, score: 12, reason: "First mark entered" });
+    expect(api.callsTo(`POST ${P}/assessments/${PAPER}/mark-corrections`)[0]!.body).toMatchObject({ row_version: 0 });
+
+    boot(saveRoutes({}, [mark(L1, "12", 3)], "published"));
+    const input = { examId: examIdOf(TERM, "Mock 1"), classId: C1, subjectId: S1, learnerId: L1, score: 12, reason: "Reviewed" };
+    await expect(correctPublishedMark(input)).rejects.toThrow(/different mark/);
+    await expect(correctPublishedMark({ ...input, score: 51, reason: "Valid reason" })).rejects.toThrow("This paper is out of 50.");
+    await expect(correctPublishedMark({ ...input, score: 13, reason: "No" })).rejects.toThrow(/5 and 500/);
+    boot(saveRoutes({}, [mark(L1, "12", 3)], "draft"));
+    await expect(correctPublishedMark({ ...input, score: 13, reason: "Valid reason" })).rejects.toThrow(/still a draft/);
+    expect(api.callsTo(`POST ${P}/assessments/${PAPER}/mark-corrections`)).toHaveLength(0);
+  });
+
+  it("explains that only Academics writers may correct marks", async () => {
+    boot(saveRoutes({ [`POST ${P}/assessments/${PAPER}/mark-corrections`]: refused("forbidden", 403) }, [mark(L1, "10", 2)], "published"));
+    await expect(correctPublishedMark({ examId: examIdOf(TERM, "Mock 1"), classId: C1, subjectId: S1, learnerId: L1, score: 11, reason: "Corrected after review" }))
+      .rejects.toThrow(/Academics write access/);
   });
 
   it("publishes the paper, and says in words that only the office may", async () => {

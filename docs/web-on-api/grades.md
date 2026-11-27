@@ -20,7 +20,10 @@ They are the Supabase app's own screens. The API side is `packages/shared/src/ap
   with different totals still compare.
 - **Publishing is final and is the Academics area's.** A teacher who is assigned the class and subject can save marks (a
   draft) but cannot publish; the school office publishes from the Exams page (the "Papers" window: publish or close one paper,
-  or all drafts). A published paper's marks are locked, so "Withdraw results" does not exist and the boxes are read-only.
+  or all drafts). A published paper stays read-only in the Gradebook. Staff with `resource.academics.write` can use **Correct**
+  beside a learner's mark, enter a 5–500 character reason, and send the mark's current `row_version` to
+  `/assessments/{assessmentId}/mark-corrections`. The API keeps the original and replacement score, actor, time and reason in an
+  append-only history; a missing mark starts at row version 0. "Withdraw results" remains unavailable.
 - **There is no "absent" mark.** `abs` saves nothing for that learner; a saved mark cannot be taken back to absent (the web
   refuses before writing anything).
 - **No bulk write.** Marks are sent four at a time; only marks that changed are sent (with the `row_version` they were read at);
@@ -50,10 +53,9 @@ Attendance page for a plain teacher (finding 23).
 |---|---|
 | Rename an exam; delete an exam | no change or delete for an assessment's title (the same missing PATCH and DELETE as classes and subjects) |
 | "Marks entered" on the Exams page | an assessment carries no mark count; the "Papers" window counts each paper's marks with one read each |
-| Withdraw results; change a published mark | publication is final; a correction (`/mark-corrections`, needs a reason, Academics writers) is not built in the web yet |
+| Withdraw results | publication is final; a published paper cannot be taken back to draft |
 | The CBE strand gradebook (the "Strand assessment" tab) | a subject has no learning area, so its strands cannot be found; CBE results are written by Academics writers only |
 | The higher-education gradebook | the API keeps one final grade for each enrolment (`/he-enrolments/{id}/grade`), not a section's assessments and marks; the screen shows a sentence |
-| The CBE rubric charts on Performance, the CBE table on Reports | the figures need the learning-area link above (the functions answer "none") |
 
 ## How the figures are worked out
 
@@ -66,6 +68,11 @@ Attendance page for a plain teacher (finding 23).
   page, counted by class), fees from the term's invoices joined to each active learner's class, and the class means from the
   marks of the latest exam to go out. A class mean uses published papers only (Supabase's counted any entered mark, FIG-1441).
   A big school waits longer than it did on Supabase (finding 25).
+- **CBE figures** (`performanceApi.ts`): the API lists CBE assessments with `classReadScope` applied before the web asks for
+  results. Performance reads published assessments and their paginated results once per assessment (six assessments at a time),
+  then groups learner judgements by month. Reports reads the latest published assessment per class and learning area for the
+  selected term, reads each selected assessment's results once, and folds strand levels into EE/ME/AE/BE bands. The report
+  needs Academics read for learning-area names; plain teachers only get the classes the API scopes to them.
 
 ## Things found in the API while doing this
 
@@ -89,6 +96,8 @@ Attendance page for a plain teacher (finding 23).
     mark count, and making one takes one request for each class and subject. A term-level exam record (name, total) that the
     assessments point to would give all of these, and let the web publish a whole exam in one call.
 27. **A subject has no learning area**, so a CBE assessment (`learning_area_id`) cannot be chosen from the subject a teacher
-    teaches, and the strands of a subject cannot be found. CBE results can be written only by Academics writers.
+    teaches, and the strands of a subject cannot be found. CBE results can be written only by Academics writers. W0.4 uses the
+    learning area already recorded on published CBE assessments for read-only charts and reports; it does not add the missing
+    subject-to-learning-area link or the CBE strand gradebook.
 28. **Higher education marks.** The API has one grade per enrolment and no section assessments with marks, so the course
     gradebook (`GpaGradebook`) has nothing to run on.

@@ -1,4 +1,4 @@
-import type { ClassOption } from "../performanceData";
+import type { CbeBand, CbeBandRow, ClassOption } from "../performanceData";
 import {
   learnerTrend, type ClassPerformanceRow, type LearnerHistoryRow, type LearnerMeanRow, type LearnerTrend,
 } from "../performance";
@@ -10,6 +10,8 @@ import { API_PAGE_LIMIT, listAllPages } from "./paging";
 import { settlePool } from "./pool";
 import type { components } from "./schema";
 import { classGroupFromApi, currentAcademicYear, listAcademicTerms, listApiSubjects, listClasses } from "./setupApi";
+import { rubricFor, summariseStrands } from "../gradingSchemes";
+import { yearSortKey } from "../levels";
 
 /**
  * Performance over time on apps/api (the grades slice): the API side of performanceData.ts.
@@ -27,6 +29,8 @@ import { classGroupFromApi, currentAcademicYear, listAcademicTerms, listApiSubje
 
 type ApiAssessment = components["schemas"]["Assessment"];
 type ApiMark = components["schemas"]["Mark"];
+type ApiCbeAssessment = components["schemas"]["CbeAssessment"];
+type ApiCbeResult = components["schemas"]["CbeResult"];
 
 /** Reads at once. */
 const READ_CONCURRENCY = 6;
@@ -75,6 +79,127 @@ async function publishedMarksOf(tenantId: string, papers: readonly ApiAssessment
 /** The exam papers that are out (published or closed), optionally of one class. */
 async function papersOut(tenantId: string, classId?: string): Promise<ApiAssessment[]> {
   return examPapersOf(await listAssessments(tenantId, { classId })).filter((a) => a.status !== "draft");
+}
+
+async function cbeAssessments(tenantId: string, classId?: string): Promise<ApiCbeAssessment[]> {
+  return listAllPages(async (cursor) => {
+    const r = await apiClient().get("/v1/tenants/{tenantId}/cbe-assessments", {
+      path: { tenantId }, query: { classId, limit: API_PAGE_LIMIT, cursor }, tenantId,
+    });
+    return { items: r.cbe_assessments, page: r.page };
+  });
+}
+
+async function cbeResults(tenantId: string, assessmentId: string): Promise<ApiCbeResult[]> {
+  return listAllPages(async (cursor) => {
+    const r = await apiClient().get("/v1/tenants/{tenantId}/cbe-assessments/{cbeAssessmentId}/results", {
+      path: { tenantId, cbeAssessmentId: assessmentId }, query: { limit: API_PAGE_LIMIT, cursor }, tenantId,
+    });
+    return { items: r.results, page: r.page };
+  });
+}
+
+/** Class metadata for historic CBE terms; omit `active` so an archived class keeps its name and level in its old report. */
+async function classesForCbeReport(tenantId: string): Promise<components["schemas"]["SchoolClass"][]> {
+  return listAllPages(async (cursor) => {
+    const r = await apiClient().get("/v1/tenants/{tenantId}/classes", {
+      path: { tenantId }, query: { limit: API_PAGE_LIMIT, cursor }, tenantId,
+    });
+    return { items: r.classes, page: r.page };
+  });
+}
+
+function publishedCbe(rows: readonly ApiCbeAssessment[]): ApiCbeAssessment[] {
+  return rows.filter((assessment) => assessment.status !== "draft" && assessment.published_at !== null);
+}
+
+function cbeDate(assessment: ApiCbeAssessment): string {
+  return assessment.assessment_date ?? assessment.published_at?.slice(0, 10) ?? assessment.created_at.slice(0, 10);
+}
+
+function cbeOrderKey(assessment: ApiCbeAssessment): string {
+  return `${cbeDate(assessment)}|${assessment.published_at ?? ""}|${assessment.created_at}`;
+}
+
+/** Published strand judgements for a learner, class, or the signed-in reader's accessible classes. */
+export async function apiFetchCbeLevels(
+  scope: { studentId: string } | { classId: string } | { tenantId: string },
+): Promise<import("../performance").CbeLevelRow[]> {
+  const tid = "tenantId" in scope ? tenantIdOrThrow(scope.tenantId) : tenantIdOrThrow();
+  const classId = "classId" in scope ? scope.classId : undefined;
+  const learnerId = "studentId" in scope ? scope.studentId : undefined;
+  const assessments = publishedCbe(await cbeAssessments(tid, classId));
+  const settled = await settlePool(assessments, READ_CONCURRENCY, async (assessment) => ({
+    assessment, results: await cbeResults(tid, assessment.id),
+  }));
+  return settled.flatMap((entry) => {
+    if (!entry.ok) throw entry.error;
+    const date = cbeDate(entry.value.assessment);
+    return entry.value.results
+      .filter((result) => !learnerId || result.learner_id === learnerId)
+      .map((result) => ({ assessedOn: date, levelCode: result.level_code }));
+  });
+}
+
+/** Latest published CBE result spread per class and learning area for one term. */
+export async function apiFetchCbeBandReport(tenantId: string, termId: string, country: string): Promise<CbeBandRow[]> {
+  const tid = tenantIdOrThrow(tenantId);
+  const assessments = publishedCbe(await cbeAssessments(tid)).filter((assessment) => assessment.term_id === termId);
+  const latest = new Map<string, ApiCbeAssessment>();
+  for (const assessment of assessments) {
+    const key = `${assessment.class_id}:${assessment.learning_area_id}`;
+    const current = latest.get(key);
+    if (!current || cbeOrderKey(assessment) > cbeOrderKey(current)) latest.set(key, assessment);
+  }
+  const selected = [...latest.values()];
+  if (!selected.length) return [];
+
+  // The CBE list is class-scoped by the API before any result is requested. Names require Academics read and are fetched before
+  // learner results so a caller who cannot read the report labels does not cause a result read they cannot use.
+  const [classes, learningAreas] = await Promise.all([
+    classesForCbeReport(tid),
+    listAllPages(async (cursor) => {
+      const r = await apiClient().get("/v1/tenants/{tenantId}/learning-areas", {
+        path: { tenantId: tid }, query: { limit: API_PAGE_LIMIT, cursor }, tenantId: tid,
+      });
+      return { items: r.learning_areas, page: r.page };
+    }),
+  ]);
+  const classById = new Map(classes.map((item) => {
+    const group = classGroupFromApi(item, tid);
+    return [group.id, { name: group.name, level: group.level, formLevel: group.form_level }] as const;
+  }));
+  const areaNames = new Map(learningAreas.map((area) => [area.id, area.name]));
+  const settled = await settlePool(selected, READ_CONCURRENCY, async (assessment) => ({ assessment, results: await cbeResults(tid, assessment.id) }));
+  const rows: CbeBandRow[] = [];
+  for (const entry of settled) {
+    if (!entry.ok) throw entry.error;
+    const { assessment, results } = entry.value;
+    const klass = classById.get(assessment.class_id);
+    const level = klass?.level ?? "primary";
+    const codesByLearner = new Map<string, string[]>();
+    for (const result of results) {
+      const codes = codesByLearner.get(result.learner_id) ?? [];
+      codes.push(result.level_code);
+      codesByLearner.set(result.learner_id, codes);
+    }
+    const counts: Record<CbeBand, number> = { EE: 0, ME: 0, AE: 0, BE: 0 };
+    const rubric = rubricFor(country, level) ?? [];
+    for (const codes of codesByLearner.values()) {
+      const overall = summariseStrands(codes, rubric).overall;
+      if (overall) counts[overall.code.slice(0, 2) as CbeBand] += 1;
+    }
+    rows.push({
+      key: `${assessment.class_id}:${assessment.learning_area_id}`,
+      className: klass?.name ?? "Class",
+      learningAreaName: areaNames.get(assessment.learning_area_id) ?? "Learning area",
+      assessmentTitle: assessment.title,
+      counts,
+      learners: codesByLearner.size,
+      sort: yearSortKey(level, klass?.formLevel ?? 0),
+    });
+  }
+  return rows.sort((a, b) => a.sort - b.sort || a.className.localeCompare(b.className) || a.learningAreaName.localeCompare(b.learningAreaName));
 }
 
 async function termsById(tenantId: string): Promise<Map<string, { label: string; starts_on: string }>> {

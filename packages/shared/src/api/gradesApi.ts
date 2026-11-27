@@ -375,6 +375,35 @@ export async function apiSaveExamMarks(rows: readonly ApiMarkRow[], classId: str
   throw new Error(`Saved ${writes.length - failed.length} of ${writes.length} marks (${failed.length} failed: ${detail})`);
 }
 
+/**
+ * Replaces one mark on a published paper through the API's append-only correction history. The correction route is restricted to
+ * Academics writers; the web also hides the action from everyone without that permission. `row_version: 0` records a first mark where
+ * this learner had none. A draft must still use the ordinary Gradebook save.
+ */
+export async function apiCorrectPublishedMark(
+  input: { examId: string; classId: string; subjectId: string; learnerId: string; score: number; reason: string }, tenantId?: string,
+): Promise<void> {
+  const tid = tenantIdOrThrow(tenantId);
+  const reason = input.reason.trim();
+  if (reason.length < 5 || reason.length > 500) throw new Error("Give a reason between 5 and 500 characters.");
+  const paper = await paperFor(tid, input.examId, input.classId, input.subjectId);
+  if (paper.status === "draft") throw new Error("This paper is still a draft. Save its mark in the Gradebook instead.");
+  const max = numberOf(paper.max_score);
+  if (!Number.isFinite(input.score) || input.score < 0 || input.score > max) throw new Error(`This paper is out of ${max}.`);
+  const existing = (await listMarksOf(tid, paper.id)).find((mark) => mark.learner_id === input.learnerId);
+  if (existing && numberOf(existing.score) === input.score) throw new Error("Enter a different mark to record a correction.");
+  try {
+    await apiClient().post("/v1/tenants/{tenantId}/assessments/{assessmentId}/mark-corrections", {
+      path: { tenantId: tid, assessmentId: paper.id },
+      body: { learner_id: input.learnerId, score: input.score, reason, row_version: existing?.row_version ?? 0 },
+      tenantId: tid,
+    });
+  } catch (err) {
+    if (isApiError(err) && err.code === "forbidden") throw new Error("Only staff with Academics write access can correct published marks on the new system.");
+    throw err;
+  }
+}
+
 export async function apiPublishMarks(examId: string, classId: string, subjectId: string, tenantId?: string): Promise<void> {
   const tid = tenantIdOrThrow(tenantId);
   const paper = await paperFor(tid, examId, classId, subjectId);

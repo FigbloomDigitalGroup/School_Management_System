@@ -17,6 +17,7 @@ const S1 = "51515151-5151-4515-8515-515151515151";
 const S2 = "52525252-5252-4525-8525-525252525252";
 const L1 = "10000001-1111-4111-8111-111111111111";
 const L2 = "10000002-1111-4111-8111-111111111111";
+const L3 = "10000003-1111-4111-8111-111111111111";
 const ST1 = "a0000001-1111-4111-8111-111111111111";
 
 const stamp = { created_at: "2026-05-01T08:00:00Z", updated_at: "2026-05-01T08:00:00Z" };
@@ -34,6 +35,20 @@ const term = (id: string, label: string, starts: string) => ({ id, tenantId: T, 
 const klass = { id: C1, tenantId: T, academic_year_id: YEAR, name: "Form 2 East", education_level: "secondary", form_level: 2, pathway: null, stream: null, class_teacher_staff_id: null, active: true, archived_at: null, ...stamp };
 const subject = (id: string, name: string) => ({ id, tenantId: T, code: name.slice(0, 3), name, active: true, archived_at: null, ...stamp });
 const year = { id: YEAR, tenantId: T, label: "2026", starts_on: "2026-01-01", ends_on: "2026-12-31", is_current: true, ...stamp };
+const cbeAssessment = (id: string, overrides: Record<string, unknown> = {}) => ({
+  id, tenantId: T, class_id: C1, learning_area_id: S1, term_id: TERM2, rubric_config_id: null, title: "Strand check", status: "published",
+  instrument_type: "rubric", assessment_date: "2026-06-10", instructions: null, strand_id: null, sub_strand_id: null, learning_outcome_id: null,
+  curriculum_version_label: null, published_at: "2026-06-10T08:00:00Z", closed_at: null, row_version: 1, created_at: stamp.created_at, ...overrides,
+});
+const cbeResult = (id: string, learnerId: string, levelCode: string) => ({
+  id, tenantId: T, cbe_assessment_id: "cbe-current", learner_id: learnerId, strand_id: null, learning_outcome_id: null, level_code: levelCode,
+  points: "8", observation: null, teacher_feedback: null, evidence_asset_id: null, completion_status: "finalized", marked_at: stamp.created_at,
+  marked_by: ST1, row_version: 1,
+});
+const learningArea = (id: string, name: string) => ({
+  id, tenantId: T, provenance_id: "p0000000-0000-4000-8000-000000000001", code: name.slice(0, 3).toUpperCase(), name,
+  education_level: "junior_secondary", min_grade: 7, max_grade: 9, pathway: null, is_core: true, official_catalogue: false, created_at: stamp.created_at,
+});
 
 const P = `/v1/tenants/${T}`;
 let api: FakeApi;
@@ -219,10 +234,66 @@ describe("the pickers and the CBE charts", () => {
     expect(api.callsTo(`GET ${P}/classes`)[0]!.query.get("academicYearId")).toBe(YEAR);
   });
 
-  it("has no CBE rubric figures yet, and asks nothing for them", async () => {
-    boot({});
-    expect(await fetchCbeLevels({ tenantId: T })).toEqual([]);
-    expect(await fetchCbeBandReport(T, TERM2, "KE")).toEqual([]);
-    expect(api.calls).toHaveLength(0);
+  it("reads published CBE judgements once per assessment, within the requested class scope", async () => {
+    const assessments = [
+      cbeAssessment("cbe-current"),
+      cbeAssessment("cbe-closed", { status: "closed", assessment_date: null, published_at: "2026-06-12T08:00:00Z" }),
+      cbeAssessment("cbe-draft", { status: "draft", published_at: null }),
+    ];
+    boot({
+      [`GET ${P}/cbe-assessments`]: (call: FakeCall) => list("cbe_assessments", call.query.get("classId") === C1 ? assessments : []),
+      [`GET ${P}/cbe-assessments/cbe-current/results`]: list("results", [cbeResult("r1", L1, "EE1"), cbeResult("r2", L2, "ME2")]),
+      [`GET ${P}/cbe-assessments/cbe-closed/results`]: list("results", [cbeResult("r3", L1, "BE1")]),
+    });
+    expect(await fetchCbeLevels({ classId: C1 })).toEqual([
+      { assessedOn: "2026-06-10", levelCode: "EE1" },
+      { assessedOn: "2026-06-10", levelCode: "ME2" },
+      { assessedOn: "2026-06-12", levelCode: "BE1" },
+    ]);
+    expect(api.callsTo(`GET ${P}/cbe-assessments`)[0]!.query.get("classId")).toBe(C1);
+    expect(api.callsTo(`GET ${P}/cbe-assessments/cbe-current/results`)).toHaveLength(1);
+    expect(api.callsTo(`GET ${P}/cbe-assessments/cbe-closed/results`)).toHaveLength(1);
+    expect(api.calls.some((call) => call.path.endsWith("cbe-draft/results"))).toBe(false);
+  });
+
+  it("filters a learner's CBE trend after the API has scoped the assessment list", async () => {
+    boot({
+      [`GET ${P}/cbe-assessments`]: list("cbe_assessments", [cbeAssessment("cbe-current")]),
+      [`GET ${P}/cbe-assessments/cbe-current/results`]: list("results", [cbeResult("r1", L1, "EE1"), cbeResult("r2", L2, "ME2")]),
+    });
+    expect(await fetchCbeLevels({ studentId: L2 })).toEqual([{ assessedOn: "2026-06-10", levelCode: "ME2" }]);
+    expect(api.callsTo(`GET ${P}/cbe-assessments`)[0]!.query.get("classId")).toBeNull();
+  });
+
+  it("does not read results when the scoped assessment list is refused", async () => {
+    boot({ [`GET ${P}/cbe-assessments`]: refused() });
+    await expect(fetchCbeLevels({ classId: C1 })).rejects.toThrow();
+    expect(api.calls.some((call) => call.url.includes("/results"))).toBe(false);
+  });
+
+  it("counts the latest published assessment by class and learning area, with one result read per assessment", async () => {
+    const assessments = [
+      cbeAssessment("cbe-old", { assessment_date: "2026-06-01", title: "Old", published_at: "2026-06-01T08:00:00Z" }),
+      cbeAssessment("cbe-current", { assessment_date: "2026-06-10", title: "Current" }),
+      cbeAssessment("cbe-other-area", { learning_area_id: S2, assessment_date: "2026-06-09", title: "English" }),
+      cbeAssessment("cbe-draft", { assessment_date: "2026-06-20", title: "Draft", status: "draft", published_at: null }),
+      cbeAssessment("cbe-other-term", { term_id: TERM1, title: "Earlier term" }),
+    ];
+    boot({
+      [`GET ${P}/cbe-assessments`]: list("cbe_assessments", assessments),
+      [`GET ${P}/classes`]: list("classes", [{ ...klass, name: "Grade 7 East", education_level: "junior_secondary", form_level: 7 }]),
+      [`GET ${P}/learning-areas`]: list("learning_areas", [learningArea(S1, "Mathematics"), learningArea(S2, "English")]),
+      [`GET ${P}/cbe-assessments/cbe-current/results`]: list("results", [cbeResult("r1", L1, "EE1"), cbeResult("r2", L2, "ME2"), cbeResult("r3", L3, "ME1")]),
+      [`GET ${P}/cbe-assessments/cbe-other-area/results`]: list("results", [cbeResult("r4", L1, "BE1")]),
+    });
+    const rows = await fetchCbeBandReport(T, TERM2, "KE");
+    expect(rows.map((row) => [row.className, row.learningAreaName, row.assessmentTitle, row.learners])).toEqual([
+      ["Grade 7 East", "English", "English", 1],
+      ["Grade 7 East", "Mathematics", "Current", 3],
+    ]);
+    expect(rows.find((row) => row.learningAreaName === "Mathematics")!.counts).toEqual({ EE: 1, ME: 2, AE: 0, BE: 0 });
+    expect(api.callsTo(`GET ${P}/cbe-assessments/cbe-current/results`)).toHaveLength(1);
+    expect(api.callsTo(`GET ${P}/cbe-assessments/cbe-other-area/results`)).toHaveLength(1);
+    expect(api.calls.some((call) => call.path.endsWith("cbe-old/results") || call.path.endsWith("cbe-draft/results") || call.path.endsWith("cbe-other-term/results"))).toBe(false);
   });
 });
