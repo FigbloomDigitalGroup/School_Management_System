@@ -6545,6 +6545,162 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/learning-materials/{materialId}:
+    patch:
+      tags: [academics]
+      summary: Edit learning-material metadata
+      operationId: updateLearningMaterial
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: materialId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchLearningMaterialsRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [material]
+                additionalProperties: false
+                properties:
+                  material: { $ref: "#/components/schemas/LearningMaterial" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/learning-materials/{materialId}/publish:
+    post:
+      tags: [academics]
+      summary: Publish a learning material
+      operationId: publishLearningMaterial
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: materialId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Published material
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [material]
+                additionalProperties: false
+                properties:
+                  material: { $ref: "#/components/schemas/LearningMaterial" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
+  /v1/tenants/{tenantId}/learning-materials/{materialId}/unpublish:
+    post:
+      tags: [academics]
+      summary: Unpublish a learning material
+      operationId: unpublishLearningMaterial
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: materialId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Unpublished material
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [material]
+                additionalProperties: false
+                properties:
+                  material: { $ref: "#/components/schemas/LearningMaterial" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
+  /v1/tenants/{tenantId}/learning-materials/{materialId}/archive:
+    post:
+      tags: [academics]
+      summary: Archive a learning material
+      operationId: archiveLearningMaterial
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: materialId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived material
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [material]
+                additionalProperties: false
+                properties:
+                  material: { $ref: "#/components/schemas/LearningMaterial" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
   /v1/tenants/{tenantId}/grading-schemes:
     post:
       tags:
@@ -25833,7 +25989,10 @@ components:
         - description
         - class_id
         - subject_id
+        - url
         - storage_status
+        - published_at
+        - archived_at
         - created_at
       properties:
         id:
@@ -25858,12 +26017,27 @@ components:
             - string
             - "null"
           format: uuid
+        url:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
         storage_status:
           type: string
           enum:
             - metadata_only
         created_at:
           type: string
+          format: date-time
+        published_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        archived_at:
+          type:
+            - string
+            - "null"
           format: date-time
     GradingScheme:
       type: object
@@ -27943,8 +28117,39 @@ components:
               format: uuid
               pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
             - type: "null"
+        url:
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: "null"
       required:
         - title
+      additionalProperties: false
+    PatchLearningMaterialsRequest:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        description:
+          anyOf:
+            - type: string
+              maxLength: 4000
+            - type: "null"
+        class_id:
+          anyOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        subject_id:
+          anyOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        url:
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: "null"
+      minProperties: 1
       additionalProperties: false
     PostGradingSchemesRequest:
       type: object
@@ -33790,7 +33995,7 @@ components:
           format: date-time
     FamilyMaterial:
       type: object
-      required: [id, title, description, subject, storage_status, created_at]
+      required: [id, title, description, subject, url, storage_status, published_at, created_at]
       additionalProperties: false
       properties:
         id:
@@ -33804,9 +34009,14 @@ components:
           anyOf:
             - $ref: "#/components/schemas/FamilyRef"
             - type: "null"
+        url:
+          type: [string, "null"]
         storage_status:
           type: string
         created_at:
+          type: string
+          format: date-time
+        published_at:
           type: string
           format: date-time
     FamilyTimetable:

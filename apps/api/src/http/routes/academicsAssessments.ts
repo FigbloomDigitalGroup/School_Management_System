@@ -6,6 +6,7 @@ import {
   archiveHomework,
   correctMark,
   createAssessment,
+  archiveLearningMaterial,
   createGradingScheme,
   createHomework,
   findAssessmentInScope,
@@ -27,6 +28,8 @@ import {
   publishAssessment,
   publishReportCard,
   registerLearningMaterial,
+  setLearningMaterialPublished,
+  updateLearningMaterial,
   updateHomework,
   upsertMark,
   HOMEWORK_HAND_IN,
@@ -114,7 +117,15 @@ const MaterialBody = z.strictObject({
   description: z.string().max(4000).nullable().optional(),
   class_id: z.guid().nullable().optional(),
   subject_id: z.guid().nullable().optional(),
+  url: z.string().max(2000).nullable().optional(),
 });
+const MaterialPatch = z.strictObject({
+  title: z.string().min(1).max(160).optional(),
+  description: z.string().max(4000).nullable().optional(),
+  class_id: z.guid().nullable().optional(),
+  subject_id: z.guid().nullable().optional(),
+  url: z.string().max(2000).nullable().optional(),
+}).refine((body) => Object.keys(body).length > 0, "At least one field is required");
 const SchemeBody = z.strictObject({
   name: z.string().min(1).max(80),
   version: z.number().int().positive().optional(),
@@ -134,6 +145,7 @@ export const ASSESSMENT_REQUEST_SCHEMAS = {
   "POST /v1/tenants/{tenantId}/homework-items": HomeworkBody,
   "PATCH /v1/tenants/{tenantId}/homework-items/{homeworkId}": HomeworkPatch,
   "POST /v1/tenants/{tenantId}/learning-materials": MaterialBody,
+  "PATCH /v1/tenants/{tenantId}/learning-materials/{materialId}": MaterialPatch,
   "POST /v1/tenants/{tenantId}/grading-schemes": SchemeBody,
   "POST /v1/tenants/{tenantId}/report-cards": ReportBody,
 } as const;
@@ -501,6 +513,81 @@ export async function registerAcademicsAssessmentRoutes(app: FastifyInstance, po
     if (out.replayed) reply.header("Idempotent-Replayed", "true");
     return reply.status(out.status).send(out.value);
   });
+
+  app.patch("/v1/tenants/:tenantId/learning-materials/:materialId", async (request) => {
+    const params = request.params as { tenantId: string; materialId: string };
+    assertUuid(params.materialId, "materialId");
+    const parsed = parseOrThrow(MaterialPatch, request.body, "at least one material field is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const material = await updateLearningMaterial(tx, {
+        tenantId: params.tenantId,
+        materialId: params.materialId,
+        actorUserId: auth.user.id,
+        ...parsed,
+        ip,
+      });
+      return { material };
+    });
+  });
+
+  app.post("/v1/tenants/:tenantId/learning-materials/:materialId/archive", async (request, reply) => {
+    const params = request.params as { tenantId: string; materialId: string };
+    assertUuid(params.materialId, "materialId");
+    const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      return runIdempotent(tx, {
+        key: parseIdempotencyKey(request.headers["idempotency-key"]),
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/learning-materials/:materialId/archive",
+        fingerprintInput: { params },
+        status: 200,
+        execute: async () => {
+          const material = await archiveLearningMaterial(tx, { tenantId: params.tenantId, materialId: params.materialId, actorUserId: auth.user.id, ip });
+          return { value: { material }, resourceType: "learning_material_archived", resourceId: material.id };
+        },
+        replay: async () => {
+          const material = await getLearningMaterialById(tx, { tenantId: params.tenantId, materialId: params.materialId });
+          return material ? { material } : null;
+        },
+      });
+    });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
+  });
+
+  for (const [action, published] of [["publish", true], ["unpublish", false]] as const) {
+    app.post(`/v1/tenants/:tenantId/learning-materials/:materialId/${action}`, async (request, reply) => {
+      const params = request.params as { tenantId: string; materialId: string };
+      assertUuid(params.materialId, "materialId");
+      const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+        await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+        return runIdempotent(tx, {
+          key: parseIdempotencyKey(request.headers["idempotency-key"]),
+          config: app.appConfig,
+          routeTemplate: `POST /v1/tenants/:tenantId/learning-materials/:materialId/${action}`,
+          fingerprintInput: { params },
+          status: 200,
+          execute: async () => {
+            const material = await setLearningMaterialPublished(tx, {
+              tenantId: params.tenantId,
+              materialId: params.materialId,
+              actorUserId: auth.user.id,
+              published,
+              ip,
+            });
+            return { value: { material }, resourceType: `learning_material_${action}ed`, resourceId: material.id };
+          },
+          replay: async () => {
+            const material = await getLearningMaterialById(tx, { tenantId: params.tenantId, materialId: params.materialId });
+            return material ? { material } : null;
+          },
+        });
+      });
+      if (out.replayed) reply.header("Idempotent-Replayed", "true");
+      return reply.status(out.status).send(out.value);
+    });
+  }
 
   app.get("/v1/tenants/:tenantId/learning-materials", async (request) => {
     const params = request.params as { tenantId: string };
