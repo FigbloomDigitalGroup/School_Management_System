@@ -193,6 +193,7 @@ select pg_temp.check('anon cannot run the flags at all',
 -- ---------------------------------------------------------------- the scenario (as postgres, like the seeder)
 -- Weekdays only (a day school). Anchors: the Tuesday before last for the rice spike, the Thursday two weeks before
 -- that for a sports day with 21 visitors (heads 100 learners + 4 staff = 104, so +20%).
+-- The sports day falls in the trend baseline week: 10 litres * 104 current heads / 108.2 baseline heads rounds to 9.6 litres expected.
 select set_config('t.spike', (current_date - 7 - ((extract(isodow from current_date)::int - 2 + 7) % 7))::text, true);
 select set_config('t.sports', (current_setting('t.spike')::date - 12)::text, true);
 -- visits_stamp sets arrived_at to now() on every insert; triggers are off for this one back-dated insert
@@ -290,8 +291,8 @@ select pg_temp.check('rice: no other weekday is flagged',
               and occurred_on not in (current_setting('t.spike')::date, current_setting('t.sports')::date)));
 select pg_temp.check('rice on a Saturday at a day school is flagged as a non-school day',
   exists (select 1 from f where kind = 'non_school_day' and item_name = 'Rice' and extract(isodow from occurred_on) = 6));
-select pg_temp.check('cooking oil: the slow creep is flagged as a trend (+30%), and no single day is',
-  exists (select 1 from f where kind = 'usage_trend' and item_name = 'Cooking oil' and not explained and actual = 13 and expected = 10)
+select pg_temp.check('cooking oil: the slow creep is flagged as a trend (+30%) with baseline adjusted for visitors, and no single day is',
+  exists (select 1 from f where kind = 'usage_trend' and item_name = 'Cooking oil' and not explained and actual = 13 and expected = 9.6)
   and not exists (select 1 from f where kind = 'usage_up' and item_name = 'Cooking oil'));
 select pg_temp.check('sugar: the 8 kg stock-take shortfall is flagged',
   exists (select 1 from f where kind = 'shrinkage' and item_name = 'Sugar' and actual = 8));
