@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   aiCapabilities, canManageHomework, canMessageClasses, draftHomework, homeworkCapabilities, isYoungLearner,
   addNeed, createHomework, defaultGuide, deleteHomework, EMPTY_GUIDE, fetchAttachments, fetchClassSizes,
-  fetchHomeworkSubjectsForClass, fetchMyHomework, fetchTeacherClasses, formatShortDate, GUIDE_PLACEHOLDERS,
+  fetchHomeworkSubjectsForClass, fetchMyHomework, fetchTeacherClasses, formatShortDate, GUIDE_PLACEHOLDERS, onApi,
   guideToneFor, HAND_IN_OPTIONS, handedInLabel, isGuideEmpty, minutesWords, NEED_CHIPS, notifyHomeworkParents,
   removeAttachment, removeNeed, retoneGuide, updateHomework, validateHomework,
   type ClassGroup, type HandIn, type HomeworkCapabilities, type HomeworkInput, type HomeworkRow, type MediaItem,
@@ -60,11 +60,16 @@ export function Homework() {
   }, [profile.id, reloadKey, mayManage, caps.submissions, caps.attachments]);
 
   async function remove(w: HomeworkRow) {
+    const archive = onApi();
     const extra = w.handedIn > 0 ? ` ${w.handedIn} learner${w.handedIn === 1 ? " has" : "s have"} marked it handed in; that goes with it.` : "";
-    if (!(await confirmDialog({ title: `Delete "${w.title}" for ${w.className}?`, body: extra.trim() || undefined, confirmLabel: "Delete", danger: true }))) return;
+    const title = `${archive ? "Archive" : "Delete"} "${w.title}" for ${w.className}?`;
+    const body = archive
+      ? `It will leave the homework lists and cannot be restored.${extra}`
+      : extra.trim() || undefined;
+    if (!(await confirmDialog({ title, body, confirmLabel: archive ? "Archive" : "Delete", danger: true }))) return;
     try {
       await deleteHomework(w.id);
-      toast("Homework deleted");
+      toast(archive ? "Homework archived" : "Homework deleted");
       setReloadKey((k) => k + 1);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not delete the homework.", "error");
@@ -98,7 +103,7 @@ export function Homework() {
       key: "actions", header: "", align: "right" as const, width: "1.1fr", render: (w: HomeworkRow) => (
         <div className="flex justify-end gap-2">
           {caps.editHomework && <Button onClick={() => setEditing({ work: w })}>Edit</Button>}
-          {caps.deleteHomework && <Button onClick={() => void remove(w)}>Delete</Button>}
+          {caps.deleteHomework && <Button onClick={() => void remove(w)}>{onApi() ? "Archive" : "Delete"}</Button>}
         </div>
       ),
     }] : []),

@@ -43,7 +43,7 @@ The code is `packages/shared/src/api/schoolLookupApi.ts` (`apiLookupSchool`, `ap
 - **Timetable:** the class's newest **published** timetable as a Monday to Friday grid with the room and the teacher (`GET .../me/children/{l}/timetable`),
   the period now highlighted. A class with no published timetable shows the screen's empty state. A period is named by its subject (the API
   has no free-text period names, so there is no "Break" or "Games" unless the school makes them subjects).
-- **Work:** the class's homework due in the last three weeks or later, in two lists ("Coming up" and "Past due date"), with the instructions.
+- **Work:** the class's homework due in the last three weeks or later, in two lists ("Coming up" and "Past due date"), with the instructions, teacher's name, hand-in method, and learner-safe needs/time from the parent guide.
 - **Learning materials:** by subject, the title, the date and the teacher's note. The files are not opened (see below), and the page says so once.
 - **Results:** the exams the learner has published marks for, newest first with a switcher: each mark with the school's own grade, "40 / 50" for a paper
   not marked out of 100, the class mean (the server gives one only when 3 or more learners have a mark), the mean grade and points; CBE strand
@@ -76,7 +76,7 @@ read and every page says "No learner record". A learner with no class opens ever
 
 | Hidden | Why |
 |---|---|
-| "Mark as handed in", the Done tab, "overdue" and "late" (Work, Today) | the API records no hand-in or done state. Work is listed by its due date ("Coming up", "Past due date") and the page says it does not know what was handed in |
+| "Mark as handed in", the Done tab, "overdue" and "late" (Work, Today) | the API has no learner submission or done-status endpoint. Work is listed by its due date ("Coming up", "Past due date") and the page says it does not know what was submitted |
 | Attach a file to hand in; the teacher's worksheets and videos on a piece of work | files wait on object storage (A5, FIG-1873) |
 | The teacher's name and the hand-in method on a piece of work | the family read has neither (finding `parent-5`) |
 | Open a learning material's file | files wait on A5: the title, subject, date and note are shown, with a note saying so |
@@ -153,9 +153,8 @@ student-web-3. **The sign-in flow asked for the two-step status before the passw
 student-web-4. **A higher-education learner has no read of their own sections or grades.** `GET /me/learner` has a class (null for them, probably) and
     the family reads are per class, so their timetable (the sections' periods) and course results (credits, GPA) are hidden. A learner's own
     `GET /me/learner/sections` (with the section's periods) and `.../course-results` would bring both pages back. (`student-10` on the API side.)
-student-web-5. **Who set a piece of work, and who wrote a notice, is not in the reads.** A piece of work has no teacher name and a notice has no author, so
-    the screens show a class notice as "Class teacher" and everything else as "School office", and a piece of work with no "set by". `teacher_name` and
-    `author_name` on the homework and inbox rows would restore them.
+student-web-5. **Who wrote a notice is not in the read.** The homework read now includes `teacher_name` and `hand_in` (W1.1), which the Work page displays. The inbox still has no author, so
+    a class notice appears as "Class teacher" and everything else as "School office". `author_name` on inbox rows would restore the notice author.
 student-web-6. **Login-ID sign-in is looser than the lookup** (finding `lookup-1`, `apps/api/docs/PUBLIC-SCHOOL-LOOKUP.md`): `login/login-id` refuses only a
     suspended school, the lookup finds only active, trial and overdue ones. The form follows the lookup, so a learner at a school that is still onboarding
     or stalled is told "school not found" (and someone who types that school's UUID in the address field would still get in). Owner decision on aligning them.

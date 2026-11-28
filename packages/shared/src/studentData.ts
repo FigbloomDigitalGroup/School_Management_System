@@ -281,7 +281,7 @@ export async function markStudentNoticeRead(profileId: string, announcementId: s
  * just without file_path/file_name.
  */
 export async function markAssignmentHandedIn(assignmentId: string, studentId: string): Promise<void> {
-  // The API records no hand-in (studentCapabilities().homeworkDone): the button is hidden, and a stray call fails loudly.
+  // The API has no learner-submission endpoint (studentCapabilities().homeworkDone): the button is hidden, and a stray call fails loudly.
   if (onApi()) throw new NotOnApiError("Marking work as handed in");
   const { error } = await supabase()
     .from("assignment_submissions")

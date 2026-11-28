@@ -1,4 +1,5 @@
-import type { HomeworkInput, HomeworkRow } from "../homework";
+import { cleanGuide, normaliseGuide, type HomeworkInput, type HomeworkRow } from "../homework";
+import { newIdempotencyKey } from "../queue";
 import type { Subject } from "../types";
 import { apiFetchCurrentTerm, apiFetchTeacherClasses } from "./attendanceApi";
 import { apiClient } from "./client";
@@ -13,9 +14,10 @@ import { apiListTeachingAssignments, apiMyStaffId, whenRefused } from "./teachin
  * Differences from Supabase, handled here rather than in the screens:
  *  - `GET/POST /v1/tenants/{tenantId}/homework-items` require `resource.academics.read` / `resource.academics.write`
  *    (school_admin or holders of the Academics area).
- *  - `POST /homework-items` requires `term_id` (resolved from the current academic term) and non-empty `body`, and
- *    uses strict validation (`z.strictObject`).
- *  - `Homework` rows have no `hand_in`, `parent_guide`, submission count, edit, delete, or attachment support.
+ *  - `POST /homework-items` requires `term_id` (resolved from the current academic term) and uses strict validation
+ *    (`z.strictObject`).
+ *  - Homework can be edited and archived; the archive route never deletes the record.
+ *  - Submission counts and attachments remain unavailable on the API build.
  */
 
 type ApiHomework = components["schemas"]["Homework"];
@@ -41,11 +43,11 @@ function mapHomework(
     title: h.title,
     body: h.body,
     dueOn: h.due_on,
-    handIn: "paper",
+    handIn: h.hand_in,
     className: classById.get(h.class_id) ?? "—",
     subjectName: subjectById.get(h.subject_id) ?? "—",
     handedIn: 0,
-    guide: null,
+    guide: normaliseGuide(h.parent_guide),
   };
 }
 
@@ -86,7 +88,6 @@ export async function apiCreateHomework(tenantId: string, input: HomeworkInput):
   if (title.length > TITLE_MAX) throw new Error(`Keep the title to ${TITLE_MAX} characters or fewer.`);
 
   const body = input.body.trim();
-  if (!body) throw new Error("Write instructions for the learners.");
   if (body.length > BODY_MAX) throw new Error(`Keep the instructions to ${BODY_MAX} characters or fewer.`);
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dueOn) || Number.isNaN(Date.parse(input.dueOn))) {
@@ -105,10 +106,43 @@ export async function apiCreateHomework(tenantId: string, input: HomeworkInput):
       title,
       due_on: input.dueOn,
       body,
+      hand_in: input.handIn,
+      ...(input.guide !== undefined ? { parent_guide: input.guide ? cleanGuide(input.guide) : null } : {}),
     },
     tenantId,
   });
   return res.homework.id;
+}
+
+/** Updates the editable fields of an existing homework item on apps/api. */
+export async function apiUpdateHomework(id: string, input: HomeworkInput): Promise<void> {
+  const tenantId = tenantIdOrThrow();
+  const body = input.body.trim();
+  if (body.length > BODY_MAX) throw new Error(`Keep the instructions to ${BODY_MAX} characters or fewer.`);
+
+  await apiClient().patch("/v1/tenants/{tenantId}/homework-items/{homeworkId}", {
+    path: { tenantId, homeworkId: id },
+    body: {
+      class_id: input.classId,
+      subject_id: input.subjectId,
+      title: input.title.trim().replace(/\s+/g, " "),
+      due_on: input.dueOn,
+      body,
+      hand_in: input.handIn,
+      ...(input.guide !== undefined ? { parent_guide: input.guide ? cleanGuide(input.guide) : null } : {}),
+    },
+    tenantId,
+  });
+}
+
+/** Archives homework on apps/api; the record remains available to the school's audit history. */
+export async function apiArchiveHomework(id: string): Promise<void> {
+  const tenantId = tenantIdOrThrow();
+  await apiClient().post("/v1/tenants/{tenantId}/homework-items/{homeworkId}/archive", {
+    path: { tenantId, homeworkId: id },
+    tenantId,
+    idempotencyKey: newIdempotencyKey(),
+  });
 }
 
 /**

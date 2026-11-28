@@ -1,7 +1,8 @@
 import type { ClassLevel, Weekday } from "../types";
 import type { InventoryIssueRow } from "../inventory";
+import { normaliseGuide } from "../homework";
 import type { PaymentProof } from "../paymentProofs";
-import type { NoticeInfo, StudentData, StudentFeeData, WorkItem } from "../studentData";
+import { HAND_IN_LABEL, type NoticeInfo, type StudentData, type StudentFeeData, type WorkItem } from "../studentData";
 import type { TimetableRow } from "../timetable";
 import { apiClient } from "./client";
 import {
@@ -19,9 +20,9 @@ import { UNNAMED_PERIOD, weekdayFromApi } from "./timetableApi";
  * server about any other learner, and a login with no live learner behind it is a 404 that the pages show as "No learner record".
  *
  * Differences from Supabase, handled here rather than in the screens (the family-read ones are the parent's, parentApi.ts):
- *  - The API records no hand-in or done state for homework, so a piece of work is never "done" or "late" here: the work is listed by
- *    its due date and the screens (studentCapabilities().homeworkDone) do not claim to know what was handed in.
- *  - A piece of work has no teacher name and no hand-in method on the family read (finding parent-5).
+ *  - The API records the teacher's hand-in method but has no learner submission or done-status endpoint, so a piece of work is never
+ *    "done" or "late" here: the work is listed by its due date and the screens do not claim to know what was submitted.
+ *  - The learner's family-scoped homework read includes the teacher's name, hand-in method, and learner-safe guide fields.
  *  - Notices carry the audience, not the author: a class notice is "Class teacher", every other one "School office".
  */
 
@@ -29,7 +30,11 @@ type FamilyHomework = components["schemas"]["FamilyHomework"];
 type FamilyTimetable = components["schemas"]["FamilyTimetable"];
 
 export function workItemFromFamily(h: FamilyHomework): WorkItem {
-  return { id: h.id, title: h.title, subject: h.subject.name, teacher: "", dueOn: h.due_on, state: "open", how: "", body: h.body, needs: [], minutes: null, hasFile: false };
+  const guide = normaliseGuide(h.parent_guide);
+  return {
+    id: h.id, title: h.title, subject: h.subject.name, teacher: h.teacher_name ?? "", dueOn: h.due_on, state: "open",
+    how: HAND_IN_LABEL[h.hand_in] ?? "Exercise book", body: h.body, needs: guide?.needs ?? [], minutes: guide?.minutes ?? null, hasFile: false,
+  };
 }
 
 /** Homework of the learner's class due in the last three weeks or later (the API's default window), soonest first. */
