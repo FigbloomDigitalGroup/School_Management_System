@@ -8812,7 +8812,13 @@ export interface components {
             title?: string;
             max_score?: number;
             questions?: {
-                [key: string]: unknown;
+                id: string;
+                prompt: string;
+                /** @enum {string} */
+                kind: "mcq" | "true_false";
+                options?: string[];
+                correct_answer: string;
+                points: number;
             }[] | null;
         };
         PostOnlineExamPapersAttemptsRequest: {

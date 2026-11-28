@@ -28683,9 +28683,40 @@ components:
             - type: array
               items:
                 type: object
-                additionalProperties: true
+                properties:
+                  id:
+                    type: string
+                    minLength: 1
+                    maxLength: 64
+                  prompt:
+                    type: string
+                    minLength: 1
+                    maxLength: 1000
+                  kind:
+                    type: string
+                    enum: [mcq, true_false]
+                  options:
+                    type: array
+                    items:
+                      type: string
+                      minLength: 1
+                      maxLength: 200
+                  correct_answer:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  points:
+                    type: number
+                    exclusiveMinimum: 0
+                    maximum: 1000
+                required:
+                  - id
+                  - prompt
+                  - kind
+                  - correct_answer
+                  - points
+                additionalProperties: false
             - type: "null"
-      minProperties: 1
       additionalProperties: false
     PostOnlineExamPapersAttemptsRequest:
       type: object

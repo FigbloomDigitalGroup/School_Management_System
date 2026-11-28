@@ -69,8 +69,9 @@ describe("OA-1 static contract", () => {
     }
     expect(bad).toEqual([]);
     // 84 + migration 101: PATCH subject, PATCH class, class archive, PATCH teaching assignment, its archive; + migration 107: PATCH he-section;
-    // + migration 110: publish an online exam paper; + migration 125: PATCH and archive homework.
-    expect(stage910Ops().length).toBe(93);
+    // + migration 110: publish an online exam paper; + migration 125: PATCH and archive homework;
+    // + migration 128: PATCH and archive an online exam paper.
+    expect(stage910Ops().length).toBe(95);
   });
 });
 
@@ -252,6 +253,8 @@ describe("OA-1 runtime conformance tour", () => {
     await call("POST", `${T}/online-exam-papers/{paperId}/publish`, v); // migration 110 (docs/STUDENT-ACCOUNTS.md)
     v.attemptId =(await call("POST", `${T}/online-exam-papers/{paperId}/attempts`, v, { learner_id: v.learnerId })).attempt.id;
     await call("POST", `${T}/online-exam-attempts/{attemptId}/submit`, v, { score: 15 });
+    await call("PATCH", `${T}/online-exam-papers/{paperId}`, v, { title: "Tour paper, edited" }); // migration 128 (a title may change after attempts)
+    await call("POST", `${T}/online-exam-papers/{paperId}/archive`, v);
 
     // attendance
     await call("GET", `${T}/attendance-settings`, v);
