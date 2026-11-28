@@ -15,6 +15,9 @@ export interface InventoryItem {
   asset_tag: string | null;
   condition: string;
   location: string | null;
+  purchased_on: string | null;
+  unit_cost_cents: number | null;
+  notes: string | null;
   retired_at: string | null;
   created_at: string;
   updated_at: string;
@@ -39,8 +42,29 @@ export interface InventoryIssue {
   closed_at: string | null;
 }
 
-export const ITEM_COLS = `id, tenant_id, name, category, tracking, quantity, asset_tag, condition, location, retired_at, created_at, updated_at, unit, consumable, reorder_level`;
+export type InventoryItemRow = Omit<InventoryItem, "purchased_on" | "unit_cost_cents"> & {
+  purchased_on: Date | string | null;
+  unit_cost_cents: string | number | null;
+};
+
+export const ITEM_COLS = `id, tenant_id, name, category, tracking, quantity, asset_tag, condition, location,
+  purchased_on::text AS purchased_on, unit_cost_cents::text AS unit_cost_cents, notes,
+  retired_at, created_at, updated_at, unit, consumable, reorder_level`;
 const ISSUE_COLS = `id, tenant_id, item_id, learner_id, holder_user_id, quantity, status, issued_at, due_on::text AS due_on, closed_at`;
+
+export function mapInventoryItem(row: InventoryItemRow): InventoryItem {
+  const cost = row.unit_cost_cents === null ? null : Number(row.unit_cost_cents);
+  if (cost !== null && !Number.isSafeInteger(cost)) throw new Error("Inventory item unit_cost_cents is outside the safe integer range");
+  const purchasedOn = row.purchased_on === null ? null : row.purchased_on instanceof Date ? isoDate(row.purchased_on) : row.purchased_on;
+  return { ...row, purchased_on: purchasedOn, unit_cost_cents: cost };
+}
+
+function isoDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export function assertValidCalendarDate(dateStr: string, field: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
@@ -64,22 +88,30 @@ export async function createInventoryItem(
     unit?: string | null;
     consumable?: boolean;
     reorder_level?: number | null;
+    purchased_on?: string | null;
+    unit_cost_cents?: number | null;
+    notes?: string | null;
   },
 ): Promise<InventoryItem> {
   const qty = input.tracking === "asset" ? 1 : (input.quantity ?? 1);
   // A stock line may start empty (a consumable's opening stock, before its first delivery), as on Supabase.
   if (qty < 0) throw validationError("quantity must be 0 or more");
   const unit = input.unit?.trim() || null;
+  if (input.purchased_on) assertValidCalendarDate(input.purchased_on, "purchased_on");
+  const unitCost = input.unit_cost_cents ?? null;
+  if (unitCost !== null && (!Number.isSafeInteger(unitCost) || unitCost < 0)) throw validationError("unit_cost_cents must be a non-negative safe integer");
+  const notes = input.notes?.trim() || null;
+  if (notes && notes.length > 2000) throw validationError("notes must be at most 2000 characters");
   if (unit !== null && unit.length > 20) throw validationError("unit must be at most 20 characters");
   // An asset is one thing: it has no unit, is never used up and has no reorder level (docs/INVENTORY-STOCK.md).
   if (input.tracking === "asset" && (unit !== null || input.consumable === true || (input.reorder_level ?? null) !== null)) {
     throw validationError("An asset has no unit, is not consumable and has no reorder level");
   }
   try {
-    const res = await tx.query<InventoryItem>(
+    const res = await tx.query<InventoryItemRow>(
       `INSERT INTO inventory_items (tenant_id, name, category, tracking, quantity, asset_tag, condition, location, created_by,
-                                    unit, consumable, reorder_level)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                                    unit, consumable, reorder_level, purchased_on, unit_cost_cents, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING ${ITEM_COLS}`,
       [
         input.tenantId,
@@ -94,6 +126,9 @@ export async function createInventoryItem(
         unit,
         input.consumable ?? false,
         input.reorder_level ?? null,
+        input.purchased_on ?? null,
+        unitCost,
+        notes,
       ],
     );
     await recordSecurityEvent(tx, {
@@ -102,7 +137,7 @@ export async function createInventoryItem(
       tenantId: input.tenantId,
       detail: { itemId: res.rows[0]!.id },
     });
-    return res.rows[0]!;
+    return mapInventoryItem(res.rows[0]!);
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (code === "23505") throw conflict("An inventory item with this asset_tag already exists");
@@ -118,7 +153,7 @@ export async function listInventoryItems(
   const inner = input.includeRetired
     ? `SELECT ${ITEM_COLS} FROM inventory_items WHERE tenant_id = $1`
     : `SELECT ${ITEM_COLS} FROM inventory_items WHERE tenant_id = $1 AND retired_at IS NULL`;
-  const res = await pageQuery<InventoryItem>(
+  const res = await pageQuery<InventoryItemRow>(
     tx,
     inner,
     [input.tenantId],
@@ -130,16 +165,123 @@ export async function listInventoryItems(
     },
     page,
   );
-  const items = res.rows.map(({ page_key: _pk, ...rest }) => rest);
+  const items = res.rows.map(({ page_key: _pk, ...rest }) => mapInventoryItem(rest));
   return { items, page: res.page };
 }
 
 export async function getInventoryItem(tx: Tx, tenantId: string, itemId: string): Promise<InventoryItem | null> {
-  const res = await tx.query<InventoryItem>(`SELECT ${ITEM_COLS} FROM inventory_items WHERE tenant_id = $1 AND id = $2`, [
+  const res = await tx.query<InventoryItemRow>(`SELECT ${ITEM_COLS} FROM inventory_items WHERE tenant_id = $1 AND id = $2`, [
     tenantId,
     itemId,
   ]);
-  return res.rows[0] ?? null;
+  return res.rows[0] ? mapInventoryItem(res.rows[0]) : null;
+}
+
+export async function updateInventoryItem(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    itemId: string;
+    actorUserId: string;
+    name?: string;
+    category?: string;
+    asset_tag?: string | null;
+    condition?: string;
+    location?: string | null;
+    purchased_on?: string | null;
+    unit_cost_cents?: number | null;
+    notes?: string | null;
+    unit?: string | null;
+    consumable?: boolean;
+    reorder_level?: number | null;
+    ip?: string | null;
+  },
+): Promise<InventoryItem> {
+  const current = await tx.query<{ tracking: "asset" | "stock"; retired_at: Date | string | null }>(
+    `SELECT tracking, retired_at FROM inventory_items WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.itemId],
+  );
+  const item = current.rows[0];
+  if (!item) throw notFound("Inventory item not found");
+  if (item.retired_at !== null) throw conflict("Retired inventory items cannot be edited");
+
+  const fields: string[] = [];
+  const values: unknown[] = [input.tenantId, input.itemId];
+  const set = (column: string, value: unknown) => {
+    values.push(value);
+    fields.push(`${column} = $${values.length}`);
+  };
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name || name.length > 160) throw validationError("name must be 1 to 160 characters");
+    set("name", name);
+  }
+  if (input.category !== undefined) set("category", input.category);
+  if (input.asset_tag !== undefined) set("asset_tag", input.asset_tag?.trim() || null);
+  if (input.condition !== undefined) set("condition", input.condition);
+  if (input.location !== undefined) set("location", input.location?.trim() || null);
+  if (input.purchased_on !== undefined) {
+    if (input.purchased_on !== null) assertValidCalendarDate(input.purchased_on, "purchased_on");
+    set("purchased_on", input.purchased_on);
+  }
+  if (input.unit_cost_cents !== undefined) {
+    if (input.unit_cost_cents !== null && (!Number.isSafeInteger(input.unit_cost_cents) || input.unit_cost_cents < 0)) {
+      throw validationError("unit_cost_cents must be a non-negative safe integer");
+    }
+    set("unit_cost_cents", input.unit_cost_cents);
+  }
+  if (input.notes !== undefined) {
+    const notes = input.notes?.trim() || null;
+    if (notes && notes.length > 2000) throw validationError("notes must be at most 2000 characters");
+    set("notes", notes);
+  }
+  const unit = input.unit === undefined ? undefined : input.unit?.trim() || null;
+  const reorderLevel = input.reorder_level;
+  if (item.tracking === "asset" && ((unit ?? null) !== null || input.consumable === true || (reorderLevel ?? null) !== null)) {
+    throw validationError("An asset has no unit, is not consumable and has no reorder level");
+  }
+  if (input.unit !== undefined) set("unit", unit);
+  if (input.consumable !== undefined) set("consumable", input.consumable);
+  if (reorderLevel !== undefined) set("reorder_level", reorderLevel);
+  if (fields.length === 0) return (await getInventoryItem(tx, input.tenantId, input.itemId))!;
+
+  fields.push("updated_at = now()");
+  try {
+    await tx.query(`UPDATE inventory_items SET ${fields.join(", ")} WHERE tenant_id = $1 AND id = $2`, values);
+  } catch (err) {
+    if ((err as { code?: string }).code === "23505") throw conflict("An inventory item with this asset_tag already exists");
+    throw err;
+  }
+  await recordSecurityEvent(tx, {
+    eventType: "inventory.item.updated",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { itemId: input.itemId, fields: fields.slice(0, -1).map((field) => field.split(" = ")[0]) },
+    ip: input.ip,
+  });
+  return (await getInventoryItem(tx, input.tenantId, input.itemId))!;
+}
+
+export async function unretireInventoryItem(
+  tx: Tx,
+  input: { tenantId: string; itemId: string; actorUserId: string; ip?: string | null },
+): Promise<InventoryItem> {
+  const found = await tx.query<{ retired_at: Date | string | null }>(
+    `SELECT retired_at FROM inventory_items WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.itemId],
+  );
+  const current = found.rows[0];
+  if (!current) throw notFound("Inventory item not found");
+  if (current.retired_at === null) return (await getInventoryItem(tx, input.tenantId, input.itemId))!;
+  await tx.query(`UPDATE inventory_items SET retired_at = NULL, updated_at = now() WHERE tenant_id = $1 AND id = $2`, [input.tenantId, input.itemId]);
+  await recordSecurityEvent(tx, {
+    eventType: "inventory.item.unretired",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { itemId: input.itemId },
+    ip: input.ip,
+  });
+  return (await getInventoryItem(tx, input.tenantId, input.itemId))!;
 }
 
 export async function retireInventoryItem(
@@ -157,7 +299,7 @@ export async function retireInventoryItem(
     throw conflict("Cannot retire an inventory item while it has open issues");
   }
   try {
-    const res = await tx.query<InventoryItem>(
+    const res = await tx.query<InventoryItemRow>(
       `UPDATE inventory_items SET retired_at = now()
         WHERE tenant_id = $1 AND id = $2 AND retired_at IS NULL
         RETURNING ${ITEM_COLS}`,
@@ -170,7 +312,7 @@ export async function retireInventoryItem(
       tenantId: input.tenantId,
       detail: { itemId: input.itemId },
     });
-    return res.rows[0];
+    return mapInventoryItem(res.rows[0]);
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (code === "23514") throw conflict("Cannot retire an inventory item while it has open issues");

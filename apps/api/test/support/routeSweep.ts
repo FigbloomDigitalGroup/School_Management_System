@@ -27,6 +27,7 @@ export const BODY_FIXTURES: Record<string, unknown> = {
   // PatchLearnerRequest has no required fields (every field is optional, at least one must be
   // present), so the schema generator produces {} and the refine would answer 400 first.
   "PATCH /v1/tenants/{tenantId}/learners/{learnerId}": { full_name: "Fixture Learner" },
+  "PATCH /v1/tenants/{tenantId}/inventory/items/{itemId}": { name: "Fixture item revised" },
   "PATCH /v1/tenants/{tenantId}/school-profile": { county: "Nairobi" },
   "POST /v1/tenants/{tenantId}/staff": { full_name: "Fixture Staff" },
   // Stage 11: the patch body requires at least one field, so the empty sample would answer 400 before the gate.

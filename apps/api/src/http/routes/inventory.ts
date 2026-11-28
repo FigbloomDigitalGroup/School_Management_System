@@ -14,6 +14,8 @@ import {
   listMyOpenIssues,
   listOpenIssues,
   retireInventoryItem,
+  unretireInventoryItem,
+  updateInventoryItem,
 } from "../../modules/inventory/inventory.js";
 import { listStockMovements, MOVEMENT_KINDS, recordStockMovement, stockLevels } from "../../modules/inventory/stock.js";
 import {
@@ -56,7 +58,23 @@ const ItemBody = z.strictObject({
   unit: z.string().min(1).max(20).nullable().optional(),
   consumable: z.boolean().optional(),
   reorder_level: z.number().int().min(0).max(2147483647).nullable().optional(),
+  purchased_on: calendarDateString.nullable().optional(),
+  unit_cost_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().optional(),
+  notes: z.string().max(2000).nullable().optional(),
 });
+const ItemPatch = z.strictObject({
+  name: z.string().min(1).max(160).optional(),
+  category: z.enum(["textbooks", "furniture", "lab_equipment", "sports", "ict", "uniforms", "music", "kitchen", "stationery", "tools", "medical", "other"]).optional(),
+  asset_tag: z.string().min(1).max(80).nullable().optional(),
+  condition: z.enum(["new", "good", "fair", "poor", "broken"]).optional(),
+  location: z.string().max(120).nullable().optional(),
+  purchased_on: calendarDateString.nullable().optional(),
+  unit_cost_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().optional(),
+  notes: z.string().max(2000).nullable().optional(),
+  unit: z.string().min(1).max(20).nullable().optional(),
+  consumable: z.boolean().optional(),
+  reorder_level: z.number().int().min(0).max(2147483647).nullable().optional(),
+}).refine((body) => Object.keys(body).length > 0, "At least one item field is required");
 
 /** One delivery, a day's use, waste, or a stock-take correction (docs/INVENTORY-STOCK.md). The sign rules are in the module. */
 const MovementBody = z.strictObject({
@@ -73,6 +91,8 @@ const MovementBody = z.strictObject({
 });
 
 export const INVENTORY_STOCK_REQUEST_SCHEMAS = {
+  "POST /v1/tenants/{tenantId}/inventory/items": ItemBody,
+  "PATCH /v1/tenants/{tenantId}/inventory/items/{itemId}": ItemPatch,
   "POST /v1/tenants/{tenantId}/inventory/movements": MovementBody,
 } as const;
 
@@ -145,6 +165,16 @@ export async function registerInventoryRoutes(app: FastifyInstance, pool: AppPoo
     });
   });
 
+  app.patch(`${P}/items/:itemId`, async (request) => {
+    const params = request.params as { tenantId: string; itemId: string };
+    assertUuid(params.itemId, "itemId");
+    const body = parseOrThrow(ItemPatch, request.body, "at least one item field is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.inventory.write", { ip, deferAudit: true });
+      return { item: await updateInventoryItem(tx, { tenantId: params.tenantId, itemId: params.itemId, actorUserId: auth.user.id, ip, ...body }) };
+    });
+  });
+
   app.post(`${P}/items/:itemId/retire`, async (request) => {
     const params = request.params as { tenantId: string; itemId: string };
     assertUuid(params.itemId, "itemId");
@@ -157,6 +187,15 @@ export async function registerInventoryRoutes(app: FastifyInstance, pool: AppPoo
           actorUserId: auth.user.id,
         }),
       };
+    });
+  });
+
+  app.post(`${P}/items/:itemId/unretire`, async (request) => {
+    const params = request.params as { tenantId: string; itemId: string };
+    assertUuid(params.itemId, "itemId");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.inventory.write", { ip, deferAudit: true });
+      return { item: await unretireInventoryItem(tx, { tenantId: params.tenantId, itemId: params.itemId, actorUserId: auth.user.id, ip }) };
     });
   });
 

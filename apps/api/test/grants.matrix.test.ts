@@ -600,6 +600,24 @@ describe("migration 009 grants and policies", () => {
     expect(excess).toEqual([]);
   });
 
+  it("inventory item stock configuration uses only column-level UPDATE grants (migration 130)", async () => {
+    const cols = await ctx.pool.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.column_privileges
+        WHERE grantee = 'figbloom_app' AND table_schema = 'public'
+          AND table_name = 'inventory_items' AND privilege_type = 'UPDATE'
+        ORDER BY column_name`,
+    );
+    // Migration 054 already gave column-level UPDATE on the item's details; migration 130 adds the three stock columns (unit, consumable,
+    // reorder_level). Nothing else is updatable (quantity moves through inventory_movements, id and tenant_id never change), and the
+    // role has no table-level UPDATE.
+    expect(cols.rows.map((r) => r.column_name)).toEqual([
+      "asset_tag", "category", "condition", "consumable", "location", "name", "notes", "purchased_on", "quantity", "reorder_level",
+      "retired_at", "tracking", "unit", "unit_cost_cents", "updated_at",
+    ]);
+    const priv = await ctx.pool.query<{ tbl: boolean }>(`SELECT has_table_privilege('figbloom_app', 'public.inventory_items', 'UPDATE') AS tbl`);
+    expect(priv.rows[0]?.tbl).toBe(false);
+  });
+
   it("users: no table-level privilege; password_hash is neither selectable nor updatable by the runtime role (migrations 011 and 013)", async () => {
     const cols = await ctx.pool.query<{ column_name: string; privilege_type: string }>(
       `SELECT column_name, privilege_type
