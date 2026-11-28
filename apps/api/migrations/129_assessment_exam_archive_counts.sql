@@ -1,4 +1,5 @@
 -- Exam rename/archive and mark counts (W1.5, docs/EXAMS.md).
+-- Forward-only. Migrations 001-128 are not edited.
 
 ALTER TABLE assessments
   ADD COLUMN archived_at timestamptz;
