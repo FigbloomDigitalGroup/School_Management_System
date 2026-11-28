@@ -343,6 +343,7 @@ const EXPECTED_ACADEMICS_079_UPDATE_COLUMNS: Record<string, string[]> = {
   // Migration 107: a higher-education section's instructor, and nothing else about the section.
   he_sections: ["instructor_staff_id"],
   homework_items: ["archived_at", "archived_by", "body", "class_id", "due_on", "hand_in", "parent_guide", "subject_id", "title", "updated_at"],
+  online_exam_papers: ["archived_at", "max_score", "published_at", "questions", "title"],
   learning_materials: ["archived_at", "class_id", "description", "published_at", "subject_id", "title", "url"],
 };
 
@@ -357,6 +358,7 @@ const ACADEMICS_079_NEVER_UPDATABLE: Record<string, string[]> = {
   learner_competency_ratings: ["id", "tenant_id", "term_id", "learner_id", "kind", "item", "created_at"],
   he_sections: ["id", "tenant_id", "course_id", "term_id", "label", "created_at", "created_by"],
   homework_items: ["id", "tenant_id", "term_id", "created_by", "created_at"],
+  online_exam_papers: ["id", "tenant_id", "class_id", "subject_id", "created_by", "created_at"],
   learning_materials: ["id", "tenant_id", "created_by", "created_at"],
 };
 
