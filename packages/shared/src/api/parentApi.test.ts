@@ -277,10 +277,10 @@ describe("CBE results on the API", () => {
 describe("homework, materials, activities, items", () => {
   it("lists homework with no done state, and refuses to mark it done", async () => {
     boot({
-      [per(K1, "homework")]: ok({ from: "2026-11-03", homework: [{ id: "hw-1", title: "Fractions", body: "Page 20", due_on: "2026-11-30", term_id: TERM1, subject: { id: SUBJ_MATH, name: "Mathematics" }, created_at: "2026-11-20T08:00:00Z" }] }),
+      [per(K1, "homework")]: ok({ from: "2026-11-03", homework: [{ id: "hw-1", title: "Fractions", body: "Page 20", due_on: "2026-11-30", term_id: TERM1, subject: { id: SUBJ_MATH, name: "Mathematics" }, hand_in: "in_person", parent_guide: { about: "Fractions", needs: ["Exercise book"], minutes: 15 }, teacher_name: "Miriam Wanjiku", created_at: "2026-11-20T08:00:00Z" }] }),
     });
     const out = await loadParentHomework("p", [K1]);
-    expect(out[K1]).toMatchObject({ parentMarksDone: false, items: [{ id: "hw-1", subject: "Mathematics", teacher: "", handIn: null, done: false, doneBy: null, hasFile: false, dueOn: "2026-11-30" }] });
+    expect(out[K1]).toMatchObject({ parentMarksDone: false, items: [{ id: "hw-1", subject: "Mathematics", teacher: "Miriam Wanjiku", handIn: "in_person", guide: { about: "Fractions", needs: ["Exercise book"], minutes: 15 }, done: false, doneBy: null, hasFile: false, dueOn: "2026-11-30" }] });
     await expect(setHomeworkDone("hw-1", K1, true)).rejects.toBeInstanceOf(NotOnApiError);
   });
 

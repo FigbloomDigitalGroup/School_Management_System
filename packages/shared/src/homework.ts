@@ -1,5 +1,5 @@
 import { apiFetchClassSizes } from "./api/examPapersApi";
-import { apiCreateHomework, apiFetchHomeworkSubjectsForClass, apiFetchMyHomework } from "./api/homeworkApi";
+import { apiArchiveHomework, apiCreateHomework, apiFetchHomeworkSubjectsForClass, apiFetchMyHomework, apiUpdateHomework } from "./api/homeworkApi";
 import { apiLoadParentHomework } from "./api/parentApi";
 import { onApi } from "./backend";
 import { NotOnApiError } from "./capabilities";
@@ -213,14 +213,14 @@ export async function createHomework(tenantId: string, teacherId: string, input:
 const NOT_YOURS = "You can only change homework you set.";
 
 export async function updateHomework(id: string, input: HomeworkInput): Promise<void> {
-  if (onApi()) throw new NotOnApiError("Editing homework");
+  if (onApi()) return apiUpdateHomework(id, input);
   const { data, error } = await supabase().from("assignments").update(homeworkColumns(input)).eq("id", id).select("id");
   if (error) throw new Error(error.message);
   if (!data?.length) throw new Error(NOT_YOURS);
 }
 
 export async function deleteHomework(id: string): Promise<void> {
-  if (onApi()) throw new NotOnApiError("Deleting homework");
+  if (onApi()) return apiArchiveHomework(id);
   // Its attachments' rows go with it; their files in storage don't, so they go first.
   await removeAttachmentFilesFor("homework", id);
   const { data, error } = await supabase().from("assignments").delete().eq("id", id).select("id");
@@ -480,7 +480,7 @@ export interface HomeworkItem {
   subject: string;
   teacher: string;
   dueOn: string;
-  /** Null on the API, which does not record how work is handed in. */
+  /** Null only on legacy cached rows that predate the hand-in field. */
   handIn: HandIn | null;
   guide: ParentGuide | null;
   done: boolean;
