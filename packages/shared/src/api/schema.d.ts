@@ -3972,7 +3972,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update inventory item metadata */
+        /**
+         * Update inventory item metadata
+         * @description Updates item details and stock configuration. Tracking type and quantity cannot be changed here; record stock changes through inventory movements.
+         */
         patch: operations["inventoryUpdateItem"];
         trace?: never;
     };
@@ -9823,19 +9826,14 @@ export interface components {
             category: "textbooks" | "furniture" | "lab_equipment" | "sports" | "ict" | "uniforms" | "music" | "kitchen" | "stationery" | "tools" | "medical" | "other";
             /** @enum {string} */
             tracking: "asset" | "stock";
-            /** @description Copies or stock on hand. A stock line may start at 0; an asset is always 1. */
             quantity?: number;
             asset_tag?: string | null;
             /** @enum {string} */
             condition?: "new" | "good" | "fair" | "poor" | "broken";
             location?: string | null;
-            /** @description Stock lines only (an asset with a unit is 400). Trimmed. */
             unit?: string | null;
-            /** @description Stock lines only (an asset that is consumable is 400). Default false. */
             consumable?: boolean;
-            /** @description Stock lines only (an asset with a reorder level is 400). */
             reorder_level?: number | null;
-            /** Format: date */
             purchased_on?: string | null;
             unit_cost_cents?: number | null;
             notes?: string | null;
@@ -9848,7 +9846,6 @@ export interface components {
             /** @enum {string} */
             condition?: "new" | "good" | "fair" | "poor" | "broken";
             location?: string | null;
-            /** Format: date */
             purchased_on?: string | null;
             unit_cost_cents?: number | null;
             notes?: string | null;
@@ -20452,7 +20449,6 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
-    /** @description Updates item details and stock configuration. Tracking type and quantity cannot be changed here; record stock changes through inventory movements. */
     inventoryUpdateItem: {
         parameters: {
             query?: never;
