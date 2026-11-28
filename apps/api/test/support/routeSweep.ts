@@ -58,6 +58,8 @@ export const BODY_FIXTURES: Record<string, unknown> = {
   "PATCH /v1/tenants/{tenantId}/homework-items/{homeworkId}": { title: "Fixture homework" },
   // Online exam paper patch (W1.3) also needs at least one field.
   "PATCH /v1/tenants/{tenantId}/online-exam-papers/{paperId}": { title: "Fixture paper" },
+  // Learning material patch (W1.2) also needs at least one field.
+  "PATCH /v1/tenants/{tenantId}/learning-materials/{materialId}": { title: "Fixture material" },
   "POST /v1/tenants/{tenantId}/classes": {
     academic_year_id: randomUUID(),
     name: "Form 1A",

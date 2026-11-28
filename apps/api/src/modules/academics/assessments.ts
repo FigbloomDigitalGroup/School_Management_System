@@ -1062,8 +1062,27 @@ export interface PublicMaterial {
   description: string | null;
   class_id: string | null;
   subject_id: string | null;
+  url: string | null;
   storage_status: "metadata_only";
+  published_at: string | null;
+  archived_at: string | null;
   created_at: string;
+}
+
+function materialUrl(value: string | null | undefined): string | null {
+  if (value == null || value.trim() === "") return null;
+  const url = value.trim();
+  if (url.length > 2000) throw validationError("url must be at most 2000 characters");
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw validationError("url must be a valid HTTPS link");
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname) {
+    throw validationError("url must be a valid HTTPS link");
+  }
+  return url;
 }
 
 export async function registerLearningMaterial(
@@ -1075,6 +1094,7 @@ export async function registerLearningMaterial(
     description?: string | null;
     class_id?: string | null;
     subject_id?: string | null;
+    url?: string | null;
     ip?: string | null;
   },
 ): Promise<PublicMaterial> {
@@ -1084,6 +1104,7 @@ export async function registerLearningMaterial(
       ? null
       : input.description;
   if (description && description.length > 4000) throw validationError("description must be at most 4000 characters");
+  const url = materialUrl(input.url);
   if (input.class_id) await getClassById(tx, { tenantId: input.tenantId, classId: input.class_id });
   if (input.subject_id) await getSubjectById(tx, { tenantId: input.tenantId, subjectId: input.subject_id });
   const res = await tx.query<{
@@ -1093,14 +1114,17 @@ export async function registerLearningMaterial(
     description: string | null;
     class_id: string | null;
     subject_id: string | null;
+    url: string | null;
     storage_status: "metadata_only";
+    published_at: Date | string | null;
+    archived_at: Date | string | null;
     created_at: Date | string;
   }>(
     `INSERT INTO learning_materials
-       (tenant_id, title, description, class_id, subject_id, storage_key, created_by)
-     VALUES ($1, $2, $3, $4, $5, 'pending', $6)
-     RETURNING id, tenant_id, title, description, class_id, subject_id, storage_status, created_at`,
-    [input.tenantId, title, description, input.class_id ?? null, input.subject_id ?? null, input.actorUserId],
+       (tenant_id, title, description, class_id, subject_id, url, storage_key, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
+     RETURNING id, tenant_id, title, description, class_id, subject_id, url, storage_status, published_at, archived_at, created_at`,
+    [input.tenantId, title, description, input.class_id ?? null, input.subject_id ?? null, url, input.actorUserId],
   );
   const row = res.rows[0]!;
   await recordSecurityEvent(tx, {
@@ -1117,7 +1141,10 @@ export async function registerLearningMaterial(
     description: row.description,
     class_id: row.class_id,
     subject_id: row.subject_id,
+    url: row.url,
     storage_status: "metadata_only",
+    published_at: isoStamp(row.published_at),
+    archived_at: isoStamp(row.archived_at),
     created_at: isoStamp(row.created_at)!,
   };
 }
@@ -1129,11 +1156,14 @@ type MaterialRow = {
   description: string | null;
   class_id: string | null;
   subject_id: string | null;
+  url: string | null;
   storage_status: "metadata_only";
+  published_at: Date | string | null;
+  archived_at: Date | string | null;
   created_at: Date | string;
 };
 
-const MATERIAL_COLS = `id, tenant_id, title, description, class_id, subject_id, storage_status, created_at`;
+const MATERIAL_COLS = `id, tenant_id, title, description, class_id, subject_id, url, storage_status, published_at, archived_at, created_at`;
 
 function mapMaterial(row: MaterialRow): PublicMaterial {
   return {
@@ -1143,7 +1173,10 @@ function mapMaterial(row: MaterialRow): PublicMaterial {
     description: row.description,
     class_id: row.class_id,
     subject_id: row.subject_id,
+    url: row.url,
     storage_status: "metadata_only",
+    published_at: isoStamp(row.published_at),
+    archived_at: isoStamp(row.archived_at),
     created_at: isoStamp(row.created_at)!,
   };
 }
@@ -1158,7 +1191,7 @@ export async function listLearningMaterials(
   input: { tenantId: string; classId?: string; classIds?: readonly string[]; includeSchoolWide?: boolean; page: PageInput },
 ): Promise<Page<PublicMaterial>> {
   const params: unknown[] = [input.tenantId];
-  let classClause = "";
+  let classClause = " AND archived_at IS NULL";
   if (input.classId) {
     params.push(input.classId);
     classClause += ` AND class_id = $${params.length}`;
@@ -1188,6 +1221,111 @@ export async function getLearningMaterialById(
     input.materialId,
   ]);
   return res.rows[0] ? mapMaterial(res.rows[0]) : null;
+}
+
+export async function updateLearningMaterial(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    materialId: string;
+    actorUserId: string;
+    title?: string;
+    description?: string | null;
+    class_id?: string | null;
+    subject_id?: string | null;
+    url?: string | null;
+    ip?: string | null;
+  },
+): Promise<PublicMaterial> {
+  const fields: string[] = [];
+  const values: unknown[] = [input.tenantId, input.materialId];
+  const set = (column: string, value: unknown) => {
+    values.push(value);
+    fields.push(`${column} = $${values.length}`);
+  };
+  if (input.title !== undefined) set("title", trim(input.title, "title", 160));
+  if (input.description !== undefined) {
+    const description = input.description?.trim() || null;
+    if (description && description.length > 4000) throw validationError("description must be at most 4000 characters");
+    set("description", description);
+  }
+  if (input.class_id !== undefined) {
+    if (input.class_id) await getClassById(tx, { tenantId: input.tenantId, classId: input.class_id });
+    set("class_id", input.class_id);
+  }
+  if (input.subject_id !== undefined) {
+    if (input.subject_id) await getSubjectById(tx, { tenantId: input.tenantId, subjectId: input.subject_id });
+    set("subject_id", input.subject_id);
+  }
+  if (input.url !== undefined) set("url", materialUrl(input.url));
+  const current = await tx.query<{ archived_at: Date | string | null }>(
+    `SELECT archived_at FROM learning_materials WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.materialId],
+  );
+  if (!current.rows[0]) throw notFound("Learning material not found");
+  if (current.rows[0].archived_at !== null) throw conflict("Archived learning material cannot be changed");
+  if (fields.length === 0) return (await getLearningMaterialById(tx, input))!;
+  const out = await tx.query(
+    `UPDATE learning_materials SET ${fields.join(", ")} WHERE tenant_id = $1 AND id = $2 RETURNING id`,
+    values,
+  );
+  if (!out.rows[0]) throw notFound("Learning material not found");
+  await recordSecurityEvent(tx, {
+    eventType: "academics.material.updated",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { materialId: input.materialId, fields: fields.map((field) => field.split(" = ")[0]) },
+    ip: input.ip,
+  });
+  return (await getLearningMaterialById(tx, input))!;
+}
+
+export async function archiveLearningMaterial(
+  tx: Tx,
+  input: { tenantId: string; materialId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicMaterial> {
+  const found = await tx.query<{ archived_at: Date | string | null }>(
+    `SELECT archived_at FROM learning_materials WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.materialId],
+  );
+  const current = found.rows[0];
+  if (!current) throw notFound("Learning material not found");
+  if (current.archived_at !== null) return (await getLearningMaterialById(tx, input))!;
+  await tx.query(`UPDATE learning_materials SET archived_at = now() WHERE tenant_id = $1 AND id = $2`, [input.tenantId, input.materialId]);
+  await recordSecurityEvent(tx, {
+    eventType: "academics.material.archived",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { materialId: input.materialId },
+    ip: input.ip,
+  });
+  return (await getLearningMaterialById(tx, input))!;
+}
+
+export async function setLearningMaterialPublished(
+  tx: Tx,
+  input: { tenantId: string; materialId: string; actorUserId: string; published: boolean; ip?: string | null },
+): Promise<PublicMaterial> {
+  const current = await tx.query<{ published_at: Date | string | null; archived_at: Date | string | null }>(
+    `SELECT published_at, archived_at FROM learning_materials WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.materialId],
+  );
+  const row = current.rows[0];
+  if (!row) throw notFound("Learning material not found");
+  if (row.archived_at !== null) throw conflict("Archived learning material cannot be published");
+  if ((row.published_at !== null) === input.published) return (await getLearningMaterialById(tx, input))!;
+  await tx.query(
+    `UPDATE learning_materials SET published_at = ${input.published ? "now()" : "NULL"} WHERE tenant_id = $1 AND id = $2`,
+    [input.tenantId, input.materialId],
+  );
+  await recordSecurityEvent(tx, {
+    eventType: input.published ? "academics.material.published" : "academics.material.unpublished",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { materialId: input.materialId },
+    ip: input.ip,
+  });
+  return (await getLearningMaterialById(tx, input))!;
 }
 
 export interface GradeBand {

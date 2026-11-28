@@ -344,6 +344,7 @@ const EXPECTED_ACADEMICS_079_UPDATE_COLUMNS: Record<string, string[]> = {
   he_sections: ["instructor_staff_id"],
   homework_items: ["archived_at", "archived_by", "body", "class_id", "due_on", "hand_in", "parent_guide", "subject_id", "title", "updated_at"],
   online_exam_papers: ["archived_at", "max_score", "published_at", "questions", "title"],
+  learning_materials: ["archived_at", "class_id", "description", "published_at", "subject_id", "title", "url"],
 };
 
 const ACADEMICS_079_NEVER_UPDATABLE: Record<string, string[]> = {
@@ -358,6 +359,7 @@ const ACADEMICS_079_NEVER_UPDATABLE: Record<string, string[]> = {
   he_sections: ["id", "tenant_id", "course_id", "term_id", "label", "created_at", "created_by"],
   homework_items: ["id", "tenant_id", "term_id", "created_by", "created_at"],
   online_exam_papers: ["id", "tenant_id", "class_id", "subject_id", "created_by", "created_at"],
+  learning_materials: ["id", "tenant_id", "created_by", "created_at"],
 };
 
 describe("migration 009 grants and policies", () => {

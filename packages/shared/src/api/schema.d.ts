@@ -2066,6 +2066,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenantId}/learning-materials/{materialId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit learning-material metadata */
+        patch: operations["updateLearningMaterial"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/learning-materials/{materialId}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a learning material */
+        post: operations["publishLearningMaterial"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/learning-materials/{materialId}/unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unpublish a learning material */
+        post: operations["unpublishLearningMaterial"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/learning-materials/{materialId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive a learning material */
+        post: operations["archiveLearningMaterial"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenantId}/grading-schemes": {
         parameters: {
             query?: never;
@@ -7910,10 +7978,15 @@ export interface components {
             class_id: string | null;
             /** Format: uuid */
             subject_id: string | null;
+            url: string | null;
             /** @enum {string} */
             storage_status: "metadata_only";
             /** Format: date-time */
             created_at: string;
+            /** Format: date-time */
+            published_at: string | null;
+            /** Format: date-time */
+            archived_at: string | null;
         };
         GradingScheme: {
             /** Format: uuid */
@@ -8640,6 +8713,14 @@ export interface components {
             description?: string | null;
             class_id?: string | null;
             subject_id?: string | null;
+            url?: string | null;
+        };
+        PatchLearningMaterialsRequest: {
+            title?: string;
+            description?: string | null;
+            class_id?: string | null;
+            subject_id?: string | null;
+            url?: string | null;
         };
         PostGradingSchemesRequest: {
             name: string;
@@ -10743,9 +10824,12 @@ export interface components {
             title: string;
             description: string | null;
             subject: components["schemas"]["FamilyRef"] | null;
+            url: string | null;
             storage_status: string;
             /** Format: date-time */
             created_at: string;
+            /** Format: date-time */
+            published_at: string;
         };
         FamilyTimetable: {
             /** Format: uuid */
@@ -15581,6 +15665,151 @@ export interface operations {
         responses: {
             /** @description Created */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        material: components["schemas"]["LearningMaterial"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["IdempotencyKeyReused"];
+        };
+    };
+    updateLearningMaterial: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                materialId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchLearningMaterialsRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        material: components["schemas"]["LearningMaterial"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    publishLearningMaterial: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+                /** @description Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours, for the same school, caller and key: the same request again returns the ORIGINAL status with the resource re-read by reference (so it reflects the resource's current state; header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce one effect. A caller who is not (or no longer) authorised is refused as usual: a key never grants access. Guarantee: at most one committed effect per (school, caller, key) in the window; not exactly-once across client, network or process failures. Header-less requests are unchanged. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantId: string;
+                materialId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Published material */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        material: components["schemas"]["LearningMaterial"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["IdempotencyKeyReused"];
+        };
+    };
+    unpublishLearningMaterial: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+                /** @description Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours, for the same school, caller and key: the same request again returns the ORIGINAL status with the resource re-read by reference (so it reflects the resource's current state; header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce one effect. A caller who is not (or no longer) authorised is refused as usual: a key never grants access. Guarantee: at most one committed effect per (school, caller, key) in the window; not exactly-once across client, network or process failures. Header-less requests are unchanged. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantId: string;
+                materialId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unpublished material */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        material: components["schemas"]["LearningMaterial"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["IdempotencyKeyReused"];
+        };
+    };
+    archiveLearningMaterial: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+                /** @description Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours, for the same school, caller and key: the same request again returns the ORIGINAL status with the resource re-read by reference (so it reflects the resource's current state; header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce one effect. A caller who is not (or no longer) authorised is refused as usual: a key never grants access. Guarantee: at most one committed effect per (school, caller, key) in the window; not exactly-once across client, network or process failures. Header-less requests are unchanged. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantId: string;
+                materialId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived material */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
