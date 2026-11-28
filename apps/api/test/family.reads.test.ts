@@ -281,8 +281,12 @@ describe("family reads (A1)", () => {
       });
       await ok("POST", "/homework-items", { class_id: class1A, subject_id: maths, term_id: term, title: "Old sheet", due_on: isoDay(-30), body: "Page 2" });
       await ok("POST", "/homework-items", { class_id: class2B, subject_id: english, term_id: term, title: "2B essay", due_on: isoDay(3), body: "Write" });
-      await ok("POST", "/learning-materials", { title: "Fractions notes", class_id: class1A, subject_id: maths });
-      await ok("POST", "/learning-materials", { title: "2B reader", class_id: class2B });
+      // A new material is a draft (migration 127) and a family reads only published ones: publish two, leave one in draft.
+      const fractionsNotes = (await ok("POST", "/learning-materials", { title: "Fractions notes", class_id: class1A, subject_id: maths })).material.id;
+      const reader2B = (await ok("POST", "/learning-materials", { title: "2B reader", class_id: class2B })).material.id;
+      await ok("POST", "/learning-materials", { title: "Unpublished draft", class_id: class1A, subject_id: maths });
+      await ok("POST", `/learning-materials/${fractionsNotes}/publish`);
+      await ok("POST", `/learning-materials/${reader2B}/publish`);
 
       // timetable: a teacher (staff record linked to the teacher's account) teaches maths in 1A
       const staff = (await ok("POST", "/staff", { full_name: "Teacher Tia", classification: "teacher", userId: ctx.ids.teacherA })).staff.id;

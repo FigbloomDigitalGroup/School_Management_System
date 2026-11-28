@@ -47,15 +47,16 @@ const PAPERS_SQL = `
     FROM online_exam_papers p
     JOIN classes c ON c.tenant_id = p.tenant_id AND c.id = p.class_id AND c.active = true AND c.archived_at IS NULL
     JOIN subjects s ON s.tenant_id = p.tenant_id AND s.id = p.subject_id
-   WHERE p.tenant_id = $1 AND p.published_at IS NOT NULL
+   WHERE p.tenant_id = $1 AND p.published_at IS NOT NULL AND p.archived_at IS NULL
      AND EXISTS (
        SELECT 1 FROM class_memberships cm
          JOIN academic_years y ON y.tenant_id = cm.tenant_id AND y.id = cm.academic_year_id AND y.is_current = true
         WHERE cm.tenant_id = p.tenant_id AND cm.class_id = p.class_id AND cm.learner_id = $2
           AND cm.active = true AND cm.archived_at IS NULL)`;
 
-async function myPaper(tx: Tx, input: { tenantId: string; learnerId: string; paperId: string }): Promise<PaperRow | null> {
-  const res = await tx.query<PaperRow>(`${PAPERS_SQL} AND p.id = $3`, [input.tenantId, input.learnerId, input.paperId]);
+async function myPaper(tx: Tx, input: { tenantId: string; learnerId: string; paperId: string; allowArchived?: boolean }): Promise<PaperRow | null> {
+  const sql = input.allowArchived ? PAPERS_SQL.replace(" AND p.archived_at IS NULL", "") : PAPERS_SQL;
+  const res = await tx.query<PaperRow>(`${sql} AND p.id = $3`, [input.tenantId, input.learnerId, input.paperId]);
   return res.rows[0] ?? null;
 }
 
@@ -122,7 +123,7 @@ async function loadMyAttempt(tx: Tx, input: { tenantId: string; learnerId: strin
   const attempt = res.rows[0];
   if (!attempt) throw notFound(ATTEMPT_NOT_FOUND);
   // The paper must still be one of the learner's published papers (a class change takes it away).
-  const paper = await myPaper(tx, { tenantId: input.tenantId, learnerId: input.learnerId, paperId: attempt.paper_id });
+  const paper = await myPaper(tx, { tenantId: input.tenantId, learnerId: input.learnerId, paperId: attempt.paper_id, allowArchived: true });
   if (!paper) throw notFound(ATTEMPT_NOT_FOUND);
   return { attempt, paper };
 }

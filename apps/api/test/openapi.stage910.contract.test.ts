@@ -70,8 +70,10 @@ describe("OA-1 static contract", () => {
     expect(bad).toEqual([]);
     // 84 + migration 101: PATCH subject, PATCH class, class archive, PATCH teaching assignment, its archive; + migration 107: PATCH he-section;
     // + migration 110: publish an online exam paper; + migration 125: PATCH and archive homework;
+    // + migration 127: PATCH, publish, unpublish and archive a learning material;
+    // + migration 128: PATCH and archive an online exam paper;
     // + migration 129: PATCH (rename) and archive an exam (assessment).
-    expect(stage910Ops().length).toBe(95);
+    expect(stage910Ops().length).toBe(101);
   });
 });
 
@@ -194,8 +196,12 @@ describe("OA-1 runtime conformance tour", () => {
     await call("PATCH", `${T}/homework-items/{homeworkId}`, v, { body: "" });
     await call("GET", `${T}/homework-items`, v);
     await call("POST", `${T}/homework-items/{homeworkId}/archive`, v);
-    await call("POST", `${T}/learning-materials`, v, { title: "Tour notes", description: "Notes", class_id: v.classId, subject_id: v.subjectId });
+    v.materialId = (await call("POST", `${T}/learning-materials`, v, { title: "Tour notes", description: "Notes", class_id: v.classId, subject_id: v.subjectId })).material.id;
+    await call("PATCH", `${T}/learning-materials/{materialId}`, v, { title: "Tour notes, edited" });
+    await call("POST", `${T}/learning-materials/{materialId}/publish`, v);
+    await call("POST", `${T}/learning-materials/{materialId}/unpublish`, v);
     await call("GET", `${T}/learning-materials`, v);
+    await call("POST", `${T}/learning-materials/{materialId}/archive`, v);
     await call("POST", `${T}/grading-schemes`, v, { name: "Tour scheme", rules: { bands: [{ min: 0, max: 50, grade: "D" }, { min: 50, max: 100, grade: "A" }] } });
     await call("GET", `${T}/grading-schemes`, v);
     await call("POST", `${T}/report-cards`, v, { term_id: v.termId, class_id: v.classId });
@@ -255,6 +261,8 @@ describe("OA-1 runtime conformance tour", () => {
     await call("POST", `${T}/online-exam-papers/{paperId}/publish`, v); // migration 110 (docs/STUDENT-ACCOUNTS.md)
     v.attemptId =(await call("POST", `${T}/online-exam-papers/{paperId}/attempts`, v, { learner_id: v.learnerId })).attempt.id;
     await call("POST", `${T}/online-exam-attempts/{attemptId}/submit`, v, { score: 15 });
+    await call("PATCH", `${T}/online-exam-papers/{paperId}`, v, { title: "Tour paper, edited" }); // migration 128 (a title may change after attempts)
+    await call("POST", `${T}/online-exam-papers/{paperId}/archive`, v);
 
     // attendance
     await call("GET", `${T}/attendance-settings`, v);
