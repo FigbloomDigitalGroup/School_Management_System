@@ -28,7 +28,7 @@ const USER = "u0000001-1111-4111-8111-111111111111";
 const stamp = { created_at: "2026-05-01T08:00:00Z", updated_at: "2026-05-01T08:00:00Z" };
 const paper = (o: Record<string, unknown> = {}) => ({
   id: "p0000001-1111-4111-8111-111111111111", tenantId: T, class_id: C1, subject_id: S1, term_id: TERM, title: "Mock 1", kind: "exam", max_score: "50.00",
-  status: "draft", published_at: null, version: 1, ...stamp, ...o,
+  status: "draft", published_at: null, archived_at: null, marks_entered: 0, version: 1, ...stamp, ...o,
 });
 const mark = (learner: string, score: string, rowVersion = 1) => ({
   id: `m-${learner}`, tenantId: T, assessment_id: "p0000001-1111-4111-8111-111111111111", learner_id: learner, score, grade: null,

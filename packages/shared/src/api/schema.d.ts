@@ -1905,12 +1905,52 @@ export interface paths {
         };
         /**
          * List assessments
-         * @description Holders of resource.academics.read (school admin, Academics area or delegation) see every class. A user without it who teaches (an active teaching assignment, or class teacher of an active class) sees only those classes (OD-2: read only, never a write). Anyone else gets 403. Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused).
+         * @description Holders of resource.academics.read (school admin, Academics area or delegation) see every class. A user without it who teaches (an active teaching assignment, or class teacher of an active class) sees only those classes (OD-2: read only, never a write). Anyone else gets 403. Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused). Archived exams are excluded; active rows include `marks_entered`.
          */
         get: operations["listAssessments"];
         put?: never;
         /** Create an assessment */
         post: operations["createAssessment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/assessments/{assessmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename an exam
+         * @description Only assessments with kind `exam` can be renamed. The row's status, marks, and report-card snapshots are unchanged.
+         */
+        patch: operations["renameExam"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenantId}/assessments/{assessmentId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive an exam
+         * @description Retains marks and report-card snapshots, removes the exam from active assessment lists and family results, and blocks further mark changes.
+         */
+        post: operations["archiveExam"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7889,6 +7929,9 @@ export interface components {
             status: "draft" | "published" | "closed";
             /** Format: date-time */
             published_at: string | null;
+            /** Format: date-time */
+            archived_at: string | null;
+            marks_entered: number;
             version: number;
             /** Format: date-time */
             created_at: string;
@@ -8654,6 +8697,9 @@ export interface components {
                 weight?: number | null;
                 sort_order?: number;
             }[];
+        };
+        PatchAssessmentRequest: {
+            title: string;
         };
         PostAssessmentsMarksRequest: {
             /** Format: uuid */
@@ -15273,6 +15319,79 @@ export interface operations {
         responses: {
             /** @description Created */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        assessment: components["schemas"]["Assessment"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["IdempotencyKeyReused"];
+        };
+    };
+    renameExam: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+            };
+            path: {
+                tenantId: string;
+                assessmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchAssessmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Renamed exam */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        assessment: components["schemas"]["Assessment"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    archiveExam: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional request-scoped school. Never an authority: it is honoured only when the caller holds a school membership, active organisation-admin reach or platform super-admin, re-checked on every request. Must be a UUID (400 otherwise). Absent: the session's active school applies. */
+                "X-Tenant-Id"?: components["parameters"]["TenantHeader"];
+                /** @description Optional (FIG-1623). 8-128 characters from `A-Z a-z 0-9 . _ : -`. Within 24 hours, for the same school, caller and key: the same request again returns the ORIGINAL status with the resource re-read by reference (so it reflects the resource's current state; header `Idempotent-Replayed: true`) and causes no second effect or audit event; a different request with the same key is `422 idempotency_key_reused`. Concurrent duplicates produce one effect. A caller who is not (or no longer) authorised is refused as usual: a key never grants access. Guarantee: at most one committed effect per (school, caller, key) in the window; not exactly-once across client, network or process failures. Header-less requests are unchanged. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantId: string;
+                assessmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived exam */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -232,13 +232,13 @@ export async function academicsSummary(
        (SELECT count(*)::int FROM classes
          WHERE tenant_id = $1 AND active = true AND archived_at IS NULL) AS classes_active,
        (SELECT count(*)::int FROM assessments
-         WHERE tenant_id = $1 AND status = 'draft'
+         WHERE tenant_id = $1 AND status = 'draft' AND archived_at IS NULL
            AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS assessments_draft,
        (SELECT count(*)::int FROM assessments
-         WHERE tenant_id = $1 AND status = 'published'
+         WHERE tenant_id = $1 AND status = 'published' AND archived_at IS NULL
            AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS assessments_published,
        (SELECT count(*)::int FROM assessments
-         WHERE tenant_id = $1 AND status = 'closed'
+         WHERE tenant_id = $1 AND status = 'closed' AND archived_at IS NULL
            AND ($2::uuid IS NULL OR term_id = $2::uuid)) AS assessments_closed,
        (SELECT count(*)::int FROM cbe_assessments
          WHERE tenant_id = $1 AND status = 'draft'

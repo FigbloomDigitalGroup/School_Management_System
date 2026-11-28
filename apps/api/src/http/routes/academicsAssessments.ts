@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { AppPool } from "../../db/pool.js";
 import {
   archiveHomework,
+  archiveExam,
   correctMark,
   createAssessment,
   archiveLearningMaterial,
@@ -31,6 +32,7 @@ import {
   setLearningMaterialPublished,
   updateLearningMaterial,
   updateHomework,
+  updateExamTitle,
   upsertMark,
   HOMEWORK_HAND_IN,
   type PublicAssessment,
@@ -65,6 +67,7 @@ const AssessmentBody = z.strictObject({
     )
     .optional(),
 });
+const ExamPatch = z.strictObject({ title: z.string().min(1).max(160) });
 const MarkBody = z.strictObject({
   learner_id: z.guid(),
   score: z.number(),
@@ -140,6 +143,7 @@ const ReportBody = z.strictObject({
 /** Request bodies by OpenAPI operation key; test/openapi.stage910.contract.test.ts compares them with the spec. */
 export const ASSESSMENT_REQUEST_SCHEMAS = {
   "POST /v1/tenants/{tenantId}/assessments": AssessmentBody,
+  "PATCH /v1/tenants/{tenantId}/assessments/{assessmentId}": ExamPatch,
   "POST /v1/tenants/{tenantId}/assessments/{assessmentId}/marks": MarkBody,
   "POST /v1/tenants/{tenantId}/assessments/{assessmentId}/mark-corrections": CorrectionBody,
   "POST /v1/tenants/{tenantId}/homework-items": HomeworkBody,
@@ -227,7 +231,7 @@ export async function registerAcademicsAssessmentRoutes(app: FastifyInstance, po
         },
         replay: async (_t, id) => {
           try {
-            return { assessment: await getAssessmentById(tx, { tenantId: params.tenantId, assessmentId: id }) };
+            return { assessment: await getAssessmentById(tx, { tenantId: params.tenantId, assessmentId: id, includeArchived: true }) };
           } catch (err) {
             if (err instanceof AppError && err.statusCode === 404) return null;
             throw err;
@@ -256,6 +260,39 @@ export async function registerAcademicsAssessmentRoutes(app: FastifyInstance, po
     });
   });
 
+  app.patch("/v1/tenants/:tenantId/assessments/:assessmentId", async (request) => {
+    const params = request.params as { tenantId: string; assessmentId: string };
+    assertUuid(params.assessmentId, "assessmentId");
+    const parsed = parseOrThrow(ExamPatch, request.body, "title is required");
+    return inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      const assessment = await updateExamTitle(tx, { tenantId: params.tenantId, assessmentId: params.assessmentId, actorUserId: auth.user.id, ...parsed, ip });
+      return { assessment };
+    });
+  });
+
+  app.post("/v1/tenants/:tenantId/assessments/:assessmentId/archive", async (request, reply) => {
+    const params = request.params as { tenantId: string; assessmentId: string };
+    assertUuid(params.assessmentId, "assessmentId");
+    const out = await inTenant(app, pool, request, params.tenantId, async ({ tx, auth, ip }) => {
+      await requirePermission(tx, auth.authz, "resource.academics.write", { ip, deferAudit: true });
+      return runIdempotent(tx, {
+        key: parseIdempotencyKey(request.headers["idempotency-key"]),
+        config: app.appConfig,
+        routeTemplate: "POST /v1/tenants/:tenantId/assessments/:assessmentId/archive",
+        fingerprintInput: { params },
+        status: 200,
+        execute: async () => {
+          const assessment = await archiveExam(tx, { tenantId: params.tenantId, assessmentId: params.assessmentId, actorUserId: auth.user.id, ip });
+          return { value: { assessment }, resourceType: "assessment_archived", resourceId: assessment.id };
+        },
+        replay: async () => ({ assessment: await getAssessmentById(tx, { tenantId: params.tenantId, assessmentId: params.assessmentId, includeArchived: true }) }),
+      });
+    });
+    if (out.replayed) reply.header("Idempotent-Replayed", "true");
+    return reply.status(out.status).send(out.value);
+  });
+
   app.post("/v1/tenants/:tenantId/assessments/:assessmentId/publish", async (request, reply) => {
     const params = request.params as { tenantId: string; assessmentId: string };
     assertUuid(params.assessmentId, "assessmentId");
@@ -276,7 +313,7 @@ export async function registerAcademicsAssessmentRoutes(app: FastifyInstance, po
           });
           return { value: { assessment }, resourceType: "assessment", resourceId: assessment.id };
         },
-        replay: async () => ({ assessment: await getAssessmentById(tx, { tenantId: params.tenantId, assessmentId: params.assessmentId }) }),
+        replay: async () => ({ assessment: await getAssessmentById(tx, { tenantId: params.tenantId, assessmentId: params.assessmentId, includeArchived: true }) }),
       });
     });
     if (out.replayed) reply.header("Idempotent-Replayed", "true");
@@ -303,7 +340,7 @@ export async function registerAcademicsAssessmentRoutes(app: FastifyInstance, po
           });
           return { value: { assessment }, resourceType: "assessment_closed", resourceId: assessment.id };
         },
-        replay: async () => ({ assessment: await getAssessmentById(tx, { tenantId: params.tenantId, assessmentId: params.assessmentId }) }),
+        replay: async () => ({ assessment: await getAssessmentById(tx, { tenantId: params.tenantId, assessmentId: params.assessmentId, includeArchived: true }) }),
       });
     });
     if (out.replayed) reply.header("Idempotent-Replayed", "true");

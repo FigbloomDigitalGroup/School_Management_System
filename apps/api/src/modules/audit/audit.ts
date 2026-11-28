@@ -57,6 +57,8 @@ export type SecurityEventType =
   | "academics.teaching_assignment.archived"
   | "academics.timetable.slot_created"
   | "academics.assessment.created"
+  | "academics.exam.updated"
+  | "academics.exam.archived"
   | "academics.mark.upserted"
   | "academics.mark.corrected"
   | "academics.marks.published"

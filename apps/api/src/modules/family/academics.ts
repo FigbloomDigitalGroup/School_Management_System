@@ -160,7 +160,7 @@ export async function childResults(tx: Tx, input: { tenantId: string; learnerId:
                FROM mark_entries x WHERE x.tenant_id = a.tenant_id AND x.assessment_id = a.id) AS class_mean,
             s.id AS subject_id, s.name AS subject_name, t.id AS term_id, t.label AS term_label
        FROM mark_entries m
-       JOIN assessments a ON a.tenant_id = m.tenant_id AND a.id = m.assessment_id AND a.status IN ('published', 'closed')
+       JOIN assessments a ON a.tenant_id = m.tenant_id AND a.id = m.assessment_id AND a.status IN ('published', 'closed') AND a.archived_at IS NULL
        JOIN subjects s ON s.tenant_id = a.tenant_id AND s.id = a.subject_id
        JOIN academic_terms t ON t.tenant_id = a.tenant_id AND t.id = a.term_id
       WHERE m.tenant_id = $1 AND m.learner_id = $2 AND ($3::uuid IS NULL OR a.term_id = $3::uuid)

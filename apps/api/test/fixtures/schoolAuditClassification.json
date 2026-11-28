@@ -25,6 +25,8 @@
   "academics.class.created": "provisioning",
   "academics.class.updated": "provisioning",
   "academics.competency.rated": "academic",
+  "academics.exam.archived": "academic",
+  "academics.exam.updated": "academic",
   "academics.he.course.created": "academic",
   "academics.he.enrolment.created": "academic",
   "academics.he.grade.corrected": "academic",
