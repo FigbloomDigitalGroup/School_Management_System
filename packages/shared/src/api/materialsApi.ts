@@ -11,8 +11,8 @@ import { listApiSubjects } from "./setupApi";
  *
  * Differences from Supabase, handled here rather than in the screens:
  *  - `GET /learning-materials` and `POST /learning-materials` store metadata only (`storage_status: "metadata_only"`):
- *    `title`, `description`, `class_id`, `subject_id`, and `created_at`. There are no uploaded files or external links.
- *  - Created materials are live immediately (no draft/publish, edit, or delete endpoints).
+ *    `title`, `description`, `class_id`, `subject_id`, optional HTTPS `url`, and lifecycle timestamps. There are no uploaded files.
+ *  - New materials are drafts; this adapter returns only active rows and uses `published_at` for the published date.
  */
 
 type ApiMaterial = components["schemas"]["LearningMaterial"];
@@ -31,19 +31,19 @@ function mapMaterial(
 ): MaterialRow {
   return {
     id: m.id,
-    kind: "document",
+    kind: m.url ? "link" : "document",
     title: m.title,
     filePath: null,
     fileName: null,
     mimeType: null,
     sizeBytes: null,
-    url: null,
+    url: m.url ?? null,
     classId: m.class_id ?? "",
     className: (m.class_id && classById.get(m.class_id)) || "All classes",
     subjectId: m.subject_id ?? "",
     subjectName: (m.subject_id && subjectById.get(m.subject_id)) || "—",
     description: m.description ?? "",
-    publishedAt: m.created_at,
+    publishedAt: m.published_at,
     createdAt: m.created_at,
   };
 }

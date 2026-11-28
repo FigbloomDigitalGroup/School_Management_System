@@ -47,6 +47,8 @@ export interface PublicAssessment {
   max_score: string;
   status: "draft" | "published" | "closed";
   published_at: string | null;
+  archived_at: string | null;
+  marks_entered: number;
   version: number;
   created_at: string;
   updated_at: string;
@@ -63,6 +65,8 @@ type AssessmentRow = {
   max_score: string;
   status: PublicAssessment["status"];
   published_at: Date | string | null;
+  archived_at: Date | string | null;
+  marks_entered?: number;
   version: number;
   created_at: Date | string;
   updated_at: Date | string;
@@ -80,6 +84,8 @@ function mapAssessment(row: AssessmentRow): PublicAssessment {
     max_score: row.max_score,
     status: row.status,
     published_at: isoStamp(row.published_at),
+    archived_at: isoStamp(row.archived_at),
+    marks_entered: Number(row.marks_entered ?? 0),
     version: row.version,
     created_at: isoStamp(row.created_at)!,
     updated_at: isoStamp(row.updated_at)!,
@@ -87,7 +93,9 @@ function mapAssessment(row: AssessmentRow): PublicAssessment {
 }
 
 const ASSESSMENT_RETURNING = `id, tenant_id, class_id, subject_id, term_id, title, kind,
-  max_score::text AS max_score, status, published_at, version, created_at, updated_at`;
+  max_score::text AS max_score, status, published_at, archived_at, version, created_at, updated_at`;
+const ASSESSMENT_SELECT = `${ASSESSMENT_RETURNING},
+  (SELECT count(*)::int FROM mark_entries m WHERE m.tenant_id = assessments.tenant_id AND m.assessment_id = assessments.id) AS marks_entered`;
 
 export async function createAssessment(
   tx: Tx,
@@ -156,7 +164,7 @@ export async function createAssessment(
       detail: { assessmentId: row.id, classId: row.class_id, subjectId: row.subject_id },
       ip: input.ip,
     });
-    return mapAssessment(row);
+    return mapAssessment({ ...row, marks_entered: 0 });
   } catch (err) {
     if (pgCode(err) === "23503") throw validationError("Class, subject or term must belong to this school");
     throw err;
@@ -190,7 +198,7 @@ export async function listAssessments(
   }
   const out = await pageQuery<AssessmentRow>(
     tx,
-    `SELECT ${ASSESSMENT_RETURNING} FROM assessments WHERE ${clauses.join(" AND ")}`,
+    `SELECT ${ASSESSMENT_SELECT} FROM assessments WHERE archived_at IS NULL AND ${clauses.join(" AND ")}`,
     params,
     { name: "assessments", expr: "q.created_at", type: "timestamptz", dir: "desc" },
     input.page,
@@ -200,19 +208,20 @@ export async function listAssessments(
 
 export async function getAssessmentById(
   tx: Tx,
-  input: { tenantId: string; assessmentId: string; lock?: boolean },
+  input: { tenantId: string; assessmentId: string; lock?: boolean; includeArchived?: boolean },
 ): Promise<PublicAssessment> {
   const res = input.lock
     ? await tx.query<AssessmentRow>(
-        `SELECT ${ASSESSMENT_RETURNING} FROM assessments WHERE tenant_id = $1 AND id = $2 FOR SHARE`,
+        `SELECT ${ASSESSMENT_SELECT} FROM assessments WHERE tenant_id = $1 AND id = $2 FOR SHARE`,
         [input.tenantId, input.assessmentId],
       )
     : await tx.query<AssessmentRow>(
-        `SELECT ${ASSESSMENT_RETURNING} FROM assessments WHERE tenant_id = $1 AND id = $2`,
+        `SELECT ${ASSESSMENT_SELECT} FROM assessments WHERE tenant_id = $1 AND id = $2`,
         [input.tenantId, input.assessmentId],
       );
   const row = res.rows[0];
   if (!row) throw notFound("Assessment not found");
+  if (row.archived_at !== null && !input.includeArchived) throw notFound("Assessment not found");
   return mapAssessment(row);
 }
 
@@ -222,8 +231,8 @@ export async function findAssessmentInScope(
   input: { tenantId: string; assessmentId: string; scopeClassIds: readonly string[] | null },
 ): Promise<PublicAssessment | null> {
   const res = await tx.query<AssessmentRow>(
-    `SELECT ${ASSESSMENT_RETURNING} FROM assessments
-      WHERE tenant_id = $1 AND id = $2 AND ($3::uuid[] IS NULL OR class_id = ANY($3::uuid[]))`,
+    `SELECT ${ASSESSMENT_SELECT} FROM assessments
+      WHERE tenant_id = $1 AND id = $2 AND archived_at IS NULL AND ($3::uuid[] IS NULL OR class_id = ANY($3::uuid[]))`,
     [input.tenantId, input.assessmentId, input.scopeClassIds],
   );
   const row = res.rows[0];
@@ -237,7 +246,7 @@ export async function publishAssessment(
   const res = await tx.query<AssessmentRow>(
     `UPDATE assessments
         SET status = 'published', published_at = now(), version = version + 1, updated_at = now()
-      WHERE tenant_id = $1 AND id = $2 AND status = 'draft'
+      WHERE tenant_id = $1 AND id = $2 AND archived_at IS NULL AND status = 'draft'
       RETURNING ${ASSESSMENT_RETURNING}`,
     [input.tenantId, input.assessmentId],
   );
@@ -257,7 +266,7 @@ export async function publishAssessment(
     detail: { assessmentId: row.id, version: row.version },
     ip: input.ip,
   });
-  return mapAssessment(row);
+  return mapAssessment({ ...row, marks_entered: await countAssessmentMarks(tx, input.tenantId, input.assessmentId) });
 }
 
 export async function closeAssessment(
@@ -267,7 +276,7 @@ export async function closeAssessment(
   const res = await tx.query<AssessmentRow>(
     `UPDATE assessments
         SET status = 'closed', version = version + 1, updated_at = now()
-      WHERE tenant_id = $1 AND id = $2 AND status = 'published'
+      WHERE tenant_id = $1 AND id = $2 AND archived_at IS NULL AND status = 'published'
       RETURNING ${ASSESSMENT_RETURNING}`,
     [input.tenantId, input.assessmentId],
   );
@@ -287,7 +296,67 @@ export async function closeAssessment(
     detail: { assessmentId: row.id, version: row.version },
     ip: input.ip,
   });
-  return mapAssessment(row);
+  return mapAssessment({ ...row, marks_entered: await countAssessmentMarks(tx, input.tenantId, input.assessmentId) });
+}
+
+export async function updateExamTitle(
+  tx: Tx,
+  input: { tenantId: string; assessmentId: string; title: string; actorUserId: string; ip?: string | null },
+): Promise<PublicAssessment> {
+  const title = trim(input.title, "title", 160);
+  const found = await tx.query<{ kind: string; archived_at: Date | string | null }>(
+    `SELECT kind, archived_at FROM assessments WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.assessmentId],
+  );
+  const current = found.rows[0];
+  if (!current) throw notFound("Assessment not found");
+  if (current.kind !== "exam") throw conflict("Only exam assessments can be renamed here");
+  if (current.archived_at !== null) throw conflict("Archived exams cannot be changed");
+  const res = await tx.query<AssessmentRow>(
+    `UPDATE assessments SET title = $3, updated_at = now()
+      WHERE tenant_id = $1 AND id = $2 RETURNING ${ASSESSMENT_RETURNING}`,
+    [input.tenantId, input.assessmentId, title],
+  );
+  await recordSecurityEvent(tx, {
+    eventType: "academics.exam.updated",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { assessmentId: input.assessmentId },
+    ip: input.ip,
+  });
+  return mapAssessment({ ...res.rows[0]!, marks_entered: await countAssessmentMarks(tx, input.tenantId, input.assessmentId) });
+}
+
+async function countAssessmentMarks(tx: Tx, tenantId: string, assessmentId: string): Promise<number> {
+  const res = await tx.query<{ count: number }>(
+    `SELECT count(*)::int AS count FROM mark_entries WHERE tenant_id = $1 AND assessment_id = $2`,
+    [tenantId, assessmentId],
+  );
+  return res.rows[0]?.count ?? 0;
+}
+
+export async function archiveExam(
+  tx: Tx,
+  input: { tenantId: string; assessmentId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicAssessment> {
+  const found = await tx.query<{ kind: string; archived_at: Date | string | null }>(
+    `SELECT kind, archived_at FROM assessments WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.assessmentId],
+  );
+  const current = found.rows[0];
+  if (!current) throw notFound("Assessment not found");
+  if (current.kind !== "exam") throw conflict("Only exam assessments can be archived here");
+  if (current.archived_at === null) {
+    await tx.query(`UPDATE assessments SET archived_at = now(), updated_at = now() WHERE tenant_id = $1 AND id = $2`, [input.tenantId, input.assessmentId]);
+    await recordSecurityEvent(tx, {
+      eventType: "academics.exam.archived",
+      actorUserId: input.actorUserId,
+      tenantId: input.tenantId,
+      detail: { assessmentId: input.assessmentId },
+      ip: input.ip,
+    });
+  }
+  return getAssessmentById(tx, { tenantId: input.tenantId, assessmentId: input.assessmentId, includeArchived: true });
 }
 
 export interface PublicMark {
@@ -353,6 +422,7 @@ export async function upsertMark(
   if (assessment.status !== "draft") {
     throw conflict("Marks of a published assessment are locked. Record a correction instead.");
   }
+  if (assessment.archived_at !== null) throw notFound("Assessment not found");
   const grade =
     input.grade === undefined || input.grade === null || input.grade.trim() === ""
       ? null
@@ -537,6 +607,7 @@ export async function correctMark(
   if (assessment.status === "draft") {
     throw conflict("This assessment is not published yet. Edit the mark directly.");
   }
+  if (assessment.archived_at !== null) throw notFound("Assessment not found");
   const reason = input.reason.trim();
   if (reason.length < 5 || reason.length > 500) throw validationError("reason must be 5–500 characters");
   const grade =
@@ -1062,8 +1133,27 @@ export interface PublicMaterial {
   description: string | null;
   class_id: string | null;
   subject_id: string | null;
+  url: string | null;
   storage_status: "metadata_only";
+  published_at: string | null;
+  archived_at: string | null;
   created_at: string;
+}
+
+function materialUrl(value: string | null | undefined): string | null {
+  if (value == null || value.trim() === "") return null;
+  const url = value.trim();
+  if (url.length > 2000) throw validationError("url must be at most 2000 characters");
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw validationError("url must be a valid HTTPS link");
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname) {
+    throw validationError("url must be a valid HTTPS link");
+  }
+  return url;
 }
 
 export async function registerLearningMaterial(
@@ -1075,6 +1165,7 @@ export async function registerLearningMaterial(
     description?: string | null;
     class_id?: string | null;
     subject_id?: string | null;
+    url?: string | null;
     ip?: string | null;
   },
 ): Promise<PublicMaterial> {
@@ -1084,6 +1175,7 @@ export async function registerLearningMaterial(
       ? null
       : input.description;
   if (description && description.length > 4000) throw validationError("description must be at most 4000 characters");
+  const url = materialUrl(input.url);
   if (input.class_id) await getClassById(tx, { tenantId: input.tenantId, classId: input.class_id });
   if (input.subject_id) await getSubjectById(tx, { tenantId: input.tenantId, subjectId: input.subject_id });
   const res = await tx.query<{
@@ -1093,14 +1185,17 @@ export async function registerLearningMaterial(
     description: string | null;
     class_id: string | null;
     subject_id: string | null;
+    url: string | null;
     storage_status: "metadata_only";
+    published_at: Date | string | null;
+    archived_at: Date | string | null;
     created_at: Date | string;
   }>(
     `INSERT INTO learning_materials
-       (tenant_id, title, description, class_id, subject_id, storage_key, created_by)
-     VALUES ($1, $2, $3, $4, $5, 'pending', $6)
-     RETURNING id, tenant_id, title, description, class_id, subject_id, storage_status, created_at`,
-    [input.tenantId, title, description, input.class_id ?? null, input.subject_id ?? null, input.actorUserId],
+       (tenant_id, title, description, class_id, subject_id, url, storage_key, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
+     RETURNING id, tenant_id, title, description, class_id, subject_id, url, storage_status, published_at, archived_at, created_at`,
+    [input.tenantId, title, description, input.class_id ?? null, input.subject_id ?? null, url, input.actorUserId],
   );
   const row = res.rows[0]!;
   await recordSecurityEvent(tx, {
@@ -1117,7 +1212,10 @@ export async function registerLearningMaterial(
     description: row.description,
     class_id: row.class_id,
     subject_id: row.subject_id,
+    url: row.url,
     storage_status: "metadata_only",
+    published_at: isoStamp(row.published_at),
+    archived_at: isoStamp(row.archived_at),
     created_at: isoStamp(row.created_at)!,
   };
 }
@@ -1129,11 +1227,14 @@ type MaterialRow = {
   description: string | null;
   class_id: string | null;
   subject_id: string | null;
+  url: string | null;
   storage_status: "metadata_only";
+  published_at: Date | string | null;
+  archived_at: Date | string | null;
   created_at: Date | string;
 };
 
-const MATERIAL_COLS = `id, tenant_id, title, description, class_id, subject_id, storage_status, created_at`;
+const MATERIAL_COLS = `id, tenant_id, title, description, class_id, subject_id, url, storage_status, published_at, archived_at, created_at`;
 
 function mapMaterial(row: MaterialRow): PublicMaterial {
   return {
@@ -1143,7 +1244,10 @@ function mapMaterial(row: MaterialRow): PublicMaterial {
     description: row.description,
     class_id: row.class_id,
     subject_id: row.subject_id,
+    url: row.url,
     storage_status: "metadata_only",
+    published_at: isoStamp(row.published_at),
+    archived_at: isoStamp(row.archived_at),
     created_at: isoStamp(row.created_at)!,
   };
 }
@@ -1158,7 +1262,7 @@ export async function listLearningMaterials(
   input: { tenantId: string; classId?: string; classIds?: readonly string[]; includeSchoolWide?: boolean; page: PageInput },
 ): Promise<Page<PublicMaterial>> {
   const params: unknown[] = [input.tenantId];
-  let classClause = "";
+  let classClause = " AND archived_at IS NULL";
   if (input.classId) {
     params.push(input.classId);
     classClause += ` AND class_id = $${params.length}`;
@@ -1188,6 +1292,111 @@ export async function getLearningMaterialById(
     input.materialId,
   ]);
   return res.rows[0] ? mapMaterial(res.rows[0]) : null;
+}
+
+export async function updateLearningMaterial(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    materialId: string;
+    actorUserId: string;
+    title?: string;
+    description?: string | null;
+    class_id?: string | null;
+    subject_id?: string | null;
+    url?: string | null;
+    ip?: string | null;
+  },
+): Promise<PublicMaterial> {
+  const fields: string[] = [];
+  const values: unknown[] = [input.tenantId, input.materialId];
+  const set = (column: string, value: unknown) => {
+    values.push(value);
+    fields.push(`${column} = $${values.length}`);
+  };
+  if (input.title !== undefined) set("title", trim(input.title, "title", 160));
+  if (input.description !== undefined) {
+    const description = input.description?.trim() || null;
+    if (description && description.length > 4000) throw validationError("description must be at most 4000 characters");
+    set("description", description);
+  }
+  if (input.class_id !== undefined) {
+    if (input.class_id) await getClassById(tx, { tenantId: input.tenantId, classId: input.class_id });
+    set("class_id", input.class_id);
+  }
+  if (input.subject_id !== undefined) {
+    if (input.subject_id) await getSubjectById(tx, { tenantId: input.tenantId, subjectId: input.subject_id });
+    set("subject_id", input.subject_id);
+  }
+  if (input.url !== undefined) set("url", materialUrl(input.url));
+  const current = await tx.query<{ archived_at: Date | string | null }>(
+    `SELECT archived_at FROM learning_materials WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.materialId],
+  );
+  if (!current.rows[0]) throw notFound("Learning material not found");
+  if (current.rows[0].archived_at !== null) throw conflict("Archived learning material cannot be changed");
+  if (fields.length === 0) return (await getLearningMaterialById(tx, input))!;
+  const out = await tx.query(
+    `UPDATE learning_materials SET ${fields.join(", ")} WHERE tenant_id = $1 AND id = $2 RETURNING id`,
+    values,
+  );
+  if (!out.rows[0]) throw notFound("Learning material not found");
+  await recordSecurityEvent(tx, {
+    eventType: "academics.material.updated",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { materialId: input.materialId, fields: fields.map((field) => field.split(" = ")[0]) },
+    ip: input.ip,
+  });
+  return (await getLearningMaterialById(tx, input))!;
+}
+
+export async function archiveLearningMaterial(
+  tx: Tx,
+  input: { tenantId: string; materialId: string; actorUserId: string; ip?: string | null },
+): Promise<PublicMaterial> {
+  const found = await tx.query<{ archived_at: Date | string | null }>(
+    `SELECT archived_at FROM learning_materials WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.materialId],
+  );
+  const current = found.rows[0];
+  if (!current) throw notFound("Learning material not found");
+  if (current.archived_at !== null) return (await getLearningMaterialById(tx, input))!;
+  await tx.query(`UPDATE learning_materials SET archived_at = now() WHERE tenant_id = $1 AND id = $2`, [input.tenantId, input.materialId]);
+  await recordSecurityEvent(tx, {
+    eventType: "academics.material.archived",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { materialId: input.materialId },
+    ip: input.ip,
+  });
+  return (await getLearningMaterialById(tx, input))!;
+}
+
+export async function setLearningMaterialPublished(
+  tx: Tx,
+  input: { tenantId: string; materialId: string; actorUserId: string; published: boolean; ip?: string | null },
+): Promise<PublicMaterial> {
+  const current = await tx.query<{ published_at: Date | string | null; archived_at: Date | string | null }>(
+    `SELECT published_at, archived_at FROM learning_materials WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.materialId],
+  );
+  const row = current.rows[0];
+  if (!row) throw notFound("Learning material not found");
+  if (row.archived_at !== null) throw conflict("Archived learning material cannot be published");
+  if ((row.published_at !== null) === input.published) return (await getLearningMaterialById(tx, input))!;
+  await tx.query(
+    `UPDATE learning_materials SET published_at = ${input.published ? "now()" : "NULL"} WHERE tenant_id = $1 AND id = $2`,
+    [input.tenantId, input.materialId],
+  );
+  await recordSecurityEvent(tx, {
+    eventType: input.published ? "academics.material.published" : "academics.material.unpublished",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { materialId: input.materialId },
+    ip: input.ip,
+  });
+  return (await getLearningMaterialById(tx, input))!;
 }
 
 export interface GradeBand {
@@ -1394,7 +1603,7 @@ export async function publishReportCard(
   }
   const sources = await tx.query<{ id: string }>(
     `SELECT id FROM assessments
-      WHERE tenant_id = $1 AND class_id = $2 AND term_id = $3 AND status = 'published'
+      WHERE tenant_id = $1 AND class_id = $2 AND term_id = $3 AND status = 'published' AND archived_at IS NULL
       ORDER BY id`,
     [input.tenantId, input.classId, input.termId],
   );
@@ -1412,7 +1621,7 @@ export async function publishReportCard(
             ARRAY_AGG(a.id ORDER BY a.id) AS assessment_ids
        FROM assessments a
        JOIN mark_entries m ON m.assessment_id = a.id AND m.tenant_id = a.tenant_id
-      WHERE a.tenant_id = $1 AND a.class_id = $2 AND a.term_id = $3 AND a.status = 'published'
+      WHERE a.tenant_id = $1 AND a.class_id = $2 AND a.term_id = $3 AND a.status = 'published' AND a.archived_at IS NULL
       GROUP BY m.learner_id
       ORDER BY m.learner_id`,
     [input.tenantId, input.classId, input.termId],

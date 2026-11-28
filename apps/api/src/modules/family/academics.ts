@@ -160,7 +160,7 @@ export async function childResults(tx: Tx, input: { tenantId: string; learnerId:
                FROM mark_entries x WHERE x.tenant_id = a.tenant_id AND x.assessment_id = a.id) AS class_mean,
             s.id AS subject_id, s.name AS subject_name, t.id AS term_id, t.label AS term_label
        FROM mark_entries m
-       JOIN assessments a ON a.tenant_id = m.tenant_id AND a.id = m.assessment_id AND a.status IN ('published', 'closed')
+       JOIN assessments a ON a.tenant_id = m.tenant_id AND a.id = m.assessment_id AND a.status IN ('published', 'closed') AND a.archived_at IS NULL
        JOIN subjects s ON s.tenant_id = a.tenant_id AND s.id = a.subject_id
        JOIN academic_terms t ON t.tenant_id = a.tenant_id AND t.id = a.term_id
       WHERE m.tenant_id = $1 AND m.learner_id = $2 AND ($3::uuid IS NULL OR a.term_id = $3::uuid)
@@ -386,19 +386,21 @@ export interface ChildMaterial {
   title: string;
   description: string | null;
   subject: { id: string; name: string } | null;
+  url: string | null;
   storage_status: string;
+  published_at: string;
   created_at: string;
 }
 
-/** Learning materials registered for the child's current-year class (newest first). Files are metadata only (A5). */
+/** Published, non-archived learning materials for the child's current-year class (newest first). Files are metadata only (A5). */
 export async function childMaterials(tx: Tx, input: { tenantId: string; learnerId: string }): Promise<ChildMaterial[]> {
   const klass = (await currentClasses(tx, input.tenantId, [input.learnerId])).get(input.learnerId);
   if (!klass) return [];
-  const res = await tx.query<{ id: string; title: string; description: string | null; subject_id: string | null; subject_name: string | null; storage_status: string; created_at: Date }>(
-    `SELECT m.id, m.title, m.description, s.id AS subject_id, s.name AS subject_name, m.storage_status, m.created_at
+  const res = await tx.query<{ id: string; title: string; description: string | null; subject_id: string | null; subject_name: string | null; url: string | null; storage_status: string; published_at: Date; created_at: Date }>(
+    `SELECT m.id, m.title, m.description, s.id AS subject_id, s.name AS subject_name, m.url, m.storage_status, m.published_at, m.created_at
        FROM learning_materials m
        LEFT JOIN subjects s ON s.tenant_id = m.tenant_id AND s.id = m.subject_id
-      WHERE m.tenant_id = $1 AND m.class_id = $2
+      WHERE m.tenant_id = $1 AND m.class_id = $2 AND m.published_at IS NOT NULL AND m.archived_at IS NULL
       ORDER BY m.created_at DESC, m.id
       LIMIT 200`,
     [input.tenantId, klass.id],
@@ -408,7 +410,9 @@ export async function childMaterials(tx: Tx, input: { tenantId: string; learnerI
     title: r.title,
     description: r.description,
     subject: r.subject_id ? { id: r.subject_id, name: r.subject_name ?? "" } : null,
+    url: r.url,
     storage_status: r.storage_status,
+    published_at: r.published_at.toISOString(),
     created_at: r.created_at.toISOString(),
   }));
 }

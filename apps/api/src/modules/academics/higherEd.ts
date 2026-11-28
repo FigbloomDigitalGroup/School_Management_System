@@ -662,6 +662,20 @@ export interface OnlineExamQuestion {
   points: number;
 }
 
+function validatePaperContent(input: { max_score?: number; questions?: OnlineExamQuestion[] | null }): void {
+  if (input.max_score !== undefined && (!(input.max_score > 0) || input.max_score > 10000)) {
+    throw validationError("max_score must be greater than 0 and at most 10000");
+  }
+  if (input.questions && input.questions.length > 0) {
+    const ids = new Set<string>();
+    for (const q of input.questions) {
+      if (ids.has(q.id)) throw validationError("Duplicate question id");
+      ids.add(q.id);
+      if (!(q.points > 0)) throw validationError("Question points must be positive");
+    }
+  }
+}
+
 export async function createOnlinePaper(
   tx: Tx,
   input: {
@@ -678,15 +692,7 @@ export async function createOnlinePaper(
   await getClassById(tx, { tenantId: input.tenantId, classId: input.class_id });
   await getSubjectById(tx, { tenantId: input.tenantId, subjectId: input.subject_id });
   const title = trim(input.title, "title", 160);
-  if (!(input.max_score > 0) || input.max_score > 10000) throw validationError("max_score must be greater than 0 and at most 10000");
-  if (input.questions && input.questions.length > 0) {
-    const ids = new Set<string>();
-    for (const q of input.questions) {
-      if (ids.has(q.id)) throw validationError("Duplicate question id");
-      ids.add(q.id);
-      if (!(q.points > 0)) throw validationError("Question points must be positive");
-    }
-  }
+  validatePaperContent(input);
   const res = await tx.query<{
     id: string;
     tenant_id: string;
@@ -728,6 +734,7 @@ export async function createOnlinePaper(
     questions: row.questions,
     created_at: isoStamp(row.created_at),
     published_at: null as string | null, // a new paper is unpublished until POST .../publish (migration 110)
+    archived_at: null as string | null,
   };
 }
 
@@ -744,24 +751,94 @@ export async function listOnlinePapers(tx: Tx, input: { tenantId: string; page: 
   }
   const res = await pageQuery<{ id: string }>(
     tx,
-    `SELECT id, tenant_id, class_id, subject_id, title, max_score::text AS max_score, created_at, published_at
-       FROM online_exam_papers WHERE tenant_id = $1${classClause}`,
+    `SELECT id, tenant_id, class_id, subject_id, title, max_score::text AS max_score, created_at, published_at, archived_at
+       FROM online_exam_papers WHERE tenant_id = $1 AND archived_at IS NULL${classClause}`,
     params,
     { name: "online_exam_papers", expr: "q.created_at", type: "timestamptz", dir: "desc" },
     input.page,
     input.id,
   );
-  const items = (res.rows as unknown as Array<{ id: string; tenant_id: string; class_id: string; subject_id: string; title: string; max_score: string; created_at: Date | string; published_at: Date | string | null }>).map((row) => ({
+  const items = (res.rows as unknown as Array<{ id: string; tenant_id: string; class_id: string; subject_id: string; title: string; max_score: string; created_at: Date | string; published_at: Date | string | null; archived_at: Date | string | null }>).map((row) => ({
     id: row.id, tenantId: row.tenant_id, class_id: row.class_id, subject_id: row.subject_id, title: row.title, max_score: row.max_score, created_at: isoStamp(row.created_at),
     // migration 110: learners see a paper only once it is published (docs/STUDENT-ACCOUNTS.md)
     published_at: isoStamp(row.published_at),
+    archived_at: isoStamp(row.archived_at),
   }));
   return { items, page: res.page };
 }
 
 /** A9-6: by-id lookup through the same query and scope as the list. */
 export async function getOnlinePaperById(tx: Tx, input: { tenantId: string; id: string }) {
-  return (await listOnlinePapers(tx, { ...input, page: ONE_ROW })).items[0] ?? null;
+  const res = await tx.query<{ id: string; tenant_id: string; class_id: string; subject_id: string; title: string; max_score: string; created_at: Date | string; published_at: Date | string | null; archived_at: Date | string | null }>(
+    `SELECT id, tenant_id, class_id, subject_id, title, max_score::text AS max_score, created_at, published_at, archived_at
+       FROM online_exam_papers WHERE tenant_id = $1 AND id = $2`,
+    [input.tenantId, input.id],
+  );
+  const row = res.rows[0];
+  return row ? { id: row.id, tenantId: row.tenant_id, class_id: row.class_id, subject_id: row.subject_id, title: row.title, max_score: row.max_score, created_at: isoStamp(row.created_at), published_at: isoStamp(row.published_at), archived_at: isoStamp(row.archived_at) } : null;
+}
+
+export async function updateOnlinePaper(
+  tx: Tx,
+  input: { tenantId: string; actorUserId: string; paperId: string; title?: string; max_score?: number; questions?: OnlineExamQuestion[] | null; ip?: string | null },
+) {
+  validatePaperContent(input);
+  const fields: string[] = [];
+  const values: unknown[] = [input.tenantId, input.paperId];
+  const set = (column: string, value: unknown) => {
+    values.push(value);
+    fields.push(`${column} = $${values.length}${column === "questions" ? "::jsonb" : ""}`);
+  };
+  if (input.title !== undefined) set("title", trim(input.title, "title", 160));
+  if (input.max_score !== undefined) set("max_score", input.max_score);
+  if (input.questions !== undefined) set("questions", input.questions === null ? null : JSON.stringify(input.questions));
+  const found = await tx.query<{ archived_at: Date | string | null }>(
+    `SELECT archived_at FROM online_exam_papers WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.paperId],
+  );
+  const current = found.rows[0];
+  if (!current) throw notFound("Exam paper not found");
+  if (current.archived_at !== null) throw conflict("Archived exam papers cannot be changed");
+  if (fields.length === 0) return (await getOnlinePaperById(tx, { tenantId: input.tenantId, id: input.paperId }))!;
+  if (input.max_score !== undefined || input.questions !== undefined) {
+    const attempts = await tx.query<{ exists: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM online_exam_attempts WHERE tenant_id = $1 AND paper_id = $2) AS exists`,
+      [input.tenantId, input.paperId],
+    );
+    if (attempts.rows[0]?.exists) throw conflict("Exam content cannot be changed after an attempt has started");
+  }
+  await tx.query(`UPDATE online_exam_papers SET ${fields.join(", ")} WHERE tenant_id = $1 AND id = $2`, values);
+  await recordSecurityEvent(tx, {
+    eventType: "academics.online_exam.updated",
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    detail: { paperId: input.paperId, fields: fields.map((field) => field.split(" = ")[0]) },
+    ip: input.ip,
+  });
+  return (await getOnlinePaperById(tx, { tenantId: input.tenantId, id: input.paperId }))!;
+}
+
+export async function archiveOnlinePaper(
+  tx: Tx,
+  input: { tenantId: string; actorUserId: string; paperId: string; ip?: string | null },
+) {
+  const found = await tx.query<{ archived_at: Date | string | null }>(
+    `SELECT archived_at FROM online_exam_papers WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.paperId],
+  );
+  const current = found.rows[0];
+  if (!current) throw notFound("Exam paper not found");
+  if (current.archived_at === null) {
+    await tx.query(`UPDATE online_exam_papers SET archived_at = now() WHERE tenant_id = $1 AND id = $2`, [input.tenantId, input.paperId]);
+    await recordSecurityEvent(tx, {
+      eventType: "academics.online_exam.archived",
+      actorUserId: input.actorUserId,
+      tenantId: input.tenantId,
+      detail: { paperId: input.paperId },
+      ip: input.ip,
+    });
+  }
+  return (await getOnlinePaperById(tx, { tenantId: input.tenantId, id: input.paperId }))!;
 }
 
 /**
@@ -770,6 +847,12 @@ export async function getOnlinePaperById(tx: Tx, input: { tenantId: string; id: 
  * visible to them.
  */
 export async function publishOnlinePaper(tx: Tx, input: { tenantId: string; actorUserId: string; paperId: string; ip?: string | null }) {
+  const found = await tx.query<{ archived_at: Date | string | null }>(
+    `SELECT archived_at FROM online_exam_papers WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [input.tenantId, input.paperId],
+  );
+  if (!found.rows[0]) throw notFound("Exam paper not found");
+  if (found.rows[0].archived_at !== null) throw conflict("Archived exam papers cannot be published");
   const res = await tx.query<{ published_now: boolean }>(
     `UPDATE online_exam_papers SET published_at = coalesce(published_at, now())
       WHERE tenant_id = $1 AND id = $2
@@ -793,11 +876,12 @@ export async function startOnlineAttempt(
   tx: Tx,
   input: { tenantId: string; actorUserId: string; paperId: string; learner_id: string; ip?: string | null },
 ) {
-  const paper = await tx.query<{ class_id: string }>(
-    `SELECT class_id FROM online_exam_papers WHERE tenant_id = $1 AND id = $2`,
+  const paper = await tx.query<{ class_id: string; archived_at: Date | string | null }>(
+    `SELECT class_id, archived_at FROM online_exam_papers WHERE tenant_id = $1 AND id = $2 FOR SHARE`,
     [input.tenantId, input.paperId],
   );
   if (paper.rowCount === 0) throw notFound("Exam paper not found");
+  if (paper.rows[0]!.archived_at !== null) throw notFound("Exam paper not found");
   const learner = await tx.query(`SELECT id FROM learners WHERE tenant_id = $1 AND id = $2 AND active = true`, [input.tenantId, input.learner_id]);
   if (learner.rowCount === 0) throw validationError("learner_id must be an active learner in this school");
   // Review A9-4: only a learner of the paper's class may sit it; one in-progress attempt (migration 034).

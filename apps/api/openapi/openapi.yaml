@@ -5417,7 +5417,7 @@ paths:
         - academics
       summary: List class memberships
       description: "Newest first. Paged (FIG-1621): `limit` 1-200 (default 50), opaque `cursor` from `page.next_cursor`, fixed
-        sort (`sort` is refused)."
+        sort (`sort` is refused). Archived papers are excluded."
       operationId: listClassMemberships
       security:
         - bearerAuth: []
@@ -5935,7 +5935,8 @@ paths:
       description: "Holders of resource.academics.read (school admin, Academics area or delegation) see every class. A user
         without it who teaches (an active teaching assignment, or class teacher of an active class) sees only those
         classes (OD-2: read only, never a write). Anyone else gets 403. Newest first. Paged (FIG-1621): `limit` 1-200
-        (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused)."
+        (default 50), opaque `cursor` from `page.next_cursor`, fixed sort (`sort` is refused). Archived exams are excluded;
+        active rows include `marks_entered`."
       operationId: listAssessments
       security:
         - bearerAuth: []
@@ -5992,6 +5993,88 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/assessments/{assessmentId}:
+    patch:
+      tags: [academics]
+      summary: Rename an exam
+      description: "Only assessments with kind `exam` can be renamed. The row's status, marks, and report-card snapshots are unchanged."
+      operationId: renameExam
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: assessmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchAssessmentRequest"
+      responses:
+        "200":
+          description: Renamed exam
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assessment]
+                additionalProperties: false
+                properties:
+                  assessment: { $ref: "#/components/schemas/Assessment" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/assessments/{assessmentId}/archive:
+    post:
+      tags: [academics]
+      summary: Archive an exam
+      description: "Retains marks and report-card snapshots, removes the exam from active assessment lists and family results, and blocks further mark changes."
+      operationId: archiveExam
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: assessmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived exam
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assessment]
+                additionalProperties: false
+                properties:
+                  assessment: { $ref: "#/components/schemas/Assessment" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
   /v1/tenants/{tenantId}/assessments/{assessmentId}/publish:
     post:
       tags:
@@ -6545,6 +6628,162 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/learning-materials/{materialId}:
+    patch:
+      tags: [academics]
+      summary: Edit learning-material metadata
+      operationId: updateLearningMaterial
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: materialId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchLearningMaterialsRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [material]
+                additionalProperties: false
+                properties:
+                  material: { $ref: "#/components/schemas/LearningMaterial" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/learning-materials/{materialId}/publish:
+    post:
+      tags: [academics]
+      summary: Publish a learning material
+      operationId: publishLearningMaterial
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: materialId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Published material
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [material]
+                additionalProperties: false
+                properties:
+                  material: { $ref: "#/components/schemas/LearningMaterial" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
+  /v1/tenants/{tenantId}/learning-materials/{materialId}/unpublish:
+    post:
+      tags: [academics]
+      summary: Unpublish a learning material
+      operationId: unpublishLearningMaterial
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: materialId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Unpublished material
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [material]
+                additionalProperties: false
+                properties:
+                  material: { $ref: "#/components/schemas/LearningMaterial" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
+  /v1/tenants/{tenantId}/learning-materials/{materialId}/archive:
+    post:
+      tags: [academics]
+      summary: Archive a learning material
+      operationId: archiveLearningMaterial
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: materialId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived material
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [material]
+                additionalProperties: false
+                properties:
+                  material: { $ref: "#/components/schemas/LearningMaterial" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
   /v1/tenants/{tenantId}/grading-schemes:
     post:
       tags:
@@ -8780,6 +9019,87 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/tenants/{tenantId}/online-exam-papers/{paperId}:
+    patch:
+      tags: [academics]
+      summary: Edit an online exam paper
+      description: "Title remains editable after an attempt; max_score and questions are locked once any attempt has started."
+      operationId: updateOnlineExamPaper
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: paperId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchOnlineExamPapersRequest"
+      responses:
+        "200":
+          description: Updated paper
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [paper]
+                additionalProperties: false
+                properties:
+                  paper: { $ref: "#/components/schemas/OnlineExamPaper" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/tenants/{tenantId}/online-exam-papers/{paperId}/archive:
+    post:
+      tags: [academics]
+      summary: Archive an online exam paper
+      description: "Hides the paper from lists and blocks new attempts. Existing in-progress attempts remain finishable. The row is retained."
+      operationId: archiveOnlineExamPaper
+      security:
+        - bearerAuth: []
+      x-figbloom-authz: permission
+      x-figbloom-permissions: [resource.academics.write]
+      x-figbloom-tenantScope: path.tenantId
+      parameters:
+        - $ref: "#/components/parameters/TenantHeader"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: tenantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: paperId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Archived paper
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [paper]
+                additionalProperties: false
+                properties:
+                  paper: { $ref: "#/components/schemas/OnlineExamPaper" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/IdempotencyKeyReused" }
   /v1/tenants/{tenantId}/online-exam-papers/{paperId}/attempts:
     post:
       tags:
@@ -8918,7 +9238,7 @@ paths:
         - academics
       summary: Publish an online exam paper to the learners of its class
       description: "Until a paper is published no learner sees it (migration 110, docs/STUDENT-ACCOUNTS.md). Publishing again
-        keeps the first time. There is no unpublish."
+        keeps the first time. Archived papers cannot be published. There is no unpublish."
       operationId: publishOnlineExamPaper
       security:
         - bearerAuth: []
@@ -25693,6 +26013,8 @@ components:
         - max_score
         - status
         - published_at
+        - archived_at
+        - marks_entered
         - version
         - created_at
         - updated_at
@@ -25735,6 +26057,14 @@ components:
             - string
             - "null"
           format: date-time
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        marks_entered:
+          type: integer
+          minimum: 0
         version:
           type: integer
         created_at:
@@ -25931,7 +26261,10 @@ components:
         - description
         - class_id
         - subject_id
+        - url
         - storage_status
+        - published_at
+        - archived_at
         - created_at
       properties:
         id:
@@ -25956,12 +26289,27 @@ components:
             - string
             - "null"
           format: uuid
+        url:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
         storage_status:
           type: string
           enum:
             - metadata_only
         created_at:
           type: string
+          format: date-time
+        published_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        archived_at:
+          type:
+            - string
+            - "null"
           format: date-time
     GradingScheme:
       type: object
@@ -27157,6 +27505,7 @@ components:
         - title
         - max_score
         - created_at
+        - archived_at
       properties:
         id:
           type: string
@@ -27184,6 +27533,12 @@ components:
             - "null"
           format: date-time
           description: When the paper was published to the learners of its class (null until then; migration 110).
+        archived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: When the paper was archived (null while active).
         questions:
           type:
             - array
@@ -27856,6 +28211,15 @@ components:
         - kind
         - max_score
       additionalProperties: false
+    PatchAssessmentRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+      additionalProperties: false
     PostAssessmentsMarksRequest:
       type: object
       properties:
@@ -28041,8 +28405,40 @@ components:
               format: uuid
               pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
             - type: "null"
+        url:
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: "null"
       required:
         - title
+      additionalProperties: false
+    PatchLearningMaterialsRequest:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        description:
+          anyOf:
+            - type: string
+              maxLength: 4000
+            - type: "null"
+        class_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        subject_id:
+          anyOf:
+            - type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+            - type: "null"
+        url:
+          anyOf:
+            - type: string
+              maxLength: 2000
+            - type: "null"
       additionalProperties: false
     PostGradingSchemesRequest:
       type: object
@@ -28676,6 +29072,57 @@ components:
         - subject_id
         - title
         - max_score
+      additionalProperties: false
+    PatchOnlineExamPapersRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        max_score:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 10000
+        questions:
+          anyOf:
+            - type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    minLength: 1
+                    maxLength: 64
+                  prompt:
+                    type: string
+                    minLength: 1
+                    maxLength: 1000
+                  kind:
+                    type: string
+                    enum: [mcq, true_false]
+                  options:
+                    type: array
+                    items:
+                      type: string
+                      minLength: 1
+                      maxLength: 200
+                  correct_answer:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  points:
+                    type: number
+                    exclusiveMinimum: 0
+                    maximum: 1000
+                required:
+                  - id
+                  - prompt
+                  - kind
+                  - correct_answer
+                  - points
+                additionalProperties: false
+            - type: "null"
       additionalProperties: false
     PostOnlineExamPapersAttemptsRequest:
       type: object
@@ -33986,7 +34433,7 @@ components:
           format: date-time
     FamilyMaterial:
       type: object
-      required: [id, title, description, subject, storage_status, created_at]
+      required: [id, title, description, subject, url, storage_status, published_at, created_at]
       additionalProperties: false
       properties:
         id:
@@ -34000,9 +34447,14 @@ components:
           anyOf:
             - $ref: "#/components/schemas/FamilyRef"
             - type: "null"
+        url:
+          type: [string, "null"]
         storage_status:
           type: string
         created_at:
+          type: string
+          format: date-time
+        published_at:
           type: string
           format: date-time
     FamilyTimetable:
